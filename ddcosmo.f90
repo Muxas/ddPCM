@@ -260,11 +260,11 @@ subroutine ddinit(n,x,y,z,rvdw)
         write(*,*)'ddinit : [2] allocation failed !'
         stop
       endif
-!$omp parallel do default(shared) private(i,vplm,vcos,vsin)
+! !!$omp parallel do default(shared) private(i,vplm,vcos,vsin)
       do i = 1, ngrid
         call ylmbas(grid(:,i),basis(:,i),vplm,vcos,vsin)
       end do
-!$omp end parallel do
+! !!$omp end parallel do
       deallocate (vplm,vcos,vsin, stat=istatus)
       if ( istatus.ne.0 ) then
         write(*,*)'ddinit : [1] deallocation failed!'
@@ -360,7 +360,7 @@ subroutine ddinit(n,x,y,z,rvdw)
       ui = zero
       if (grad) zi = zero
 !      
-!$omp parallel do default(shared) private(isph,i,ii,jsph,v,vv,t,xt,swthr,fac)
+! !!$omp parallel do default(shared) private(isph,i,ii,jsph,v,vv,t,xt,swthr,fac)
 !    
 !     loop over spheres
       do isph = 1,nsph
@@ -408,7 +408,7 @@ subroutine ddinit(n,x,y,z,rvdw)
 !
         enddo
       enddo
-!$omp end parallel do
+! !!$omp end parallel do
 !
       if (iprint.ge.4) then
         call ptcart('fi',nsph,0,fi)

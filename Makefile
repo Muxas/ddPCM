@@ -4,7 +4,7 @@
 #RunF77 = ifort
 #FFLAGS = -O3 -xHost -qopenmp
 RunF77 = gfortran
-FFLAGS = -O3 -march=native -fopenmp -llapack -lblas
+FFLAGS = -O3 -march=native -llapack -lblas
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
@@ -21,4 +21,9 @@ all:    $(MODS) $(OBJS)
 	$(RunF77) $(FFLAGS) -c $*.f90
 #
 clean:
-	rm -fr $(OBJS) *.exe *.mod
+	rm -fr $(OBJS) *.exe *.mod *.so
+
+python:	$(OBJS) mydx.f90
+	f2py -m mydx -c mydx.f90 $(OBJS)
+
+.PHONY:	all clean python

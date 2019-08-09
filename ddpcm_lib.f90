@@ -195,7 +195,6 @@ contains
   end if
   y = zero
   fourpi = four*pi
-
   ! this loop is easily parallelizable
   do isph = 1, nsph
     ! compute the "potential" from the other spheres
@@ -259,8 +258,8 @@ contains
   real*8, intent(inout) :: y(nbasis,nsph)
   integer :: isph
   ! simply do a matrix-vector product with the stored preconditioner 
-  !!$omp parallel do default(shared) schedule(dynamic) &
-  !!$omp private(isph)
+  ! !!$omp parallel do default(shared) schedule(dynamic) &
+  ! !!$omp private(isph)
   do isph = 1, nsph
     call dgemm('n','n',nbasis,1,nbasis,one,rx_prc(:,:,isph),nbasis, &
       & x(:,isph),nbasis,zero,y(:,isph),nbasis)
