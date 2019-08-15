@@ -55,6 +55,78 @@ contains
         call dx(nbasis*nsph, x, y)
     end subroutine ddpcm_dx
 
+    subroutine kernel_ngrid(src_c, src_r, dst_c, dst_r, lmax, nbasis, ngrid, &
+            & mat)
+        implicit none
+        integer, intent(in) :: lmax, nbasis, ngrid
+        real*8, intent(in) :: src_c(3), dst_c(3)
+        real*8, intent(in) :: src_r, dst_r
+        real*8, intent(out) :: mat(ngrid, nbasis)
+        integer :: i, l, ind, m
+        real*8 :: v(3), vi(3), vvi, ti, si(3), tt, f
+        real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
+        real*8 :: fourpi
+        fourpi = four * pi
+        v = dst_c - src_c
+        do i = 1, ngrid
+            vi = v + dst_r*grid(:, i)
+            vvi = sqrt(dot_product(vi, vi))
+            ti = vvi / src_r
+            si = vi / vvi
+            ! build the local basis
+            call ylmbas(si, basloc, vplm, vcos, vsin)
+            ! with all the required stuff, finally compute
+            ! the "potential" at the point
+            tt = one / ti
+            do l = 0, lmax
+                ind = l*l + l + 1
+                f = fourpi * dble(l) / (two*dble(l) + one) * tt
+                do m = -l, l
+                    mat(i, ind+m) = f * basloc(ind+m)
+                end do
+                tt = tt / ti
+            end do
+        end do
+    end subroutine kernel_ngrid
+
+    subroutine gen_mat_kernel(nbasis, ngrid, nsph, mat)
+        implicit none
+        integer, intent(in) :: nbasis, ngrid, nsph
+        real*8, intent(out) :: mat(ngrid, nsph, nbasis, nsph)
+        real*8, allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
+        real*8 :: c(3), vij(3), sij(3)
+        real*8 :: vvij, tij, fourpi, tt, f, f1
+        integer :: its, isph, jsph, l, m, ind, lm, istatus
+
+        allocate(vts(ngrid), vplm(nbasis), basloc(nbasis), vcos(lmax+1), &
+            & vsin(lmax+1), stat=istatus)
+        if(istatus .ne. 0) then
+            write(6,*) 'gen_mat: allocation failed !'
+            stop
+        end if
+        fourpi = four * pi
+
+        do isph = 1, nsph
+            do jsph = 1, nsph
+                if(isph .eq. jsph) then
+                    mat(:, isph, :, jsph) = zero
+                    cycle
+                end if
+                call kernel_ngrid(csph(:, jsph), rsph(jsph), csph(:, isph), &
+                    & rsph(isph), lmax, nbasis, ngrid, mat(:, isph, :, jsph))
+                do its = 1, ngrid
+                    mat(its, isph, :, jsph) = ui(its, isph) * &
+                        & mat(its, isph, :, jsph)
+                end do
+            end do
+        end do
+        deallocate(vts, vplm, basloc, vcos, vsin, stat=istatus)
+        if(istatus .ne. 0) then
+            write(6,*) 'gen_mat: deallocation failed !'
+            stop
+        end if
+    end subroutine gen_mat_kernel
+
     subroutine gen_mat_ngrid(nbasis, ngrid, nsph, mat)
         implicit none
         integer, intent(in) :: nbasis, ngrid, nsph
