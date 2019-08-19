@@ -47,6 +47,22 @@ contains
         nsph_ = nsph
     end subroutine get_sizes
 
+    subroutine get_spheres(nsph, csph_, rsph_)
+        integer, intent(in) :: nsph
+        real*8, intent(out) :: csph_(3, nsph), rsph_(nsph)
+        csph_ = csph
+        rsph_ = rsph
+    end subroutine get_spheres
+
+    subroutine get_ngrid_ext(ngrid_ext)
+        integer, intent(out) :: ngrid_ext
+    end subroutine get_ngrid_ext
+
+    subroutine get_grid(ngrid_ext, cgrid, grid_sph)
+        integer, intent(out) :: ngrid_ext
+        real*8, intent(out) :: cgrid(3, ngrid_ext)
+    end subroutine get_grid
+
     subroutine ddpcm_dx(nbasis, nsph, x, y)
         implicit none
         integer, intent(in) :: nbasis, nsph
@@ -54,6 +70,54 @@ contains
         real*8, intent(out) :: y(nbasis, nsph)
         call dx(nbasis*nsph, x, y)
     end subroutine ddpcm_dx
+
+    subroutine kernel_point(src, src_r, dst, lmax, nbasis, mat)
+        implicit none
+        integer, intent(in) :: lmax, nbasis
+        real*8, intent(in) :: src(3), dst(3)
+        real*8, intent(in) :: src_r
+        real*8, intent(out) :: mat(nbasis)
+        integer :: i, l, ind, m
+        real*8 :: v(3), vv, t, s(3), tt, f
+        real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
+        real*8 :: fourpi
+        fourpi = four * pi
+        v = dst - src
+        vv = sqrt(dot_product(v, v))
+        t = vv / src_r
+        s = v / vv
+        ! build the local basis
+        call ylmbas(s, basloc, vplm, vcos, vsin)
+        ! with all the required stuff, finally compute
+        ! the "potential" at the point
+        tt = one / t
+        do l = 0, lmax
+            ind = l*l + l + 1
+            f = fourpi * dble(l) / (two*dble(l) + one) * tt
+            do m = -l, l
+                mat(ind+m) = f * basloc(ind+m)
+            end do
+            tt = tt / t
+        end do
+    end subroutine kernel_point
+
+    subroutine kernel_point_ngrid(src_c, src_r, dst_c, dst_r, lmax, nbasis, &
+            & ngrid, mat)
+        implicit none
+        integer, intent(in) :: lmax, nbasis, ngrid
+        real*8, intent(in) :: src_c(3), dst_c(3)
+        real*8, intent(in) :: src_r, dst_r
+        real*8, intent(out) :: mat(ngrid, nbasis)
+        integer :: i, l, ind, m
+        real*8 :: v(3), vi(3), vvi, ti, si(3), tt, f
+        real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
+        real*8 :: fourpi
+        fourpi = four * pi
+        do i = 1, ngrid
+            vi = dst_c + dst_r*grid(:, i)
+            call kernel_point(src_c, src_r, vi, lmax, nbasis, mat(i, :))
+        end do
+    end subroutine kernel_point_ngrid
 
     subroutine kernel_ngrid(src_c, src_r, dst_c, dst_r, lmax, nbasis, ngrid, &
             & mat)
@@ -151,10 +215,10 @@ contains
                     cycle
                 end if
                 do its = 1, ngrid
-                    if(ui(its, isph) .eq. zero) then
-                        mat(its, isph, :, jsph) = zero
-                        cycle
-                    end if
+                    !if(ui(its, isph) .eq. zero) then
+                    !    mat(its, isph, :, jsph) = zero
+                    !    cycle
+                    !end if
                     ! build the geometrical variables
                     c = csph(:, isph) + rsph(isph)*grid(:, its)
                     vij = c - csph(:, jsph)
@@ -168,8 +232,8 @@ contains
                     tt = one / tij
                     do l = 0, lmax
                         ind = l*l + l + 1
-                        f = fourpi * dble(l) / (two*dble(l) + one) * tt * &
-                            & ui(its, isph)
+                        f = fourpi * dble(l) / (two*dble(l) + one) * tt! * &
+                            !& ui(its, isph)
                         do m = -l, l
                             mat(its, isph, ind+m, jsph) = f * basloc(ind+m)
                             ! write(*, *) its, isph, ind+m, jsph, mat(its, isph, ind+m, jsph)
@@ -261,5 +325,19 @@ contains
             call intrhs(isph, y(:, isph), z(:, isph))
         end do
     end subroutine result_integrate
+
+    subroutine result_integrate_ui(nbasis, ngrid, nsph, y, z)
+        implicit none
+        integer, intent(in) :: nbasis, ngrid, nsph
+        real*8, intent(in) :: y(ngrid, nsph)
+        real*8, intent(out) :: z(nbasis, nsph)
+        real*8 :: tmp(ngrid)
+        integer :: isph
+        z = zero
+        do isph = 1, nsph
+            tmp = y(:, isph) * ui(:, isph)
+            call intrhs(isph, tmp, z(:, isph))
+        end do
+    end subroutine result_integrate_ui
 
 end module mydx

@@ -25,11 +25,10 @@ print('ddPCM DX took {} seconds'.format(time()-t0))
 
 from h2tools.collections.particles import Particles
 
-class Data(Particles):
-    def __init__(self, nsph, csph, rsph, ngrid, nbasis):
+class SphereHarmonics(Particles):
+    def __init__(self, nsph, csph, rsph, nbasis):
         super().__init__(3, nsph, csph)
         self.rsph = rsph
-        self.ngrid = ngrid
         self.nbasis = nbasis
         self.lmax = int(nbasis**0.5)-1
         self.rmax = max(rsph)
@@ -39,7 +38,7 @@ class Data(Particles):
         Computes bounding box of cluster, corresponding to `index`.
         """
         tmp_particles = self.vertex[:,index]
-        tmp_radius = self.rsph[index]/2
+        tmp_radius = self.rsph[index]
         tmp_low = tmp_particles - tmp_radius
         tmp_high = tmp_particles + tmp_radius
         return np.array([np.min(tmp_low, axis=1),
@@ -47,12 +46,12 @@ class Data(Particles):
 
 
 def kernel(data1, list1, data2, list2):
-    result = np.zeros((len(list1), data1.ngrid, data1.nbasis, len(list2)))
+    result = np.zeros((len(list1), data1.nbasis, len(list2)))
     for i in range(len(list1)):
         for j in range(len(list2)):
             if(list1[i] == list2[j]):
                 continue
-            result[i, :, :, j] = mydx.mydx.kernel_ngrid(
+            result[i, :, j] = mydx.mydx.kernel_point_ngrid(
                 data2.vertex[:, list2[j]], data2.rsph[list2[j]],
                 data1.vertex[:, list1[i]], data1.rsph[list1[i]],
                 data1.lmax, data1.nbasis, data1.ngrid)
