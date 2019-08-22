@@ -34,17 +34,15 @@ class Data(Particles):
         self.lmax = int(nbasis**0.5)-1
         self.rmax = max(rsph)
 
+"""
     def compute_aux(self, index):
-        """
-        Computes bounding box of cluster, corresponding to `index`.
-        """
         tmp_particles = self.vertex[:,index]
-        tmp_radius = self.rsph[index]/2
+        tmp_radius = self.rsph[index]
         tmp_low = tmp_particles - tmp_radius
         tmp_high = tmp_particles + tmp_radius
         return np.array([np.min(tmp_low, axis=1),
             np.max(tmp_high, axis=1)])
-
+"""
 
 def kernel(data1, list1, data2, list2):
     result = np.zeros((len(list1), data1.ngrid, data1.nbasis, len(list2)))
@@ -61,14 +59,14 @@ def kernel(data1, list1, data2, list2):
 csph, rsph = mydx.mydx.get_spheres(nsph)
 data = Data(nsph, csph, rsph, ngrid, nbasis)
 from h2tools import Problem, ClusterTree
-block_size = 50
+block_size = 20
 symmetric = 0
 verbose = 1
 tree = ClusterTree(data, block_size)
 problem = Problem(kernel, tree, tree, symmetric, verbose)
 
 from h2tools.mcbh import mcbh
-matrix = mcbh(problem, tau=1e-3, alpha=0., iters=1, onfly=0, verbose=verbose,
+matrix = mcbh(problem, tau=1e-3, alpha=0., iters=2, onfly=0, verbose=verbose,
         random_init=0)
 
 zz = matrix.dot(x.T)
