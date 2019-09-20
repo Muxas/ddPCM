@@ -1,8 +1,8 @@
 import numpy as np
 import mydx
 
-N1 = 300
-N2 = 300
+N1 = 100
+N2 = 100
 R = 1.0
 shift = np.array([4, 4, 4]).reshape(-1, 1)
 c1 = np.random.rand(3, N1).copy('F')

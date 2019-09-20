@@ -97,22 +97,81 @@ contains
         call dx(nbasis*nsph, x, y)
     end subroutine ddpcm_dx
 
+    subroutine mypolleg(x, y, l, m, plm)
+        implicit none
+        real*8, intent(in) :: x, y
+        integer, intent(in) :: l, m
+        real*8, intent(out) :: plm
+        integer :: ll, mm
+        real*8 :: pmm, pll1m, pll2m, fact
+        pmm = one
+        fact = -one
+        do mm = 1, m
+            pmm = fact * y * pmm
+            fact = fact - two
+        end do
+        if (m .eq. l) then
+            plm = pmm
+            return
+        end if
+        fact = -fact
+        pll1m = x * fact * pmm
+        if (m+1 .eq. l) then
+            plm = pll1m
+            return
+        end if
+        pll2m = pmm
+        do ll = m+2, l
+            fact = fact + two
+            plm = x*fact*pll1m - dble(ll+m-1)*pll2m
+            plm = plm / dble(ll-m)
+            pll2m = pll1m
+            pll1m = plm
+        end do
+    end subroutine mypolleg
+
+    subroutine check_polleg()
+        implicit none
+        real*8 :: s(3), tmp, cthe, sthe
+        real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
+        integer :: l, m
+        s = one / sqrt(3.0)
+        cthe = s(3)
+        sthe = sqrt(one - cthe*cthe)
+        call ylmbas(s, basloc, vplm, vcos, vsin)
+        do l = 0, lmax
+            do m = 0, l
+                call mypolleg(cthe, sthe, l, m, tmp)
+                write (*, *) l, m, vplm(l*l+l+1+m), tmp
+            end do
+        end do
+    end subroutine check_polleg
+
     subroutine kernel(src, src_r, dst, ibasis, mat)
         implicit none
         integer, intent(in) :: ibasis
         real*8, intent(in) :: src(3), src_r, dst(3)
         real*8, intent(out) :: mat
         integer :: i, l, ind, m
-        real*8 :: v(3), vv, t, s(3), tt, f
+        real*8 :: v(3), vv, t, s(3), tt, f, cthe, sthe
         real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
         real*8 :: fourpi
+        real*8 :: tmp
+        complex*16 :: phi, mphi
         fourpi = four * pi
         v = dst - src
         vv = sqrt(dot_product(v, v))
         t = vv / src_r
         s = v / vv
+        cthe = s(3)
+        sthe = sqrt(s(1)*s(1) + s(2)*s(2))
+        if (sthe .ne. zero) then
+            phi = cmplx(s(1)/sthe, s(2)/sthe, 8)
+        else
+            phi = one
+        end if
         ! build the local basis
-        call ylmbas(s, basloc, vplm, vcos, vsin)
+        !call ylmbas(s, basloc, vplm, vcos, vsin)
         ! with all the required stuff, finally compute
         ! the "potential" at the point
         tt = one / t
@@ -121,7 +180,15 @@ contains
             m = ibasis - ind
             if((m .ge. -l) .and. (m .le. l)) then
                 f = fourpi * dble(l) / (two*dble(l) + one) * tt
-                mat = f * basloc(ibasis)
+                !mat = f * basloc(ibasis)
+                !exit
+                call mypolleg(cthe, sthe, l, abs(m), tmp)
+                mphi = phi**abs(m)
+                if(m .ge. zero) then
+                    mat = f * tmp * facs(ibasis) * real(mphi)
+                else
+                    mat = f * tmp * facs(ibasis) * imag(mphi)
+                end if
                 exit
             end if
             tt = tt / t
@@ -182,6 +249,107 @@ contains
             tt = tt / t
         end do
     end subroutine kernel_point
+
+! My ylmbas
+subroutine ylmbas2( x, basloc, lmax, nbasis )
+!        
+      implicit none
+      integer, intent(in) :: lmax, nbasis
+      real*8, dimension(3), intent(in) :: x
+      real*8, dimension(nbasis), intent(out) :: basloc
+      real*8 :: vplm(nbasis)
+      real*8, dimension(lmax+1) :: vcos, vsin
+!
+      integer :: l, m, ind
+      real*8  :: cthe, sthe, cphi, sphi, plm
+!      
+!------------------------------------------------------------------------------------------------
+!
+!     get cos(\theta), sin(\theta), cos(\phi) and sin(\phi) from the cartesian
+!     coordinates of x.
+!
+!     evaluate cos( theta ) ; sin( theta )  
+      cthe = x(3)
+      sthe = sqrt(x(1)*x(1) + x(2)*x(2))
+!
+!     evalutate cos( phi ) ; sin( phi )
+      if (sthe.ne.zero) then
+        cphi = x(1)/sthe
+        sphi = x(2)/sthe
+      else
+        cphi = zero
+        sphi = zero
+      endif
+!
+!     evaluate cos(m*phi) and sin(m*phi) arrays. notice that this is 
+!     pointless if z = 1, as the only non vanishing terms will be the 
+!     ones with m=0.
+      if(sthe.ne.zero) then
+        call trgev(cphi,sphi,vcos,vsin)
+      else
+        vcos = one
+        vsin = zero
+      endif
+!
+!     evaluate the generalized legendre polynomials
+      call polleg(cthe,sthe,vplm)
+!
+!     now build the spherical harmonics. we will distinguish m=0,
+!     m>0 and m<0:
+      do l = 0, lmax
+        ind = l**2 + l + 1
+!
+!       m = 0
+        basloc(ind) = facs(ind)*vplm(ind)
+        !basloc(ind) = vplm(ind)
+!
+        do m = 1, l
+!        
+          plm = vplm(ind+m)
+!
+!         m > 0
+          basloc(ind+m) = facs(ind+m)*plm*vcos(m+1)
+          !basloc(ind+m) = plm*vcos(m+1)
+!
+!         m < 0
+          basloc(ind-m) = facs(ind-m)*plm*vsin(m+1)
+          !basloc(ind-m) = plm*vsin(m+1)
+!
+        enddo
+      enddo
+!      
+!      
+    end subroutine ylmbas2
+
+    subroutine kernel2_point(src, src_r, dst, lmax, nbasis, mat)
+        implicit none
+        integer, intent(in) :: lmax, nbasis
+        real*8, intent(in) :: src(3), dst(3)
+        real*8, intent(in) :: src_r
+        real*8, intent(out) :: mat(nbasis)
+        integer :: i, l, ind, m
+        real*8 :: v(3), vv, t, s(3), tt, f
+        real*8 :: basloc(nbasis), vplm(nbasis), vcos(lmax+1), vsin(lmax+1)
+        real*8 :: fourpi
+        fourpi = four * pi
+        v = dst - src
+        vv = sqrt(dot_product(v, v))
+        t = vv / src_r
+        s = v / vv
+        ! build the local basis
+        call ylmbas(s, basloc, vplm, vcos, vsin)
+        ! with all the required stuff, finally compute
+        ! the "potential" at the point
+        tt = one / t
+        do l = 0, lmax
+            ind = l*l + l + 1
+            f = tt
+            do m = -l, l
+                mat(ind+m) = f * basloc(ind+m)
+            end do
+            tt = tt / t
+        end do
+    end subroutine kernel2_point
 
     subroutine kernel_point_block(nsph, csph, rsph, nsrc, src, ngrid_ext, &
             & grid_ext, grid_sph, ndst, dst, lmax, nbasis, mat)

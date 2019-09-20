@@ -55,13 +55,13 @@ verbose = 1
 grid_tree = ClusterTree(grid_points, grid_block_size)
 sph_tree = ClusterTree(spheres, sph_block_size)
 problem = Problem(kernel_block, grid_tree, sph_tree, symmetric, verbose)
-#zproblem = problem.dot(x.T)
+zproblem = problem.dot(x.T)
 
 from h2tools.mcbh import mcbh
 matrix = mcbh(problem, tau=1e-3, alpha=0., iters=2, onfly=0, verbose=verbose,
         random_init=0)
 zz = matrix.dot(x.T)
-#print(np.linalg.norm(zz-zproblem) / np.linalg.norm(zproblem))
+print(np.linalg.norm(zz-zproblem) / np.linalg.norm(zproblem))
 
 zz1 = np.zeros(ngrid_ext)
 for i in range(nbasis):

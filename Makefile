@@ -23,7 +23,7 @@ all:    $(MODS) $(OBJS)
 clean:
 	rm -fr $(OBJS) *.exe *.mod *.so
 
-python:	$(OBJS) mydx.f90
-	f2py -m mydx -c mydx.f90 $(OBJS)
+python:	$(OBJS) mydx.f90 fmm_pcm.f90
+	f2py -m mydx -c mydx.f90 fmm_pcm.f90 $(OBJS)
 
 .PHONY:	all clean python
