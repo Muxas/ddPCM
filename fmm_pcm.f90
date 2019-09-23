@@ -476,6 +476,107 @@ subroutine m2p_real(c, p, m, v)
     v = cmplx_v
 end subroutine m2p_real
 
+! Compute multipole coefficients for particle of unit charge
+! Based on normalized real spherical harmonics
+subroutine p2m_real_normal(c, p, m)
+! parameters:
+!   c: coordinates of charged particle (relative to center of harmonics)
+!   p: maximum power multipole basis function
+!   m: multipole coefficients
+    real(kind=8), intent(in) :: c(3)
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: m((p+1)*(p+1))
+
+    real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp
+    integer :: n, k, ind
+
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    if (r .ne. 0) then
+        ctheta = c(3) / r
+        if (stheta .ne. 0) then
+            stheta = sqrt(stheta)
+            cphi = c(1) / stheta
+            sphi = c(2) / stheta
+            stheta = stheta / r
+            call trgev(cphi, sphi, p, ncos, nsin)
+        else
+            cphi = 1
+            sphi = 0
+            ncos = 1
+            nsin = 0
+        end if
+        call polleg(ctheta, stheta, p, plm)
+        call scales_real_normal(p, vscales)
+        ! Now build harmonics to fill multipole coefficients
+        t = 1
+        do n = 0, p
+            ind = n*n + n + 1
+            m(ind) = t * vscales(ind) * plm(ind)
+            do k = 1, n
+                tmp = t * vscales(ind+k) * plm(ind+k)
+                m(ind+k) = tmp * ncos(k+1)
+                m(ind-k) = -(tmp * nsin(k+1))
+            end do
+            t = t * r
+        end do
+    else
+        m(1) = 1
+        m(2:) = 0
+    end if
+end subroutine p2m_real_normal
+
+! Compute potential, induced by normalized real spherical harmonics
+subroutine m2p_real_normal(c, p, m, v)
+! Parameters:
+!   c: relative distance from center of harmonics to point of potential
+!   p: maximum degree of polynomials
+!   m: multipole expansion at origin
+!   v: value of induced potential
+    real(kind=8), intent(in) :: c(3)
+    real(kind=8), intent(in) :: m((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: v
+    real(kind=8) :: cmplx_v, tmp, tmp1
+    real(kind=8) :: r, t, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: vscales((p+1)*(p+1)), plm((p+1)*(p+1))
+    integer :: n, k, ind
+    t = 1
+    cmplx_v = 0
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    ! r is always > 0
+    ctheta = c(3) / r
+    if (stheta .ne. 0) then
+        stheta = sqrt(stheta)
+        cphi = c(1) / stheta
+        sphi = c(2) / stheta
+        stheta = stheta / r
+        call trgev(cphi, sphi, p, ncos, nsin)
+    else
+        cphi = 1
+        sphi = 0
+        ncos = 1
+        nsin = 0
+    end if
+    call polleg(ctheta, stheta, p, plm)
+    call scales_real_normal(p, vscales)
+    do n = 0, p
+        t = t / r
+        ind = n*n + n + 1
+        ! k = 0
+        tmp = m(ind) * plm(ind) / vscales(ind)
+        ! k != 0
+        do k = 1, n
+            tmp1 = plm(ind+k) * vscales(ind+k) / vscales(ind)**2
+            tmp = tmp + m(ind+k)*tmp1*ncos(k+1) - m(ind-k)*tmp1*nsin(k+1)
+        end do
+        cmplx_v = cmplx_v + t*tmp
+    end do
+    v = cmplx_v
+end subroutine m2p_real_normal
+
 ! M2M translation of non-normalized complex spherical harmonics in p^4 flops
 subroutine m2m_complex_baseline(c, p, src_m, dst_m)
 ! Parameters:
