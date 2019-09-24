@@ -179,11 +179,9 @@ subroutine p2m_complex(c, p, m)
     real(kind=8), intent(in) :: c(3)
     integer, intent(in) :: p
     complex(kind=8), intent(out) :: m((p+1)*(p+1))
-
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp
     integer :: n, k, ind
-
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -282,11 +280,9 @@ subroutine p2m_complex_normal(c, p, m)
     real(kind=8), intent(in) :: c(3)
     integer, intent(in) :: p
     complex(kind=8), intent(out) :: m((p+1)*(p+1))
-
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp
     integer :: n, k, ind
-
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -385,11 +381,9 @@ subroutine p2m_real(c, p, m)
     real(kind=8), intent(in) :: c(3)
     integer, intent(in) :: p
     real(kind=8), intent(out) :: m((p+1)*(p+1))
-
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp
     integer :: n, k, ind
-
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -486,11 +480,9 @@ subroutine p2m_real_normal(c, p, m)
     real(kind=8), intent(in) :: c(3)
     integer, intent(in) :: p
     real(kind=8), intent(out) :: m((p+1)*(p+1))
-
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp
     integer :: n, k, ind
-
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -577,20 +569,20 @@ subroutine m2p_real_normal(c, p, m, v)
     v = cmplx_v
 end subroutine m2p_real_normal
 
-! M2M translation of non-normalized complex spherical harmonics in p^4 flops
-subroutine m2m_complex_baseline(c, p, src_m, dst_m)
-! Parameters:
-!   c: coordinate of old center relative to new center of harmonics
-!   p: maximum degree of spherical harmonics
-!   src_m: multipole coefficients at source
-!   dst_m: multipole coefficients at destination
-    real(kind=8), intent(in) :: c(3)
+! Compute multipole coefficients for particle of unit charge
+! Based on normalized real spherical harmonics or given radius
+subroutine p2o(c, rho, p, m)
+! parameters:
+!   c: coordinates of charged particle (relative to center of harmonics)
+!   rho: radius of spherical harmonics
+!   p: maximum power multipole basis function
+!   m: multipole coefficients
+    real(kind=8), intent(in) :: c(3), rho
     integer, intent(in) :: p
-    complex(kind=8), intent(in) :: src_m((p+1)*(p+1))
-    complex(kind=8), intent(out) :: dst_m((p+1)*(p+1))
+    real(kind=8), intent(out) :: m((p+1)*(p+1))
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
-    real(kind=8) :: vscales(p+1), plm((p+1)*(p+1))
-    integer :: j, k, n, m, ind, ind_neg, ind_pos
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
+    integer :: n, k, ind
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -608,65 +600,167 @@ subroutine m2m_complex_baseline(c, p, src_m, dst_m)
             nsin = 0
         end if
         call polleg(ctheta, stheta, p, plm)
-        call scales_complex(p, vscales)
-        do j = 0, p
-            ! k = 0
-            ! k > 0
-            do k = 1, j
-                do n = 0, j
-                    ! m = 0
-                    ! m > 0
-                    do m = 1, n
-                    end do
-                end do
+        call scales_real_normal(p, vscales)
+        ! Now build harmonics to fill multipole coefficients
+        rcoef = r / rho
+        t = 1
+        do n = 0, p
+            ind = n*n + n + 1
+            m(ind) = t * vscales(ind) * plm(ind)
+            do k = 1, n
+                tmp = t * vscales(ind+k) * plm(ind+k)
+                m(ind+k) = tmp * ncos(k+1)
+                m(ind-k) = -(tmp * nsin(k+1))
             end do
+            t = t * rcoef
         end do
     else
-        dst_m = src_m
+        m(1) = 1
+        m(2:) = 0
     end if
-end subroutine m2m_complex_baseline
+end subroutine p2o
 
-! M2M translation of non-normalized complex spherical harmonics along OZ axis
-! NOT YET WORKING WELL
-subroutine m2m_complex_translate_z(z, p, src_m, dst_m)
+! Compute potential, induced by normalized real spherical harmonics with radius
+subroutine o2p(c, rho, p, m, v)
 ! Parameters:
-!   z: change in Z coordinate
-!   p: maximum degree of spherical harmonics
-!   src_m: multipole coefficients at source
-!   dst_m: multipole coefficients at destination
-    real(kind=8), intent(in) :: z
+!   c: relative distance from center of harmonics to point of potential
+!   rho: radius of spherical harmonics
+!   p: maximum degree of polynomials
+!   m: multipole expansion at origin
+!   v: value of induced potential
+    real(kind=8), intent(in) :: c(3), rho
+    real(kind=8), intent(in) :: m((p+1)*(p+1))
     integer, intent(in) :: p
-    complex(kind=8), intent(in) :: src_m((p+1)*(p+1))
-    complex(kind=8), intent(out) :: dst_m((p+1)*(p+1))
-    integer :: l, j, i, m, ind, ind_neg, ind_pos
-    real(kind=8) :: coef, sq2=sqrt(dble(2)), plm((p+1)*(p+1))
-    do l = 0, p
-        ! m = 0
-        ind = l*l + l + 1
-        dst_m(ind) = 0
-        do j = 0, l
-            coef = 1
-            do i = 1, l-j
-                coef = coef * z / i
-            end do
-            dst_m(ind) = dst_m(ind) + coef*src_m(j*j+j+1)
+    real(kind=8), intent(out) :: v
+    real(kind=8) :: cmplx_v, tmp, tmp1, tmp2
+    real(kind=8) :: r, t, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: vscales((p+1)*(p+1)), plm((p+1)*(p+1)), rcoef
+    integer :: n, k, ind
+    t = 1 / rho
+    cmplx_v = 0
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    ! r is always > 0
+    ctheta = c(3) / r
+    if (stheta .ne. 0) then
+        stheta = sqrt(stheta)
+        cphi = c(1) / stheta
+        sphi = c(2) / stheta
+        stheta = stheta / r
+        call trgev(cphi, sphi, p, ncos, nsin)
+    else
+        cphi = 1
+        sphi = 0
+        ncos = 1
+        nsin = 0
+    end if
+    call polleg(ctheta, stheta, p, plm)
+    call scales_real_normal(p, vscales)
+    rcoef = rho / r
+    do n = 0, p
+        t = t * rcoef
+        ind = n*n + n + 1
+        ! k = 0
+        tmp = m(ind) * plm(ind) / vscales(ind)
+        ! k != 0
+        do k = 1, n
+            tmp1 = plm(ind+k) * vscales(ind+k) / vscales(ind)**2
+            tmp2 = m(ind+k)*ncos(k+1) - m(ind-k)*nsin(k+1)
+            tmp = tmp + tmp1*tmp2
         end do
-        ! m > 0
-        do m = 1, l
-            ind_neg = ind - m
-            ind_pos = ind + m
-            dst_m(ind_neg) = 0
-            dst_m(ind_pos) = 0
-            do j = m, l
-                coef = 1
-                do i = 1, l-j
-                    coef = coef * z / i
-                end do
-                dst_m(ind_neg) = dst_m(ind_neg) + coef*src_m(j*j+j+1-m)
-                dst_m(ind_pos) = dst_m(ind_pos) + coef*src_m(j*j+j+1+m)
-            end do
-        end do
+        cmplx_v = cmplx_v + t*tmp
     end do
-end subroutine
+    v = cmplx_v
+end subroutine o2p
+
+
+! O2O baseline translation
+subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r, src_m((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
+    real(kind=8) :: fact(2*p+1), tmpk, tmpm
+    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    if (r .ne. 0) then
+        ctheta = c(3) / r
+        if (stheta .ne. 0) then
+            stheta = sqrt(stheta)
+            cphi = c(1) / stheta
+            sphi = c(2) / stheta
+            stheta = stheta / r
+            call trgev(cphi, sphi, p, ncos, nsin)
+        else
+            cphi = 1
+            sphi = 0
+            ncos = 1
+            nsin = 0
+        end if
+        call polleg(ctheta, stheta, p, plm)
+        call scales_real_normal(p, vscales)
+        fact(1) = 1
+        do j = 1, 2*p
+            fact(j+1) = fact(j) * j
+        end do
+        do j = 1, 2*p+1
+            fact(j) = sqrt(fact(j))
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = -j, j
+                indk = indj + k
+                tmpk = 0
+                do n = 0, j
+                    indn = n*n + n + 1
+                    do m = -n, n
+                        indm = indn + abs(m)
+                        if (j-n .lt. abs(k-m)) then
+                            cycle
+                        end if
+                        if (m .le. 0) then
+                            tmpm = ncos(1-m)
+                        else
+                            tmpm = -nsin(m+1)
+                        end if
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpm = -tmpm
+                        end if
+                        if(k .ne. m) then
+                            !tmpm = tmpm / sqrt(dble(2))
+                        end if
+                        indjn = (j-n)**2 + (j-n) + 1 + k - m
+                        indjna = (j-n)**2 + (j-n) + 1 + abs(k-m)
+                        if ((j .eq. 1) .and. (k .eq. 0)) then
+                            write(*, *) j, k, n, m, src_m(indjn), &
+                                !& fact(j-k+1), &
+                                !& fact(j+k+1), 1/fact(n-m+1), 1/fact(n+m+1), &
+                                !& 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
+                                & plm(indm), &
+                                & tmpm, (r/dst_r)**n, (src_r/dst_r)**(j-n), &
+                                & vscales(indm), sqrt(dble(2*(j-n)+1)), &
+                                & sqrt(dble(2*n+1)), 1/sqrt(dble(2*j+1))
+                        end if
+                        tmpk = tmpk + src_m(indjn)*fact(j-k+1)*fact(j+k+1)/ &
+                            & fact(n-m+1)/fact(n+m+1)/fact(j-n-k+m+1)/ &
+                            & fact(j-n+k-m+1)*plm(indm)*tmpm* &
+                            & (r/dst_r)**n * (src_r/dst_r)**(j-n) * &
+                            & vscales(indm) / vscales(indn)
+                    end do
+                end do
+                dst_m(indk) = tmpk
+            end do
+        end do
+    end if
+end subroutine o2o_baseline
 
 end module
