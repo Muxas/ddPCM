@@ -686,9 +686,10 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
     real(kind=8), intent(in) :: c(3), src_r, dst_r, src_m((p+1)*(p+1))
     integer, intent(in) :: p
     real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
-    real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
     real(kind=8) :: fact(2*p+1), tmpk, tmpm, sqrt_2, sqrt_four_pi
+    real(kind=8) :: pow_r1(p+1), pow_r2(p+1)
     integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
     sqrt_2 = sqrt(dble(2))
     sqrt_four_pi = 4*sqrt(atan(dble(1)))
@@ -710,6 +711,14 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
         end if
         call polleg(ctheta, stheta, p, plm)
         call scales_real_normal(p, vscales)
+        r1 = src_r / dst_r
+        r2 = r / dst_r
+        pow_r1(1) = 1
+        pow_r2(1) = 1
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
         fact(1) = 1
         do j = 1, 2*p
             fact(j+1) = fact(j) * j
@@ -724,6 +733,7 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                 tmpk = 0
                 do n = 0, j
                     indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
                     do m = -n, n
                         indm = indn + abs(m)
                         if (j-n .lt. abs(k-m)) then
@@ -737,23 +747,22 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpm = -tmpm
                         end if
-                        if(k .ne. m) then
-                            !tmpm = tmpm / sqrt(dble(2))
-                        end if
-                        indjn = (j-n)**2 + (j-n) + 1 + k - m
-                        indjna = (j-n)**2 + (j-n) + 1 + abs(k-m)
-                        tmpk = tmpk + src_m(indjn)*fact(j-k+1)*fact(j+k+1)/ &
-                            & fact(n-m+1)/fact(n+m+1)/fact(j-n-k+m+1)/ &
-                            & fact(j-n+k-m+1)*plm(indm)*tmpm* &
-                            & (r/dst_r)**n * (src_r/dst_r)**(j-n) * &
-                            & vscales(indm) * sqrt_four_pi / &
-                            & sqrt(dble(2*n+1)) / sqrt(dble(2*(j-n)+1)) * &
-                            & sqrt(dble(2*j+1))
+                        !tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
+                        !    & fact(j+k+1)/fact(n-m+1)/fact(n+m+1)/ &
+                        !    & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
+                        !    & pow_r2(n+1)*pow_r1(j-n+1)*vscales(indm)/ &
+                        !    & vscales(indn)/vscales(indjn)
+                        tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
+                            & fact(j+k+1)/fact(n+m+1)**2/ &
+                            & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
+                            & pow_r2(n+1)*pow_r1(j-n+1)/vscales(indjn)
                     end do
                 end do
-                dst_m(indk) = tmpk
+                dst_m(indk) = tmpk*vscales(indj)
             end do
         end do
+    else
+        dst_m = src_m
     end if
 end subroutine o2o_baseline
 
