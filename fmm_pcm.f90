@@ -688,8 +688,10 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
     real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpm
+    real(kind=8) :: fact(2*p+1), tmpk, tmpm, sqrt_2, sqrt_four_pi
     integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    sqrt_2 = sqrt(dble(2))
+    sqrt_four_pi = 4*sqrt(atan(dble(1)))
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -740,21 +742,13 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         end if
                         indjn = (j-n)**2 + (j-n) + 1 + k - m
                         indjna = (j-n)**2 + (j-n) + 1 + abs(k-m)
-                        if ((j .eq. 1) .and. (k .eq. 0)) then
-                            write(*, *) j, k, n, m, src_m(indjn), &
-                                !& fact(j-k+1), &
-                                !& fact(j+k+1), 1/fact(n-m+1), 1/fact(n+m+1), &
-                                !& 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
-                                & plm(indm), &
-                                & tmpm, (r/dst_r)**n, (src_r/dst_r)**(j-n), &
-                                & vscales(indm), sqrt(dble(2*(j-n)+1)), &
-                                & sqrt(dble(2*n+1)), 1/sqrt(dble(2*j+1))
-                        end if
                         tmpk = tmpk + src_m(indjn)*fact(j-k+1)*fact(j+k+1)/ &
                             & fact(n-m+1)/fact(n+m+1)/fact(j-n-k+m+1)/ &
                             & fact(j-n+k-m+1)*plm(indm)*tmpm* &
                             & (r/dst_r)**n * (src_r/dst_r)**(j-n) * &
-                            & vscales(indm) / vscales(indn)
+                            & vscales(indm) * sqrt_four_pi / &
+                            & sqrt(dble(2*n+1)) / sqrt(dble(2*(j-n)+1)) * &
+                            & sqrt(dble(2*j+1))
                     end do
                 end do
                 dst_m(indk) = tmpk
