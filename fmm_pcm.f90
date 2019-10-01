@@ -719,12 +719,10 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
             pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
         end do
+        ! Fill square roots of factorials
         fact(1) = 1
-        do j = 1, 2*p
-            fact(j+1) = fact(j) * j
-        end do
-        do j = 1, 2*p+1
-            fact(j) = sqrt(fact(j))
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
         end do
         do j = 0, p
             indj = j*j + j + 1
@@ -747,23 +745,104 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpm = -tmpm
                         end if
-                        !tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
-                        !    & fact(j+k+1)/fact(n-m+1)/fact(n+m+1)/ &
-                        !    & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
-                        !    & pow_r2(n+1)*pow_r1(j-n+1)*vscales(indm)/ &
-                        !    & vscales(indn)/vscales(indjn)
                         tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
                             & fact(j+k+1)/fact(n+m+1)**2/ &
                             & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
                             & pow_r2(n+1)*pow_r1(j-n+1)/vscales(indjn)
                     end do
                 end do
-                dst_m(indk) = tmpk*vscales(indj)
+                dst_m(indk) = tmpk * vscales(indj)
             end do
         end do
     else
         dst_m = src_m
     end if
 end subroutine o2o_baseline
+
+! Generate M2M matrix for spherical harmonics
+subroutine o2o_matrix(c, src_r, dst_r, p, mat)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   mat: output matrix
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: mat((p+1)*(p+1), (p+1)*(p+1))
+    real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
+    real(kind=8) :: fact(2*p+1), tmpk, tmpm, sqrt_2, sqrt_four_pi
+    real(kind=8) :: pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    sqrt_2 = sqrt(dble(2))
+    sqrt_four_pi = 4*sqrt(atan(dble(1)))
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    mat = 0
+    if (r .ne. 0) then
+        ctheta = c(3) / r
+        if (stheta .ne. 0) then
+            stheta = sqrt(stheta)
+            cphi = c(1) / stheta
+            sphi = c(2) / stheta
+            stheta = stheta / r
+            call trgev(cphi, sphi, p, ncos, nsin)
+        else
+            cphi = 1
+            sphi = 0
+            ncos = 1
+            nsin = 0
+        end if
+        call polleg(ctheta, stheta, p, plm)
+        call scales_real_normal(p, vscales)
+        r1 = src_r / dst_r
+        r2 = r / dst_r
+        pow_r1(1) = 1
+        pow_r2(1) = 1
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
+        ! Fill square roots of factorials
+        fact(1) = 1
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = -j, j
+                indk = indj + k
+                tmpk = 0
+                do n = 0, j
+                    indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
+                    do m = -n, n
+                        indm = indn + abs(m)
+                        if (j-n .lt. abs(k-m)) then
+                            cycle
+                        end if
+                        if (m .le. 0) then
+                            tmpm = ncos(1-m)
+                        else
+                            tmpm = -nsin(m+1)
+                        end if
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpm = -tmpm
+                        end if
+                        mat(indk, indjn+k-m) = fact(j-k+1)*fact(j+k+1)/ &
+                            & fact(n+m+1)**2/fact(j-n-k+m+1)/fact(j-n+k-m+1)* &
+                            & plm(indm)*tmpm*pow_r2(n+1)*pow_r1(j-n+1)/ &
+                            & vscales(indjn)*vscales(indj)
+                    end do
+                end do
+            end do
+        end do
+    else
+        do j = 1, (p+1)*(p+1)
+            mat(j, j) = 1
+        end do
+    end if
+end subroutine
 
 end module
