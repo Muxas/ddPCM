@@ -674,6 +674,91 @@ subroutine o2p(c, rho, p, m, v)
 end subroutine o2p
 
 
+! M2M baseline translation
+subroutine m2m_baseline(c, p, src_m, dst_m)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   p: maximum degree of spherical harmonics
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3)
+    integer, intent(in) :: p
+    complex(kind=8), intent(in) :: src_m((p+1)*(p+1))
+    complex(kind=8), intent(out) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1))
+    real(kind=8) :: fact(2*p+1), pow_r(p+1)
+    complex(kind=8) :: tmpk, tmpm
+    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    if (r .ne. 0) then
+        ctheta = c(3) / r
+        if (stheta .ne. 0) then
+            stheta = sqrt(stheta)
+            cphi = c(1) / stheta
+            sphi = c(2) / stheta
+            stheta = stheta / r
+            call trgev(cphi, sphi, p, ncos, nsin)
+        else
+            cphi = 1
+            sphi = 0
+            ncos = 1
+            nsin = 0
+        end if
+        call polleg(ctheta, stheta, p, plm)
+        call scales_complex(p, vscales)
+        pow_r(1) = 1
+        do j = 2, p+1
+            pow_r(j) = pow_r(j-1) * r
+        end do
+        ! Fill square roots of factorials
+        fact(1) = 1
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = -j, j
+                indk = indj + k
+                tmpk = 0
+                do n = 0, j
+                    indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
+                    do m = -n, n
+                        indm = indn + abs(m)
+                        if (j-n .lt. abs(k-m)) then
+                            cycle
+                        end if
+                        if (m .le. 0) then
+                            tmpm = cmplx(ncos(1-m), nsin(1-m), 8)
+                        else
+                            tmpm = cmplx(ncos(m+1), -nsin(m+1), 8)
+                        end if
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpm = -tmpm
+                        end if
+                        if ((j .eq. 1) .and. (k .eq. -1)) then
+                            write(*,*) j, k, n, m, src_m(indjn+k-m), &
+                                & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1), &
+                                & 1/fact(n-m+1), &
+                                & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
+                                & plm(indm), tmpm, pow_r(n+1), vscales(indm)
+                        end if
+                        tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
+                            & fact(j+k+1)/fact(n+m+1)/fact(n-m+1)/ &
+                            & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
+                            & pow_r(n+1)*vscales(indm)
+                    end do
+                end do
+                dst_m(indk) = tmpk
+            end do
+        end do
+    else
+        dst_m = src_m
+    end if
+end subroutine m2m_baseline
+
 ! O2O baseline translation
 subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
 ! Parameters:
@@ -744,6 +829,13 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         end if
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpm = -tmpm
+                        end if
+                        if ((j .eq. 1) .and. (k .eq. -1)) then
+                            write(*,*) j, k, n, m, src_m(indjn+k-m), &
+                                & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1)**2, &
+                                & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
+                                & plm(indm), tmpm, pow_r2(n+1), &
+                                & pow_r1(j-n+1), 1/vscales(indjn), vscales(indj)
                         end if
                         tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
                             & fact(j+k+1)/fact(n+m+1)**2/ &
