@@ -959,9 +959,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             tmpk3 = src_m(indjn-abs(k-m))*cphi + &
                                 & src_m(indjn+abs(k-m))*sphi
                             dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
-                            if ((j .eq. 3) .and. (k .eq. 1)) then
-                                write(*,*) j, k, n, m, 1, tmpk1*tmpk3
-                            end if
                         end if
                     end do
                     do m = max(0,k+n-j), min(k-1,n)
@@ -994,9 +991,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             tmpk3 = src_m(indjn-abs(k-m))*cphi - &
                                 & src_m(indjn+abs(k-m))*sphi
                             dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
-                            if ((j .eq. 3) .and. (k .eq. 1)) then
-                                write(*,*) j, k, n, m, 2, tmpk1*tmpk3
-                            end if
                         end if
                     end do
                     if (k .le. n) then
@@ -1028,9 +1022,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         if (k .ne. 0) then
                             tmpk3 = src_m(indjn)*sphi
                             dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
-                            if ((j .eq. 3) .and. (k .eq. 1)) then
-                                write(*,*) j, k, n, m, 3, -tmpk1*tmpk3
-                            end if
                         end if
                     end if
                     do m = k+1, min(j-n+k, n)
@@ -1063,34 +1054,39 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             tmpk3 = src_m(indjn-abs(k-m))*cphi + &
                                 & src_m(indjn+abs(k-m))*sphi
                             dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
-                            if ((j .eq. 3) .and. (k .eq. 1)) then
-                                write(*,*) j, k, n, m, 4, -tmpk1*tmpk3
-                            end if
                         end if
                     end do
                 end do
             end do
         end do
     else
-        dst_m = src_m
+        r1 = src_r / dst_r
+        tmpk1 = 1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                dst_m(k) = src_m(k) * tmpk1
+            end do
+            tmpk1 = tmpk1 * r1
+        end do
     end if
 end subroutine o2o_baseline
 
-! Generate M2M matrix for spherical harmonics
+! O2O baseline translation
 subroutine o2o_matrix(c, src_r, dst_r, p, mat)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
 !   src_r: radius of old harmonics
 !   dst_r: radius of new harmonics
 !   p: maximum degree of spherical harmonics
-!   mat: output matrix
+!   mat: m2m matrix
     real(kind=8), intent(in) :: c(3), src_r, dst_r
     integer, intent(in) :: p
     real(kind=8), intent(out) :: mat((p+1)*(p+1), (p+1)*(p+1))
     real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpm, sqrt_2, sqrt_four_pi
-    real(kind=8) :: pow_r1(p+1), pow_r2(p+1)
+    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpk3, sqrt_2
+    real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
     integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
     sqrt_2 = sqrt(dble(2))
     sqrt_four_pi = 4*sqrt(atan(dble(1)))
@@ -1128,36 +1124,163 @@ subroutine o2o_matrix(c, src_r, dst_r, p, mat)
         end do
         do j = 0, p
             indj = j*j + j + 1
-            do k = -j, j
-                indk = indj + k
-                tmpk = 0
+            do k = 0, j
                 do n = 0, j
                     indn = n*n + n + 1
                     indjn = (j-n)**2 + (j-n) + 1
-                    do m = -n, n
+                    do m = max(k+n-j,-n), -1
                         indm = indn + abs(m)
-                        if (j-n .lt. abs(k-m)) then
-                            cycle
-                        end if
-                        if (m .le. 0) then
-                            tmpm = ncos(1-m)
-                        else
-                            tmpm = -nsin(m+1)
-                        end if
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
-                            tmpm = -tmpm
+                            tmpk1 = -tmpk1
                         end if
-                        mat(indk, indjn+k-m) = fact(j-k+1)*fact(j+k+1)/ &
-                            & fact(n+m+1)**2/fact(j-n-k+m+1)/fact(j-n+k-m+1)* &
-                            & plm(indm)*tmpm*pow_r2(n+1)*pow_r1(j-n+1)/ &
-                            & vscales(indjn)*vscales(indj)
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        !tmpk2 = src_m(indjn+abs(k-m))*cphi - &
+                        !    & src_m(indjn-abs(k-m))*sphi
+                        !dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        mat(indj+k, indjn+abs(k-m)) = cphi*tmpk1
+                        mat(indj+k, indjn-abs(k-m)) = -sphi*tmpk1
+                        if (k .ne. 0) then
+                            !tmpk3 = src_m(indjn-abs(k-m))*cphi + &
+                            !    & src_m(indjn+abs(k-m))*sphi
+                            !dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
+                            mat(indj-k, indjn+abs(k-m)) = sphi*tmpk1
+                            mat(indj-k, indjn-abs(k-m)) = cphi*tmpk1
+                        end if
+                    end do
+                    do m = max(0,k+n-j), min(k-1,n)
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        !tmpk2 = src_m(indjn+abs(k-m))*cphi + &
+                        !    & src_m(indjn-abs(k-m))*sphi
+                        !dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        mat(indj+k, indjn+abs(k-m)) = cphi*tmpk1
+                        mat(indj+k, indjn-abs(k-m)) = sphi*tmpk1
+                        if (k .ne. 0) then
+                            !tmpk3 = src_m(indjn-abs(k-m))*cphi - &
+                            !    & src_m(indjn+abs(k-m))*sphi
+                            !dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
+                            !mat(indj-k, indjn+abs(k-m)) = &
+                            !    & mat(indj-k, indjn+abs(k-m)) - sphi*tmpk1
+                            !mat(indj-k, indjn-abs(k-m)) = &
+                            !    & mat(indj-k, indjn-abs(k-m)) + cphi*tmpk1
+                            mat(indj-k, indjn+abs(k-m)) = -sphi*tmpk1
+                            mat(indj-k, indjn-abs(k-m)) = cphi*tmpk1
+                        end if
+                    end do
+                    if (k .le. n) then
+                        m = k
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        !tmpk2 = src_m(indjn)*cphi
+                        !dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        mat(indj+k, indjn) = cphi*tmpk1
+                        if (k .ne. 0) then
+                            !tmpk3 = src_m(indjn)*sphi
+                            !dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
+                            mat(indj-k, indjn) = -sphi*tmpk1
+                        end if
+                    end if
+                    do m = k+1, min(j-n+k, n)
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        !tmpk2 = src_m(indjn+abs(k-m))*cphi - &
+                        !    & src_m(indjn-abs(k-m))*sphi
+                        !dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        mat(indj+k, indjn+abs(k-m)) = &
+                            & mat(indj+k, indjn+abs(k-m)) + cphi*tmpk1
+                        mat(indj+k, indjn-abs(k-m)) = &
+                            & mat(indj+k, indjn-abs(k-m)) - sphi*tmpk1
+                        if (k .ne. 0) then
+                            !tmpk3 = src_m(indjn-abs(k-m))*cphi + &
+                            !    & src_m(indjn+abs(k-m))*sphi
+                            !dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
+                            mat(indj-k, indjn+abs(k-m)) = &
+                                & mat(indj-k, indjn+abs(k-m)) - sphi*tmpk1
+                            mat(indj-k, indjn-abs(k-m)) = &
+                                & mat(indj-k, indjn-abs(k-m)) - cphi*tmpk1
+                        end if
                     end do
                 end do
             end do
         end do
     else
-        do j = 1, (p+1)*(p+1)
-            mat(j, j) = 1
+        r1 = src_r / dst_r
+        tmpk1 = 1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                mat(k, k) = tmpk1
+            end do
+            tmpk1 = tmpk1 * r1
         end do
     end if
 end subroutine
