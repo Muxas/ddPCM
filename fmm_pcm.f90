@@ -739,11 +739,11 @@ subroutine m2m_baseline(c, p, src_m, dst_m)
                             tmpm = -tmpm
                         end if
                         if ((j .eq. 1) .and. (k .eq. -1)) then
-                            write(*,*) j, k, n, m, src_m(indjn+k-m), &
-                                & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1), &
-                                & 1/fact(n-m+1), &
-                                & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
-                                & plm(indm), tmpm, pow_r(n+1), vscales(indm)
+                            !write(*,*) j, k, n, m, src_m(indjn+k-m), &
+                            !    & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1), &
+                            !    & 1/fact(n-m+1), &
+                            !    & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
+                            !    & plm(indm), tmpm, pow_r(n+1), vscales(indm)
                         end if
                         tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
                             & fact(j+k+1)/fact(n+m+1)/fact(n-m+1)/ &
@@ -760,7 +760,7 @@ subroutine m2m_baseline(c, p, src_m, dst_m)
 end subroutine m2m_baseline
 
 ! O2O baseline translation
-subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
+subroutine o2o_baseline_old(c, src_r, dst_r, p, src_m, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
 !   src_r: radius of old harmonics
@@ -773,8 +773,8 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
     real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
     real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
     real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpm, sqrt_2, sqrt_four_pi
-    real(kind=8) :: pow_r1(p+1), pow_r2(p+1)
+    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpm1, tmpm2, sqrt_2
+    real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
     integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
     sqrt_2 = sqrt(dble(2))
     sqrt_four_pi = 4*sqrt(atan(dble(1)))
@@ -822,28 +822,253 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                         if (j-n .lt. abs(k-m)) then
                             cycle
                         end if
-                        if (m .le. 0) then
-                            tmpm = ncos(1-m)
+                        if (k .ge. 0) then
+                            tmpm1 = ncos(1+abs(m))
+                            tmpm2 = nsin(1+abs(m))
                         else
-                            tmpm = -nsin(m+1)
+                            tmpm1 = -nsin(1+abs(m))
+                            tmpm2 = ncos(1+abs(m))
                         end if
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
-                            tmpm = -tmpm
+                            tmpm1 = -tmpm1
+                            tmpm2 = -tmpm2
                         end if
-                        if ((j .eq. 1) .and. (k .eq. -1)) then
-                            write(*,*) j, k, n, m, src_m(indjn+k-m), &
-                                & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1)**2, &
-                                & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
-                                & plm(indm), tmpm, pow_r2(n+1), &
-                                & pow_r1(j-n+1), 1/vscales(indjn), vscales(indj)
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
                         end if
-                        tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
-                            & fact(j+k+1)/fact(n+m+1)**2/ &
-                            & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
-                            & pow_r2(n+1)*pow_r1(j-n+1)/vscales(indjn)
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if ((m .ge. 0) .and. (k .ge. 0) .and. (k .lt. m)) then
+                            tmpm2 = -tmpm2
+                        end if
+                        if (k .eq. m) then
+                            tmpk2 = src_m(indjn) * tmpm1
+                        else
+                            tmpk2 = src_m(indjn+abs(k-m))*tmpm1 + &
+                                & src_m(indjn-abs(k-m))*tmpm2
+                        end if
+                        tmpk = tmpk + tmpk1*tmpk2
+                        if ((j .eq. 2) .and. ((k .eq. 2))) then
+                            write(*,*) j, k, n, m, tmpk1, tmpk2, src_m(indjn+abs(k-m)), &
+                                & tmpm1, src_m(indjn-abs(k-m)), tmpm2
+                        end if
                     end do
                 end do
-                dst_m(indk) = tmpk * vscales(indj)
+                dst_m(indk) = tmpk
+            end do
+        end do
+    else
+        dst_m = src_m
+    end if
+end subroutine o2o_baseline_old
+
+! O2O baseline translation
+subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r, src_m((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
+    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
+    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpk3, sqrt_2
+    real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
+    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    sqrt_2 = sqrt(dble(2))
+    sqrt_four_pi = 4*sqrt(atan(dble(1)))
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
+    if (r .ne. 0) then
+        ctheta = c(3) / r
+        if (stheta .ne. 0) then
+            stheta = sqrt(stheta)
+            cphi = c(1) / stheta
+            sphi = c(2) / stheta
+            stheta = stheta / r
+            call trgev(cphi, sphi, p, ncos, nsin)
+        else
+            cphi = 1
+            sphi = 0
+            ncos = 1
+            nsin = 0
+        end if
+        call polleg(ctheta, stheta, p, plm)
+        call scales_real_normal(p, vscales)
+        r1 = src_r / dst_r
+        r2 = r / dst_r
+        pow_r1(1) = 1
+        pow_r2(1) = 1
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
+        ! Fill square roots of factorials
+        fact(1) = 1
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = 0, j
+                dst_m(indj+k) = 0
+                dst_m(indj-k) = 0
+                do n = 0, j
+                    indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
+                    do m = max(k+n-j,-n), -1
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                            !sphi = -sphi
+                            !write(*,*) j, k, n, m, tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        tmpk2 = src_m(indjn+abs(k-m))*cphi - &
+                            & src_m(indjn-abs(k-m))*sphi
+                        dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        if (k .ne. 0) then
+                            tmpk3 = src_m(indjn-abs(k-m))*cphi + &
+                                & src_m(indjn+abs(k-m))*sphi
+                            dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
+                            if ((j .eq. 3) .and. (k .eq. 1)) then
+                                write(*,*) j, k, n, m, 1, tmpk1*tmpk3
+                            end if
+                        end if
+                    end do
+                    do m = max(0,k+n-j), min(k-1,n)
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                            !sphi = -sphi
+                            !write(*,*) j, k, n, m, tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        tmpk2 = src_m(indjn+abs(k-m))*cphi + &
+                            & src_m(indjn-abs(k-m))*sphi
+                        dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        if (k .ne. 0) then
+                            tmpk3 = src_m(indjn-abs(k-m))*cphi - &
+                                & src_m(indjn+abs(k-m))*sphi
+                            dst_m(indj-k) = dst_m(indj-k) + tmpk1*tmpk3
+                            if ((j .eq. 3) .and. (k .eq. 1)) then
+                                write(*,*) j, k, n, m, 2, tmpk1*tmpk3
+                            end if
+                        end if
+                    end do
+                    if (k .le. n) then
+                        m = k
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                            !sphi = -sphi
+                            !write(*,*) j, k, n, m, tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        tmpk2 = src_m(indjn)*cphi
+                        dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        if (k .ne. 0) then
+                            tmpk3 = src_m(indjn)*sphi
+                            dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
+                            if ((j .eq. 3) .and. (k .eq. 1)) then
+                                write(*,*) j, k, n, m, 3, -tmpk1*tmpk3
+                            end if
+                        end if
+                    end if
+                    do m = k+1, min(j-n+k, n)
+                        indm = indn + abs(m)
+                        cphi = ncos(1+abs(m))
+                        sphi = nsin(1+abs(m))
+                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
+                            & fact(n+m+1) / fact(j-n-k+m+1) / &
+                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
+                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
+                            & vscales(indjn) / vscales(indn)
+                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
+                            tmpk1 = -tmpk1
+                            !sphi = -sphi
+                            !write(*,*) j, k, n, m, tmpk1
+                        end if
+                        if (m .ne. 0) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        if (k .ne. 0) then
+                            tmpk1 = tmpk1 * sqrt_2
+                        end if
+                        if (m .ne. k) then
+                            tmpk1 = tmpk1 / sqrt_2
+                        end if
+                        tmpk2 = src_m(indjn+abs(k-m))*cphi - &
+                            & src_m(indjn-abs(k-m))*sphi
+                        dst_m(indj+k) = dst_m(indj+k) + tmpk1*tmpk2
+                        if (k .ne. 0) then
+                            tmpk3 = src_m(indjn-abs(k-m))*cphi + &
+                                & src_m(indjn+abs(k-m))*sphi
+                            dst_m(indj-k) = dst_m(indj-k) - tmpk1*tmpk3
+                            if ((j .eq. 3) .and. (k .eq. 1)) then
+                                write(*,*) j, k, n, m, 4, -tmpk1*tmpk3
+                            end if
+                        end if
+                    end do
+                end do
             end do
         end do
     else
