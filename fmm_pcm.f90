@@ -85,7 +85,7 @@ subroutine scales_complex(p, val)
         tmp = 1
         ! m != 0
         do m = 1, l
-            tmp = -tmp / sqrt(dble((l-m+1)*(l+m)))
+            tmp = tmp / sqrt(dble((l-m+1)*(l+m)))
             val(ind+m) = tmp
             ! Negative , is ignored
             !val(ind-m) = tmp
@@ -135,7 +135,7 @@ subroutine scales_real(p, val)
         tmp = sqrt_2
         ! m != 0
         do m = 1, l
-            tmp = -tmp / sqrt(dble((l-m+1)*(l+m)))
+            tmp = tmp / sqrt(dble((l-m+1)*(l+m)))
             val(ind+m) = tmp
             ! Negative , is ignored
             !val(ind-m) = tmp
@@ -686,10 +686,10 @@ subroutine m2m_baseline(c, p, src_m, dst_m)
     complex(kind=8), intent(in) :: src_m((p+1)*(p+1))
     complex(kind=8), intent(out) :: dst_m((p+1)*(p+1))
     real(kind=8) :: r, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
-    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1))
+    real(kind=8) :: plm((p+1)*(p+1)), vscales((p+1)*(p+1))
     real(kind=8) :: fact(2*p+1), pow_r(p+1)
     complex(kind=8) :: tmpk, tmpm
-    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    integer :: j, k, n, m, indj, indk, indm, indn, indjn
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
@@ -738,13 +738,6 @@ subroutine m2m_baseline(c, p, src_m, dst_m)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpm = -tmpm
                         end if
-                        if ((j .eq. 1) .and. (k .eq. -1)) then
-                            !write(*,*) j, k, n, m, src_m(indjn+k-m), &
-                            !    & fact(j-k+1), fact(j+k+1), 1/fact(n+m+1), &
-                            !    & 1/fact(n-m+1), &
-                            !    & 1/fact(j-n-k+m+1), 1/fact(j-n+k-m+1), &
-                            !    & plm(indm), tmpm, pow_r(n+1), vscales(indm)
-                        end if
                         tmpk = tmpk + src_m(indjn+k-m)*fact(j-k+1)* &
                             & fact(j+k+1)/fact(n+m+1)/fact(n-m+1)/ &
                             & fact(j-n-k+m+1)/fact(j-n+k-m+1)*plm(indm)*tmpm* &
@@ -760,118 +753,7 @@ subroutine m2m_baseline(c, p, src_m, dst_m)
 end subroutine m2m_baseline
 
 ! O2O baseline translation
-subroutine o2o_baseline_old(c, src_r, dst_r, p, src_m, dst_m)
-! Parameters:
-!   c: radius-vector from new to old centers of harmonics
-!   src_r: radius of old harmonics
-!   dst_r: radius of new harmonics
-!   p: maximum degree of spherical harmonics
-!   src_m: expansion in old harmonics
-!   dst_m: expansion in new harmonics
-    real(kind=8), intent(in) :: c(3), src_r, dst_r, src_m((p+1)*(p+1))
-    integer, intent(in) :: p
-    real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
-    real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
-    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpm1, tmpm2, sqrt_2
-    real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
-    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
-    sqrt_2 = sqrt(dble(2))
-    sqrt_four_pi = 4*sqrt(atan(dble(1)))
-    stheta = c(1)*c(1) + c(2)*c(2)
-    r = sqrt(c(3)*c(3) + stheta)
-    if (r .ne. 0) then
-        ctheta = c(3) / r
-        if (stheta .ne. 0) then
-            stheta = sqrt(stheta)
-            cphi = c(1) / stheta
-            sphi = c(2) / stheta
-            stheta = stheta / r
-            call trgev(cphi, sphi, p, ncos, nsin)
-        else
-            cphi = 1
-            sphi = 0
-            ncos = 1
-            nsin = 0
-        end if
-        call polleg(ctheta, stheta, p, plm)
-        call scales_real_normal(p, vscales)
-        r1 = src_r / dst_r
-        r2 = r / dst_r
-        pow_r1(1) = 1
-        pow_r2(1) = 1
-        do j = 2, p+1
-            pow_r1(j) = pow_r1(j-1) * r1
-            pow_r2(j) = pow_r2(j-1) * r2
-        end do
-        ! Fill square roots of factorials
-        fact(1) = 1
-        do j = 2, 2*p+1
-            fact(j) = sqrt(dble(j-1)) * fact(j-1)
-        end do
-        do j = 0, p
-            indj = j*j + j + 1
-            do k = -j, j
-                indk = indj + k
-                tmpk = 0
-                do n = 0, j
-                    indn = n*n + n + 1
-                    indjn = (j-n)**2 + (j-n) + 1
-                    do m = -n, n
-                        indm = indn + abs(m)
-                        if (j-n .lt. abs(k-m)) then
-                            cycle
-                        end if
-                        if (k .ge. 0) then
-                            tmpm1 = ncos(1+abs(m))
-                            tmpm2 = nsin(1+abs(m))
-                        else
-                            tmpm1 = -nsin(1+abs(m))
-                            tmpm2 = ncos(1+abs(m))
-                        end if
-                        if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
-                            tmpm1 = -tmpm1
-                            tmpm2 = -tmpm2
-                        end if
-                        tmpk1 = fact(j-k+1) * fact(j+k+1) / fact(n-m+1) / &
-                            & fact(n+m+1) / fact(j-n-k+m+1) / &
-                            & fact(j-n+k-m+1) * plm(indm) * pow_r1(j-n+1) * &
-                            & pow_r2(n+1) * vscales(indm) * vscales(indj) / &
-                            & vscales(indjn) / vscales(indn)
-                        if (m .ne. 0) then
-                            tmpk1 = tmpk1 / sqrt_2
-                        end if
-                        if (k .ne. 0) then
-                            tmpk1 = tmpk1 * sqrt_2
-                        end if
-                        if (m .ne. k) then
-                            tmpk1 = tmpk1 / sqrt_2
-                        end if
-                        if ((m .ge. 0) .and. (k .ge. 0) .and. (k .lt. m)) then
-                            tmpm2 = -tmpm2
-                        end if
-                        if (k .eq. m) then
-                            tmpk2 = src_m(indjn) * tmpm1
-                        else
-                            tmpk2 = src_m(indjn+abs(k-m))*tmpm1 + &
-                                & src_m(indjn-abs(k-m))*tmpm2
-                        end if
-                        tmpk = tmpk + tmpk1*tmpk2
-                        if ((j .eq. 2) .and. ((k .eq. 2))) then
-                            write(*,*) j, k, n, m, tmpk1, tmpk2, src_m(indjn+abs(k-m)), &
-                                & tmpm1, src_m(indjn-abs(k-m)), tmpm2
-                        end if
-                    end do
-                end do
-                dst_m(indk) = tmpk
-            end do
-        end do
-    else
-        dst_m = src_m
-    end if
-end subroutine o2o_baseline_old
-
-! O2O baseline translation
+! Basline in terms of operation count: p^4, while it can be done in p^3
 subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -884,10 +766,10 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
     integer, intent(in) :: p
     real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
     real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
-    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpk3, sqrt_2
+    real(kind=8) :: plm((p+1)*(p+1)), vscales((p+1)*(p+1))
+    real(kind=8) :: fact(2*p+1), tmpk1, tmpk2, tmpk3, sqrt_2
     real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
-    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    integer :: j, k, n, m, indj, indm, indn, indjn
     sqrt_2 = sqrt(dble(2))
     sqrt_four_pi = 4*sqrt(atan(dble(1)))
     stheta = c(1)*c(1) + c(2)*c(2)
@@ -940,8 +822,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             & vscales(indjn) / vscales(indn)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpk1 = -tmpk1
-                            !sphi = -sphi
-                            !write(*,*) j, k, n, m, tmpk1
                         end if
                         if (m .ne. 0) then
                             tmpk1 = tmpk1 / sqrt_2
@@ -972,8 +852,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             & vscales(indjn) / vscales(indn)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpk1 = -tmpk1
-                            !sphi = -sphi
-                            !write(*,*) j, k, n, m, tmpk1
                         end if
                         if (m .ne. 0) then
                             tmpk1 = tmpk1 / sqrt_2
@@ -1005,8 +883,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             & vscales(indjn) / vscales(indn)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpk1 = -tmpk1
-                            !sphi = -sphi
-                            !write(*,*) j, k, n, m, tmpk1
                         end if
                         if (m .ne. 0) then
                             tmpk1 = tmpk1 / sqrt_2
@@ -1035,8 +911,6 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
                             & vscales(indjn) / vscales(indn)
                         if (mod(abs(abs(k)-abs(m)-abs(k-m)), 4) .eq. 2) then
                             tmpk1 = -tmpk1
-                            !sphi = -sphi
-                            !write(*,*) j, k, n, m, tmpk1
                         end if
                         if (m .ne. 0) then
                             tmpk1 = tmpk1 / sqrt_2
@@ -1072,7 +946,8 @@ subroutine o2o_baseline(c, src_r, dst_r, p, src_m, dst_m)
     end if
 end subroutine o2o_baseline
 
-! O2O baseline translation
+! O2O baseline translation matrix
+! Basline in terms of operation count: p^4, while it can be done in p^3
 subroutine o2o_matrix(c, src_r, dst_r, p, mat)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -1084,10 +959,10 @@ subroutine o2o_matrix(c, src_r, dst_r, p, mat)
     integer, intent(in) :: p
     real(kind=8), intent(out) :: mat((p+1)*(p+1), (p+1)*(p+1))
     real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, ncos(p+1), nsin(p+1)
-    real(kind=8) :: plm((p+1)*(p+1)), t, vscales((p+1)*(p+1)), tmp, rcoef
-    real(kind=8) :: fact(2*p+1), tmpk, tmpk1, tmpk2, tmpk3, sqrt_2
+    real(kind=8) :: plm((p+1)*(p+1)), vscales((p+1)*(p+1))
+    real(kind=8) :: fact(2*p+1), tmpk1, sqrt_2
     real(kind=8) :: pow_r1(p+1), pow_r2(p+1), sqrt_four_pi
-    integer :: j, k, n, m, indj, indk, indm, indn, indjn, indjna
+    integer :: j, k, n, m, indj, indn, indm, indjn
     sqrt_2 = sqrt(dble(2))
     sqrt_four_pi = 4*sqrt(atan(dble(1)))
     stheta = c(1)*c(1) + c(2)*c(2)
@@ -1284,5 +1159,51 @@ subroutine o2o_matrix(c, src_r, dst_r, p, mat)
         end do
     end if
 end subroutine
+
+! Divide given cluster of spheres into two clusters by inertial bisection
+subroutine geometry_divide_cluster(nsph, csph, n, ind, div)
+! Parameters:
+!   nsph: Number of all spheres
+!   csph: Centers of all spheres
+!   n: Number of spheres in given cluster
+!   ind: Indexes of spheres in given cluster (sorted on exit)
+!   div: Break point between two clusters. ind(1:div) belong to first cluster
+!       and ind(div+1:n) belongs to second cluster
+    integer, intent(in) :: nsph, n
+    real(kind=8), intent(in) :: csph(3, nsph)
+    integer, intent(inout) :: ind(n)
+    integer, intent(out) :: div
+    real(kind=8) :: c(3), tmpcsph(3, n), a(3, 3), w(3), work(9), scal(n)
+    real(kind=8) :: alpha=1, beta=0
+    integer :: i, l, r, lwork=9, info, tmp_ind(n)
+    c = 0
+    do i = 1, n
+        c = c + csph(:, ind(i))
+    end do
+    c = c / n
+    do i = 1, n
+        tmpcsph(:, i) = csph(:, ind(i)) - c
+    end do
+    call dgemm('N', 'T', 3, 3, n, alpha, tmpcsph, 3, tmpcsph, 3, beta, a, 3)
+    call dsyev('V', 'L', 3, a, 3, w, work, lwork, info)
+    call dgemv('T', 3, n, alpha, tmpcsph, 3, a(:, 3), 1, beta, scal, 1)
+    l = 1
+    r = n
+    do i = 1, n
+        if (scal(i) .ge. 0) then
+            tmp_ind(l) = ind(i)
+            l = l + 1
+        else
+            tmp_ind(r) = ind(i)
+            r = r - 1
+        end if
+    end do
+    div = r
+    ind = tmp_ind
+end subroutine
+
+! Divide hierarchically until certain size of cluster
+!subroutine geometry_divide_hierarchically(nsph, csph, n, ind, )
+!end subroutine
 
 end module

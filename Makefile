@@ -21,9 +21,12 @@ all:    $(MODS) $(OBJS)
 	$(RunF77) $(FFLAGS) -c $*.f90
 #
 clean:
-	rm -fr $(OBJS) *.exe *.mod *.so
+	rm -fr $(OBJS) *.exe *.mod *.so fmm_pcm.o
 
-python:	$(OBJS) mydx.f90 fmm_pcm.f90
-	f2py -m mydx -c mydx.f90 fmm_pcm.f90 $(OBJS)
+mydx:	all mydx.f90
+	f2py -m mydx -c mydx.f90 $(OBJS)
 
-.PHONY:	all clean python
+fmm_pcm:	fmm_pcm.f90
+	f2py -m fmm_pcm -c fmm_pcm.f90 -L/usr/lib -llapack -lblas
+
+.PHONY:	all clean mydx fmm_pcm
