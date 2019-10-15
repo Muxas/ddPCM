@@ -96,6 +96,7 @@ end subroutine scales_real_normal
 
 ! Compute multipole coefficients for particle of unit charge
 ! Based on normalized scaled real spherical harmonics of given radius
+! This function is not needed for pcm, but it is useful for testing purposes
 subroutine fmm_p2m(c, r, p, m)
 ! Parameters:
 !   c: coordinates of charged particle (relative to center of harmonics)
@@ -216,7 +217,7 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, src_m, dst_m)
     real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
     real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(kind=8) :: vplm((p+1)*(p+1)), vscales((p+1)*(p+1))
-    real(kind=8) :: fact(2*p+1), tmpk1, tmpk2, tmpk3, tmp1, tmp2, tmp3
+    real(kind=8) :: fact(2*p+1), tmpk1, tmpk2, tmpk3, tmp1, tmp2
     real(kind=8) :: pow_r1(p+1), pow_r2(p+1)
     integer :: j, k, n, m, indj, indm, indn, indjn
     stheta = c(1)*c(1) + c(2)*c(2)
@@ -308,6 +309,165 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, src_m, dst_m)
         end do
     end if
 end subroutine fmm_m2m_baseline
+
+! Divide given cluster of spheres into two subclusters by inertial bisection
+subroutine cluster_divide(nsph, csph, n, ind, div)
+! Parameters:
+!   nsph: Number of all spheres
+!   csph: Centers of all spheres
+!   n: Number of spheres in given cluster
+!   ind: Indexes of spheres in given cluster (sorted on exit)
+!   div: Break point between two clusters. ind(1:div) belong to first cluster
+!       and ind(div+1:n) belongs to second cluster
+    integer, intent(in) :: nsph, n
+    real(kind=8), intent(in) :: csph(3, nsph)
+    integer, intent(inout) :: ind(n)
+    integer, intent(out) :: div
+    real(kind=8) :: c(3), tmp_csph(3, n), a(3, 3), w(3), work(9), scal(n)
+    real(kind=8) :: alpha=1, beta=0
+    integer :: i, l, r, lwork=9, info, tmp_ind(n)
+    c = 0
+    do i = 1, n
+        c = c + csph(:, ind(i))
+    end do
+    c = c / n
+    do i = 1, n
+        tmp_csph(:, i) = csph(:, ind(i)) - c
+    end do
+    call dgemm('N', 'T', 3, 3, n, alpha, tmp_csph, 3, tmp_csph, 3, beta, a, 3)
+    call dsyev('V', 'L', 3, a, 3, w, work, lwork, info)
+    call dgemv('T', 3, n, alpha, tmp_csph, 3, a(:, 3), 1, beta, scal, 1)
+    l = 1
+    r = n
+    do i = 1, n
+        if (scal(i) .ge. 0) then
+            tmp_ind(l) = ind(i)
+            l = l + 1
+        else
+            tmp_ind(r) = ind(i)
+            r = r - 1
+        end if
+    end do
+    div = r
+    ind = tmp_ind
+end subroutine cluster_divide
+
+! Prepare tree (divide and compute bounding spheres)
+! Number of clusters is always 2*nsph-1
+subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
+        & rnode)
+! Parameters:
+!   nsph: Number of all spheres
+!   csph: Centers of all spheres
+!   rsph: Radiuses of all spheres
+!   ind: Permutation of spheres (to localize them)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   parent: parent of each cluster. 0 means no parent
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+    integer, intent(in) :: nsph
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
+    integer, intent(inout) :: ind(nsph)
+    integer, intent(out) :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
+    integer, intent(out) :: parent(2*nsph-1)
+    real(kind=8), intent(out) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    integer :: i, j, n, s, e, div
+    real(kind=8) :: r, r1, r2, c(3), c1(3), c2(3), d
+    cluster(1, 1) = 1
+    cluster(2, 1) = nsph
+    parent(1) = 0
+    j = 2
+    ! Divide tree until leaves with single spheres inside
+    do i = 1, 2*nsph-1
+        s = cluster(1, i)
+        e = cluster(2, i)
+        n = e - s + 1
+        if (n .gt. 1) then
+            call cluster_divide(nsph, csph, n, ind(s:e), div)
+            cluster(1, j) = s
+            cluster(2, j) = s + div - 1
+            cluster(1, j+1) = s + div
+            cluster(2, j+1) = e
+            children(1, i) = j
+            children(2, i) = j + 1
+            parent(j) = i
+            parent(j+1) = i
+            j = j + 2
+        else
+            children(:, i) = 0
+        end if
+    end do
+    ! Compute bounding spheres
+    do i = 2*nsph-1, 1, -1
+        if (children(1, i) .eq. 0) then
+            j = cluster(1, i)
+            cnode(:, i) = csph(:, ind(j))
+            rnode(i) = rsph(ind(j))
+        else
+            j = children(1, i)
+            c1 = cnode(:, j)
+            r1 = rnode(j)
+            j = children(2, i)
+            c2 = cnode(:, j)
+            r2 = rnode(j)
+            c = c1 - c2
+            d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
+            if ((r1-r2) .ge. d) then
+                c = c1
+                r = r1
+            else if((r2-r1) .ge. d) then
+                c = c2
+                r = r2
+            else
+                r = (r1+r2+d) / 2
+                c = c2 + c/d*(r-r2)
+            end if
+            cnode(:, i) = c
+            rnode(i) = r
+        end if
+    end do
+end subroutine tree_init
+
+! Compute multipole coefficients for each node of tree
+subroutine tree_m2m_baseline(nsph, p, coef_sph, ind, cluster, children, &
+        & cnode, rnode, coef_node)
+! Parameters:
+!   nsph: Number of all spheres
+!   p: maximum degree of multipole basis functions
+!   coef_sph: multipole coefficients of input spheres
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   coef_node: multipole coefficients of bounding spheres of nodes
+    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
+    real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
+    integer, intent(in) :: children(2, 2*nsph-1)
+    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    real(kind=8), intent(out) :: coef_node((p+1)*(p+1), 2*nsph-1)
+    integer :: i, j(2)
+    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r
+    do i = 2*nsph-1, 1, -1
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            coef_node(:, i) = coef_sph(:, ind(cluster(1, i)))
+        else
+            c = cnode(:, i)
+            r = rnode(i)
+            c1 = cnode(:, j(1))
+            r1 = rnode(j(1))
+            c2 = cnode(:, j(2))
+            r2 = rnode(j(2))
+            coef_node(:, i) = 0
+            call fmm_m2m_baseline(c1-c, r1, r, p, coef_node(:, j(1)), &
+                & coef_node(:, i))
+            call fmm_m2m_baseline(c2-c, r2, r, p, coef_node(:, j(2)), &
+                & coef_node(:, i))
+        end if
+    end do
+end subroutine tree_m2m_baseline
 
 end module
 
