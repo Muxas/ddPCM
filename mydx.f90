@@ -1,6 +1,7 @@
 module mydx
     use ddcosmo
     use ddpcm_lib, only : dx, dodiag
+    use fmm_pcm, only : geometry_divide_hierarchically, tree_o2o
     implicit none
     real*8  :: tobohr
     real*8, parameter :: toang = 0.52917721092d0, tokcal = 627.509469d0
@@ -633,5 +634,23 @@ subroutine ylmbas2( x, basloc, lmax, nbasis )
             call intrhs(isph, tmp, y(:, isph))
         end do
     end subroutine result_integrate_ui_grid_ext
+
+    subroutine fmm1(nsph, csph, rsph, lmax, coef_in, coef_out)
+        integer, intent(in) :: nsph, lmax
+        real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
+        real(kind=8), intent(in) :: coef_in((lmax+1)*(lmax+1), nsph)
+        real(kind=8), intent(out) :: coef_out((lmax+1)*(lmax+1), nsph)
+        integer :: i, ind(nsph), cluster(2*nsph-1), children(2*nsph-1)
+        integer :: parent(2*nsph-1)
+        real(kind=8) :: ccluster(3, 2*nsph-1), rcluster(2*nsph-1)
+        real(kind=8) :: coef_cluster((lmax+1)*(lmax+1), 2*nsph-1)
+        do i = 1, nsph
+            ind(i) = i
+        end do
+        call geometry_divide_hierarchically(nsph, csph, ind, cluster, &
+            & children, parent)
+        call tree_o2o(nsph, lmax, csph, rsph, coef_in, ind, cluster, &
+            & children, ccluster, rcluster, coef_cluster)
+    end subroutine
 
 end module mydx

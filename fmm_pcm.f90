@@ -1200,10 +1200,87 @@ subroutine geometry_divide_cluster(nsph, csph, n, ind, div)
     end do
     div = r
     ind = tmp_ind
-end subroutine
+end subroutine geometry_divide_cluster
 
-! Divide hierarchically until certain size of cluster
-!subroutine geometry_divide_hierarchically(nsph, csph, n, ind, )
-!end subroutine
+! Divide hierarchically until cluster consists of a single sphere
+! Number of clusters is always 2*nsph-1
+subroutine geometry_divide_hierarchically(nsph, csph, ind, cluster, children, &
+        & parent)
+    integer, intent(in) :: nsph
+    real(kind=8), intent(in) :: csph(3, nsph)
+    integer, intent(inout) :: ind(nsph)
+    integer, intent(out) :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
+    integer, intent(out) :: parent(2*nsph-1)
+    integer :: i, j, n, s, e, div
+    cluster(1, 1) = 1
+    cluster(2, 1) = nsph
+    parent(1) = 0
+    j = 2
+    do i = 1, 2*nsph-1
+        s = cluster(1, i)
+        e = cluster(2, i)
+        n = e - s + 1
+        if (n .gt. 1) then
+            call geometry_divide_cluster(nsph, csph, n, ind(s:e), div)
+            cluster(1, j) = s
+            cluster(2, j) = s + div - 1
+            cluster(1, j+1) = s + div
+            cluster(2, j+1) = e
+            children(1, i) = j
+            children(2, i) = j + 1
+            parent(j) = i
+            parent(j+1) = i
+            j = j + 2
+        else
+            children(:, i) = 0
+        end if
+    end do
+end subroutine geometry_divide_hierarchically
+
+! Compute 
+subroutine tree_o2o(nsph, p, csph, rsph, coef_sph, ind, cluster, children, &
+        & ccluster, rcluster, coef_cluster)
+    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
+    integer, intent(in) :: children(2, 2*nsph-1)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
+    real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
+    real(kind=8), intent(out) :: ccluster(3, 2*nsph-1), rcluster(2*nsph-1)
+    real(kind=8), intent(out) :: coef_cluster((p+1)*(p+1), 2*nsph-1)
+    integer :: i, j
+    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r, d, tmp_coef((p+1)*(p+1))
+    do i = 2*nsph-1, 1, -1
+        if (children(1, i) .eq. 0) then
+            j = cluster(1, i)
+            ccluster(:, i) = csph(:, ind(j))
+            rcluster(i) = rsph(ind(j))
+            coef_cluster(:, i) = coef_sph(:, ind(j))
+        else
+            c1 = ccluster(:, children(1, i))
+            r1 = rcluster(children(1, i))
+            c2 = ccluster(:, children(2, i))
+            r2 = rcluster(children(2, i))
+            c = c1 - c2
+            d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
+            if ((r1-r2) .ge. d) then
+                c = c1
+                r = r1
+            else if((r2-r1) .ge. d) then
+                c = c2
+                r = r2
+            else
+                r = (r1+r2+d) / 2
+                c = c2 + c/d*(r-r2)
+            end if
+            ccluster(:, i) = c
+            rcluster(i) = r
+            call o2o_baseline(c1-c, r1, r, p, &
+                & coef_cluster(:, children(1, i)), tmp_coef)
+            coef_cluster(:, i) = tmp_coef
+            call o2o_baseline(c2-c, r2, r, p, &
+                & coef_cluster(:, children(2, i)), tmp_coef)
+            coef_cluster(:, i) = coef_cluster(:, i) + tmp_coef
+        end if
+    end do
+end subroutine tree_o2o
 
 end module

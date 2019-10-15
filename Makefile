@@ -8,7 +8,7 @@ FFLAGS = -O3 -march=native -llapack -lblas
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
-MODS   = ddcosmo.o ddpcm_lib.o
+MODS   = ddcosmo.o ddpcm_lib.o fmm_pcm.o
 OBJS   = mkrhs.o llgnew.o main.o ddcosmo.o ddpcm_lib.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o
 #
