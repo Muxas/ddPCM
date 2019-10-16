@@ -26,7 +26,7 @@ clean:
 mydx:	all mydx.f90
 	f2py -m mydx -c mydx.f90 $(OBJS)
 
-pcm_fmm:	pcm_fmm.f90
-	f2py -m pcm_fmm -c pcm_fmm.f90 -L/usr/lib -llapack -lblas
+pcm_fmm:	pcm_fmm.f90 llgnew.f
+	f2py -m pcm_fmm -c pcm_fmm.f90 llgnew.f -L/usr/lib -llapack -lblas
 
 .PHONY:	all clean mydx pcm_fmm
