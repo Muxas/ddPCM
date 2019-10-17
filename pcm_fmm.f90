@@ -68,6 +68,7 @@ subroutine trgev(c, s, p, vcos, vsin)
         vcos(m) = vcos(m-1)*c - vsin(m-1)*s
         vsin(m) = vcos(m-1)*s + vsin(m-1)*c
     end do
+    vsin = -vsin
 end subroutine trgev
 
 ! Compute associated Legendre polynomials P(l,m)(x)
@@ -577,7 +578,8 @@ subroutine tree_m2p_baseline(c, leaf, p, vscales, nclusters, children, cnode, &
         ! hierarchically
         else
             r = sqrt(d(1)*d(1) + d(2)*d(2) + d(3)*d(3))
-            if (r .gt. rnode(i)) then
+            ! constant 3 guarantees good convergence and accuracy
+            if (r .gt. 3*rnode(i)) then
                 far(i) = 1
             else
                 far(i) = 0
@@ -587,7 +589,6 @@ subroutine tree_m2p_baseline(c, leaf, p, vscales, nclusters, children, cnode, &
         end if
         ! If M2P is needed
         if (far(i) .eq. 1) then
-            write(*,*) "M2P: ", leaf, i
             call fmm_m2p(d, rnode(i), p, vscales, coef_node(:, i), tmp_v)
             v = v + tmp_v
         end if
@@ -624,44 +625,29 @@ subroutine pcm_matvec_grid(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, p, &
     real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
     real(kind=8), intent(out) :: coef_out((p+1)*(p+1), nsph)
     real(kind=8) :: coef_sph_scaled((p+1)*(p+1), nsph)
-    real(kind=8) :: coef_node((p+1)*(p+1), 2*nsph-1), c(3)
-    real(kind=8) :: x(ngrid), y(ngrid), tmp, pow_r(nsph)
+    real(kind=8) :: coef_node((p+1)*(p+1), 2*nsph-1), c(3), d(3)
+    real(kind=8) :: x(ngrid), tmp
     integer :: i, j, leaf, indi, indj, k
-    pow_r = 1
     do i = 0, p
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * pow_r
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
         end do
-        pow_r = pow_r * rsph
     end do
     call tree_m2m_baseline(nsph, p, vscales, coef_sph_scaled, ind, cluster, &
         & children, cnode, rnode, coef_node)
     do i = 1, nsph
         leaf = snode(i)
-        y = 0
         do j = 1, ngrid
             if (ui(j, i) .eq. 0) then
                 x(j) = 0
-                y(j) = 0
             else
                 c = csph(:, i) + rsph(i)*grid(:,j)
                 call tree_m2p_baseline(c, leaf, p, vscales, 2*nsph-1, &
                     & children, cnode, rnode, coef_node, x(j))
                 x(j) = ui(j, i) * x(j)
-                do k = 1, nsph
-                    if (k .eq. i) then
-                        cycle
-                    end if
-                    c = c - csph(:, k)
-                    call fmm_m2p(c, rsph(k), p, vscales, &
-                        & coef_sph_scaled(:, k), tmp)
-                    y(j) = y(j) + tmp
-                end do
-                y(j) = ui(j, i) * y(j)
             end if
-            write(*,*) x(j), y(j)
         end do
         call int_grid(p, ngrid, w, vgrid, x, coef_out(:, i))
     end do
