@@ -6,7 +6,7 @@
 1                ! whether to compute (1) or not (0) the forces
 78.3553          ! dielectric constant
 0.2              ! regularization parameter
-1413                        # nsph
+14 #13                        # nsph
 1.0   24.277    8.374   -9.854 1.70
 1.0   24.404    9.859   -9.939 2.00
 1.0   25.814   10.249  -10.359 1.74

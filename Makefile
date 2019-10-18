@@ -11,7 +11,7 @@ FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
-MODS   = ddcosmo.o ddpcm_lib.o pcm_fmm.o
+MODS   = ddcosmo.o ddpcm_lib.o
 OBJS   = mkrhs.o llgnew.o main.o ddcosmo.o ddpcm_lib.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o
 #

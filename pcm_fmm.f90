@@ -231,14 +231,14 @@ subroutine fmm_m2p(c, r, p, vscales, m, v)
         t = t * rcoef
         ind = n*n + n + 1
         ! k = 0
-        tmp = m(ind) * vplm(ind) / vscales(ind)
+        tmp = m(ind) * vplm(ind) * vscales(ind)
         ! k != 0
         do k = 1, n
-            tmp1 = vplm(ind+k) * vscales(ind+k) / vscales(ind)**2
+            tmp1 = vplm(ind+k) * vscales(ind+k)
             tmp2 = m(ind+k)*vcos(k+1) + m(ind-k)*vsin(k+1)
             tmp = tmp + tmp1*tmp2
         end do
-        v = v + t*tmp
+        v = v + t*tmp/vscales(ind)**2
     end do
 end subroutine fmm_m2p
 
@@ -294,19 +294,19 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, vscales, src_m, dst_m)
         do j = 0, p
             indj = j*j + j + 1
             do k = 0, j
-                tmp1 = fact(j-k+1) * fact(j+k+1)
+                tmp1 = vscales(indj) * fact(j-k+1) * fact(j+k+1)
                 if (k .ne. 0) then
                     tmp1 = tmp1 * sqrt_2
                 end if
                 do n = 0, j
                     indn = n*n + n + 1
                     indjn = (j-n)**2 + (j-n) + 1
-                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) * &
-                        & vscales(indj) / vscales(indjn) / vscales(indn)
+                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
+                        & vscales(indjn) / vscales(indn)
                     do m = max(k+n-j, -n), min(k+j-n, n)
                         indm = indn + abs(m)
                         cphi = vcos(1+abs(m))
-                        sphi = -vsin(1+abs(m))
+                        sphi = vsin(1+abs(m))
                         tmpk1 = tmp2 / fact(n-m+1) / fact(n+m+1) / &
                             & fact(j-n-k+m+1) / fact(j-n+k-m+1) * &
                             & vplm(indm) * vscales(indm)
@@ -314,7 +314,7 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, vscales, src_m, dst_m)
                             tmpk1 = -tmpk1
                         end if
                         tmpk2 = src_m(indjn+abs(k-m)) * cphi
-                        if ((m .lt. 0) .or. (m .gt. k)) then
+                        if ((m .ge. 0) .and. (m .le. k)) then
                             sphi = -sphi
                         end if
                         tmpk3 = -src_m(indjn+abs(k-m)) * sphi
@@ -394,14 +394,14 @@ subroutine fmm_l2p(c, r, p, vscales, l, v)
     do n = 0, p
         ind = n*n + n + 1
         ! k = 0
-        tmp = l(ind) * vplm(ind) / vscales(ind)
+        tmp = l(ind) * vplm(ind) * vscales(ind)
         ! k != 0
         do k = 1, n
-            tmp1 = vplm(ind+k) * vscales(ind+k) / vscales(ind)**2
+            tmp1 = vplm(ind+k) * vscales(ind+k)
             tmp2 = l(ind+k)*vcos(k+1) + l(ind-k)*vsin(k+1)
             tmp = tmp + tmp1*tmp2
         end do
-        v = v + t*tmp
+        v = v + t*tmp/vscales(ind)**2
         t = t * rcoef
     end do
 end subroutine fmm_l2p
@@ -429,6 +429,111 @@ subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     integer :: j, k, n, m, indj, indmk, indn, indjn
     stheta = c(1)*c(1) + c(2)*c(2)
     r = sqrt(c(3)*c(3) + stheta)
+    ! r cannot be zero, as input sphere (multipole) must not intersect with
+    ! output sphere (local)
+    if (r .eq. 0) then
+        return
+    end if
+    ctheta = c(3) / r
+    if (stheta .ne. 0) then
+        stheta = sqrt(stheta)
+        cphi = c(1) / stheta
+        sphi = c(2) / stheta
+        stheta = stheta / r
+        call trgev(cphi, sphi, pm+pl, vcos, vsin)
+    else
+        cphi = 1
+        sphi = 0
+        vcos = 1
+        vsin = 0
+    end if
+    call polleg(ctheta, stheta, pm+pl, vplm)
+    r1 = src_r / r
+    r2 = dst_r / r
+    pow_r1(1) = 1
+    pow_r2(1) = r2
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    ! Fill square roots of factorials
+    fact(1) = 1
+    do j = 2, 2*(pm+pl)+1
+        fact(j) = sqrt(dble(j-1)) * fact(j-1)
+    end do
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = vscales(indj) * pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
+            if (k .ne. 0) then
+                tmp1 = tmp1 * sqrt_2
+            end if
+            do n = 0, pm
+                indn = n*n + n + 1
+                indjn = (j+n)**2 + (j+n) + 1
+                tmp2 = tmp1 * pow_r1(n+1) / vscales(indjn) / vscales(indn)
+                if (mod(n, 2) .eq. 1) then
+                    tmp2 = -tmp2
+                end if
+                do m = -n, n
+                    indmk = indjn + abs(m-k)
+                    cphi = vcos(1+abs(m-k))
+                    sphi = vsin(1+abs(m-k))
+                    tmpk1 = tmp2 / fact(n-m+1) / fact(n+m+1) * &
+                        & fact(j+n-m+k+1) * fact(j+n+m-k+1) * vplm(indmk) * &
+                        & vscales(indmk)
+                    if (mod(abs(k+abs(m)-abs(k-m)), 4) .eq. 2) then
+                        tmpk1 = -tmpk1
+                    end if
+                    tmpk2 = src_m(indn+abs(m)) * cphi
+                    if ((m .ge. 0) .and. (m .le. k)) then
+                        sphi = -sphi
+                    end if
+                    tmpk3 = -src_m(indn+abs(m)) * sphi
+                    if (m .ne. k) then
+                        tmpk1 = tmpk1 / sqrt_2
+                    end if
+                    if (m .ne. 0) then
+                        tmpk1 = tmpk1 / sqrt_2
+                        tmpk2 = tmpk2 + src_m(indn-abs(m))*sphi
+                        tmpk3 = tmpk3 + src_m(indn-abs(m))*cphi
+                    end if
+                    if (m .lt. 0) then
+                        tmpk3 = -tmpk3
+                    end if
+                    dst_l(indj+k) = dst_l(indj+k) + tmpk1*tmpk2
+                    if (k .ne. 0) then
+                        dst_l(indj-k) = dst_l(indj-k) + tmpk1*tmpk3
+                    end if
+                end do
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_baseline
+
+! Translate local expansion to another sphere
+subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm (of degree up to p)
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1))
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: r, r1, r2, ctheta, stheta, cphi, sphi
+    real(kind=8) :: vcos(p+1), vsin(p+1)
+    real(kind=8) :: vplm((p+1)*(p+1)), fact(2*p+1), tmpk1, tmpk2, tmpk3
+    real(kind=8) :: tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, m, indj, indmk, indn, indjn
+    stheta = c(1)*c(1) + c(2)*c(2)
+    r = sqrt(c(3)*c(3) + stheta)
     if (r .ne. 0) then
         ctheta = c(3) / r
         if (stheta .ne. 0) then
@@ -436,66 +541,64 @@ subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
             cphi = c(1) / stheta
             sphi = c(2) / stheta
             stheta = stheta / r
-            call trgev(cphi, sphi, pm+pl, vcos, vsin)
+            call trgev(cphi, sphi, p, vcos, vsin)
         else
             cphi = 1
             sphi = 0
             vcos = 1
             vsin = 0
         end if
-        call polleg(ctheta, stheta, pm+pl, vplm)
-        r1 = src_r / r
+        call polleg(ctheta, stheta, p, vplm)
+        r1 = r / src_r
         r2 = dst_r / r
-        pow_r1(1) = 1
+        pow_r1(1) = r1
         pow_r2(1) = r2
-        do j = 2, pm+1
+        do j = 2, p+1
             pow_r1(j) = pow_r1(j-1) * r1
-        end do
-        do j = 2, pl+1
             pow_r2(j) = pow_r2(j-1) * r2
         end do
         ! Fill square roots of factorials
         fact(1) = 1
-        do j = 2, 2*(pm+pl)+1
+        do j = 2, 2*p+1
             fact(j) = sqrt(dble(j-1)) * fact(j-1)
         end do
-        do j = 0, pl
+        do j = 0, p
             indj = j*j + j + 1
             do k = 0, j
                 tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
                 if (k .ne. 0) then
                     tmp1 = tmp1 * sqrt_2
                 end if
-                do n = 0, pm
+                do n = j, p
                     indn = n*n + n + 1
-                    indjn = (j+n)**2 + (j+n) + 1
+                    indjn = (n-j)**2 + (n-j) + 1
                     tmp2 = tmp1 * pow_r1(n+1) * vscales(indj) / &
                         & vscales(indjn) / vscales(indn)
-                    if (mod(n, 2) .eq. 1) then
+                    if (mod(n+j, 2) .eq. 1) then
                         tmp2 = -tmp2
                     end if
-                    do m = -n, n
+                    do m = k+j-n, k+n-j
                         indmk = indjn + abs(m-k)
                         cphi = vcos(1+abs(m-k))
-                        sphi = -vsin(1+abs(m-k))
-                        tmpk1 = tmp2 / fact(n-m+1) / fact(n+m+1) * &
-                            & fact(j+n-m+k+1) * fact(j+n+m-k+1) * &
+                        sphi = vsin(1+abs(m-k))
+                        tmpk1 = tmp2 * fact(n-m+1) * fact(n+m+1) / &
+                            & fact(n-j-m+k+1) / fact(n-j+m-k+1) * &
                             & vplm(indmk) * vscales(indmk)
-                        if (mod(abs(k+abs(m)-abs(k-m)), 4) .eq. 2) then
+                        if (mod(abs(k+abs(m-k)-abs(m)), 4) .eq. 2) then
                             tmpk1 = -tmpk1
                         end if
-                        tmpk2 = src_m(indn+abs(m)) * cphi
-                        if ((m .lt. 0) .or. (m .gt. k)) then
+                        tmpk2 = src_l(indn+abs(m)) * cphi
+                        if ((m .ge. 0) .and. (m .le. k)) then
                             sphi = -sphi
                         end if
-                        tmpk3 = -src_m(indn+abs(m)) * sphi
+                        tmpk3 = -src_l(indn+abs(m)) * sphi
                         if (m .ne. k) then
                             tmpk1 = tmpk1 / sqrt_2
                         end if
                         if (m .ne. 0) then
                             tmpk1 = tmpk1 / sqrt_2
-                            tmpk2 = tmpk2 + src_m(indn-abs(m))*sphi
-                            tmpk3 = tmpk3 + src_m(indn-abs(m))*cphi
+                            tmpk2 = tmpk2 + src_l(indn-abs(m))*sphi
+                            tmpk3 = tmpk3 + src_l(indn-abs(m))*cphi
                         end if
                         if (m .lt. 0) then
                             tmpk3 = -tmpk3
@@ -508,8 +611,18 @@ subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
                 end do
             end do
         end do
+    else
+        r1 = dst_r / src_r
+        tmpk1 = r1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                dst_l(k) = dst_l(k) + src_l(k)*tmpk1
+            end do
+            tmpk1 = tmpk1 * r1
+        end do
     end if
-end subroutine fmm_m2l_baseline
+end subroutine fmm_l2l_baseline
 
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
@@ -786,7 +899,7 @@ subroutine pcm_matvec_grid(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, p, &
     real(kind=8), intent(out) :: coef_out((p+1)*(p+1), nsph)
     real(kind=8) :: coef_sph_scaled((p+1)*(p+1), nsph)
     real(kind=8) :: coef_node((p+1)*(p+1), 2*nsph-1), c(3), x(ngrid)
-    integer :: i, j, leaf, indi, indj, k
+    integer :: i, j, leaf, indi, indj
     do i = 0, p
         indi = i*i + i + 1
         do j = -i, i
