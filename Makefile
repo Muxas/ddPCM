@@ -4,7 +4,10 @@
 #RunF77 = ifort
 #FFLAGS = -O3 -xHost -qopenmp
 RunF77 = gfortran
-FFLAGS = -O3 -march=native -llapack -lblas
+#FFLAGS = -O3 -march=native -llapack -lblas
+FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
+	 ${MKLROOT}/lib/libmkl_sequential.a ${MKLROOT}/lib/libmkl_core.a \
+	 -lpthread -lm -ldl -ftree-vectorize
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
@@ -27,7 +30,7 @@ mydx:	all mydx.f90
 	f2py -m mydx -c mydx.f90 $(OBJS)
 
 pcm_fmm:	pcm_fmm.f90 llgnew.f
-	f2py -m pcm_fmm -c pcm_fmm.f90 llgnew.f -L/usr/lib -llapack -lblas \
-	    --opt="-O3 -march=native"
+	f2py -m pcm_fmm -c pcm_fmm.f90 llgnew.f --opt="${FFLAGS}"
 
 .PHONY:	all clean mydx pcm_fmm
+
