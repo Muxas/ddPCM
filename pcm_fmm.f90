@@ -765,6 +765,107 @@ subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
     end do
 end subroutine tree_init
 
+! Find near and far admissible pairs of tree nodes
+subroutine tree_get_m2l(nsph, children, cnode, rnode, lwork, iwork, &
+        & jwork, work, nnfar, nfar, nnnear, nnear)
+! Parameters:
+!   nsph: number of leaf nodes in a tree. total number of nodes is 2*nsph-1
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   lwork: size of work array in dimension 2
+!   iwork: index of current pair of nodes that needs to be checked for
+!       admissibility. must be 0 for first call of this subroutine. if on exit
+!       iwork is less or equal to jwork, that means lwork was too small, please
+!       reallocate work array and copy all the values into new array and then
+!       run procedure again.
+!   jwork: amount of stored possible admissible pairs of nodes.
+!       Please read iwork comments.
+!   work: all the far and near pairs will be stored here
+!   nnfar: total amount of far admissible pairs. valid only if iwork is
+!       greater than jwork on exit.
+!   nfar: amount of far admissible pairs for each node. valid only if iwork is
+!       greater than jwork on exit.
+!   nnnear: total amount of near admissible pairs. valid only if iwork is
+!       greater than jwork on exit
+!   nnear: amount of near admissible pairs for each node. valid only if iwork
+!       is greater than jwork on exit
+    integer, intent(in) :: nsph, children(2, 2*nsph-1), lwork
+    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    integer, intent(inout) :: iwork, jwork, work(3, lwork)
+    integer, intent(out) :: nnfar, nfar(2*nsph-1), nnnear, nnear(2*nsph-1)
+    integer :: j(2)
+    real(kind=8) :: c(3), r, d
+    if (iwork .eq. 0) then
+        work(1, 1) = 1
+        work(2, 1) = 1
+        iwork = 1
+        jwork = 1
+    end if
+    do while (iwork .le. jwork)
+        j = work(1:2, iwork)
+        c = cnode(:, j(1)) - cnode(:, j(2))
+        r = rnode(j(1)) + rnode(j(2))
+        d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
+        if (d .ge. 2*r) then
+            ! Mark as far admissible pair
+            !write(*,*) "FAR:", j
+            work(3, iwork) = 1
+        else if ((children(1, j(1)) .eq. 0) .or. &
+            & (children(1, j(2)) .eq. 0)) then
+            ! Mark as near admissible pair if one of nodes is a leaf node
+            !write(*,*) "NEAR:", j
+            work(3, iwork) = 2
+        else if (jwork+4 .gt. lwork) then
+            ! Exit procedure, since work array was too small
+            !write(*,*) "SMALL LWORK"
+            return
+        else
+            ! Mark as non-admissible pair and check all pairs of children nodes
+            work(3, iwork) = 0
+            work(1, jwork+1) = children(1, j(1))
+            work(2, jwork+1) = children(1, j(2))
+            work(1, jwork+2) = children(1, j(1))
+            work(2, jwork+2) = children(2, j(2))
+            work(1, jwork+3) = children(2, j(1))
+            work(2, jwork+3) = children(1, j(2))
+            work(1, jwork+4) = children(2, j(1))
+            work(2, jwork+4) = children(2, j(2))
+            jwork = jwork + 4
+            !write(*,*) "NON:", j
+        end if
+        iwork = iwork + 1
+    end do
+    nfar = 0
+    nnear = 0
+    do iwork = 1, jwork
+        if (work(3, iwork) .eq. 1) then
+            nfar(work(1, iwork)) = nfar(work(1, iwork)) + 1
+        else if (work(3, iwork) .eq. 2) then
+            nnear(work(1, iwork)) = nnear(work(1, iwork)) + 1
+        end if
+    end do
+    iwork = jwork + 1
+    nnfar = sum(nfar)
+    nnnear = sum(nnear)
+end subroutine tree_get_m2l
+
+! Get near and far admissible pairs from work array of tree_get_m2l
+subroutine tree_get_far_near(jwork, lwork, work, nsph, nfar, sfar, far, &
+        nnear, snear, near)
+! Parameters:
+    integer, intent(in) :: jwork, lwork, work(3, lwork), nsph, nfar, nnear
+    integer, intent(out) :: sfar(nsph+1), far(nfar), snear(nsph+1), near(nnear)
+    integer :: i
+    do i = 1, jwork
+        if (work(3, i) .eq. 1) then
+            ! Far
+        else if (work(3, i) .eq. 2) then
+            ! Near
+        end if
+    end do
+end subroutine tree_get_far_near
+
 ! Compute multipole coefficients for each node of tree
 subroutine tree_m2m_baseline(nsph, p, vscales, coef_sph, ind, cluster, &
         & children, cnode, rnode, coef_node)
