@@ -806,9 +806,10 @@ subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
     do while (iwork .le. jwork)
         j = work(1:2, iwork)
         c = cnode(:, j(1)) - cnode(:, j(2))
-        r = rnode(j(1)) + rnode(j(2))
+        r = rnode(j(1)) + rnode(j(2)) + max(rnode(j(1)), rnode(j(2)))
+        !r = rnode(j(1)) + rnode(j(2))
         d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
-        if (d .ge. 2*r) then
+        if (d .ge. r) then
             ! Mark as far admissible pair
             !write(*,*) "FAR:", j
             work(3, iwork) = 1
@@ -1069,9 +1070,9 @@ subroutine tree_m2l_baseline(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         coef_l(:, i) = 0
         do j = sfar(i), sfar(i+1)-1
             k = far(j)
-            c = cnode(:, i) - cnode(:, k)
-            r1 = rnode(i)
-            r2 = rnode(k)
+            c = cnode(:, k) - cnode(:, i)
+            r1 = rnode(k)
+            r2 = rnode(i)
             call fmm_m2l_baseline(c, r1, r2, pm, pl, vscales, coef_m(:, k), &
                 & coef_l(:, i))
         end do
@@ -1119,29 +1120,107 @@ subroutine tree_l2l_baseline(nsph, p, vscales, coef_node, ind, cluster, &
     end do
 end subroutine tree_l2l_baseline
 
-! Apply L2P from local spherical harmonics to grid points
-subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, vgrid, p, &
-        & coef_sph, nnnear, snear, near, cluster, ind)
-    integer, intent(in) :: nsph, ngrid, nnnear
-    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(ngrid)
-    real(kind=8), intent(in) :: vgrid((p+1)*(p+1), ngrid)
-    real(kind=8), intent(inout) :: coef_sph((p+1)*(p+1), nsph)
-    do i = 1, nsph
-        x = 0
-        do j = 1, (p+1)*(p+1)
-            x = x + coef_sph(j, i)*vgrid(j, :)
+! Apply L2P from local spherical harmonics to grid points and add near M2P
+subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, coef_sph_m, coef_sph_l, nnnear, snear, near, &
+        & cluster, ind, ui)
+    integer, intent(in) :: nsph, ngrid, pm, pl, nnnear
+    integer, intent(in) :: snear(2*nsph), near(nnnear)
+    integer, intent(in) :: cluster(2, 2*nsph-1), ind(nsph)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: vgrid((pl+1)*(pl+1), ngrid), ui(ngrid, nsph)
+    real(kind=8), intent(in) :: coef_sph_m((pm+1)*(pm+1), nsph), w(ngrid)
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(inout) :: coef_sph_l((pl+1)*(pl+1), nsph)
+    integer :: isph, i, j, inode, inear, jnode, isph_node, jsph_node, jsph
+    integer :: igrid, indi
+    real(kind=8) :: x(ngrid, nsph), c(3), tmp_v
+    x = 0
+    ! Apply normalization factor into coefficients
+    do i = 0, pl
+        coef_sph_l(i*i+1:(i+1)*(i+1), :) = coef_sph_l(i*i+1:(i+1)*(i+1), :) / &
+            & vscales(i*i+i+1)**2
+    end do
+    ! Apply L2P
+    do isph = 1, nsph
+        x(:, isph) = 0
+        do i = 0, pl
+            indi = i*i + i + 1
+            do j = indi-i, indi+i
+                x(:, isph) = x(:, isph) + coef_sph_l(j, isph)*vgrid(j, :)
+            end do
         end do
-        do j = snear(i), snear(i+1)-1
+        x(:, isph) = x(:, isph) / rsph(isph)
+    end do
+    ! Apply near-field M2P
+    ! This loop is disabled for performance
+    do inode = 1, 0!2*nsph-1
+        do inear = snear(inode), snear(inode+1)-1
+            jnode = near(inear)
+            do isph_node = cluster(1, inode), cluster(2, inode)
+                isph = ind(isph_node)
+                do jsph_node = cluster(1, jnode), cluster(2, jnode)
+                    jsph = ind(jsph_node)
+                    if (isph .eq. jsph) then
+                        cycle
+                    end if
+                    do igrid = 1, ngrid
+                        if (ui(igrid, isph) .eq. 0) then
+                            cycle
+                        end if
+                        c = csph(:, isph) + rsph(isph)*grid(:, igrid)
+                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), pm, &
+                            & vscales, coef_sph_m(:, jsph), tmp_v)
+                        x(igrid, isph) = x(igrid, isph) + tmp_v
+                    end do
+                end do
+            end do
         end do
+    end do
+    ! This loop is active
+    do inode = 1, 2*nsph-1
+        do inear = snear(inode), snear(inode+1)-1
+            jnode = near(inear)
+            do isph_node = cluster(1, inode), cluster(2, inode)
+                isph = ind(isph_node)
+                do igrid = 1, ngrid
+                    if (ui(igrid, isph) .eq. 0) then
+                        cycle
+                    end if
+                    do jsph_node = cluster(1, jnode), cluster(2, jnode)
+                        jsph = ind(jsph_node)
+                        if (isph .eq. jsph) then
+                            cycle
+                        end if
+                        c = csph(:, isph) + rsph(isph)*grid(:, igrid)
+                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), pm, &
+                            & vscales, coef_sph_m(:, jsph), tmp_v)
+                        x(igrid, isph) = x(igrid, isph) + tmp_v
+                    end do
+                end do
+            end do
+        end do
+    end do
+    ! Multiply by ui and integrate from values on spheres to coefficients
+    do isph = 1, nsph
+        do igrid = 1, ngrid
+            if (ui(igrid, isph) .eq. 0) then
+                x(igrid, isph) = 0
+            else
+                x(igrid, isph) = x(igrid, isph) * ui(igrid, isph)
+            end if
+        end do
+        coef_sph_l(:, isph) = 0
+        call int_grid(pl, ngrid, w, vgrid, x(:, isph), coef_sph_l(:, isph))
     end do
 end subroutine tree_l2p_m2p_fmm
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
 subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-        & ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, snode, &
+        & ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
         & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
     integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), cluster(2, 2*nsph-1)
-    integer, intent(in) :: children(2, 2*nsph-1), snode(nsph), nnfar
+    integer, intent(in) :: children(2, 2*nsph-1), nnfar
     integer, intent(in) :: sfar(2*nsph), far(nnfar), nnnear, snear(2*nsph)
     integer, intent(in) :: near(nnnear)
     real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
@@ -1150,10 +1229,10 @@ subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
     real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
     real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
     real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
-    real(kind=8) :: coef_sph_scaled((pm+pl+1)*(pm+pl+1), nsph)
-    real(kind=8) :: coef_node_m((pm+1)*(pm+1), 2*nsph-1), c(3), x(ngrid)
+    real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_node_m((pm+1)*(pm+1), 2*nsph-1)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), 2*nsph-1)
-    integer :: i, j, leaf, indi, indj
+    integer :: i, j, indi, indj
     do i = 0, pm
         indi = i*i + i + 1
         do j = -i, i
@@ -1167,13 +1246,9 @@ subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         & pl, vscales, coef_node_m, coef_node_l)
     call tree_l2l_baseline(nsph, pl, vscales, coef_node_l, ind, cluster, &
         & children, cnode, rnode, coef_out)
-    do i = 0, pl
-        indi = i*i + i + 1
-        do j = -i, i
-            indj = indi + j
-            !coef_out(indj, :) = i * coef_sph(indj, :) / rsph
-        end do
-    end do
+    call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
+        & cluster, ind, ui)
 end subroutine pcm_matvec_grid_fmm
 
 end module
