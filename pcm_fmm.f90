@@ -971,8 +971,8 @@ subroutine tree_m2p_treecode(c, leaf, p, vscales, nclusters, children, cnode, &
         ! hierarchically
         else
             r = sqrt(d(1)*d(1) + d(2)*d(2) + d(3)*d(3))
-            ! constant 2 guarantees good convergence and accuracy
-            if (r .gt. 2*rnode(i)) then
+            ! constant 3 guarantees good convergence and accuracy
+            if (r .gt. 3*rnode(i)) then
                 far(i) = 1
             else
                 far(i) = 0
@@ -1136,7 +1136,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
     integer :: igrid, indi
     real(kind=8) :: x(ngrid, nsph), c(3), tmp_v
     x = 0
-    ! Apply normalization factor into coefficients
+    ! Apply normalization factor to coefficients
     do i = 0, pl
         coef_sph_l(i*i+1:(i+1)*(i+1), :) = coef_sph_l(i*i+1:(i+1)*(i+1), :) / &
             & vscales(i*i+i+1)**2
@@ -1144,40 +1144,11 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
     ! Apply L2P
     do isph = 1, nsph
         x(:, isph) = 0
-        do i = 0, pl
-            indi = i*i + i + 1
-            do j = indi-i, indi+i
-                x(:, isph) = x(:, isph) + coef_sph_l(j, isph)*vgrid(j, :)
-            end do
+        do i = 1, (pl+1)*(pl+1)
+            x(:, isph) = x(:, isph) + coef_sph_l(i, isph)*vgrid(i, :)
         end do
         x(:, isph) = x(:, isph) / rsph(isph)
     end do
-    ! Apply near-field M2P
-    ! This loop is disabled for performance
-    do inode = 1, 0!2*nsph-1
-        do inear = snear(inode), snear(inode+1)-1
-            jnode = near(inear)
-            do isph_node = cluster(1, inode), cluster(2, inode)
-                isph = ind(isph_node)
-                do jsph_node = cluster(1, jnode), cluster(2, jnode)
-                    jsph = ind(jsph_node)
-                    if (isph .eq. jsph) then
-                        cycle
-                    end if
-                    do igrid = 1, ngrid
-                        if (ui(igrid, isph) .eq. 0) then
-                            cycle
-                        end if
-                        c = csph(:, isph) + rsph(isph)*grid(:, igrid)
-                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), pm, &
-                            & vscales, coef_sph_m(:, jsph), tmp_v)
-                        x(igrid, isph) = x(igrid, isph) + tmp_v
-                    end do
-                end do
-            end do
-        end do
-    end do
-    ! This loop is active
     do inode = 1, 2*nsph-1
         do inear = snear(inode), snear(inode+1)-1
             jnode = near(inear)
@@ -1250,6 +1221,111 @@ subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
         & cluster, ind, ui)
 end subroutine pcm_matvec_grid_fmm
+
+! Apply matvec for ddPCM spherical harmonics by tree-code
+! Per-sphere tree-code, which used not only M2P, but M2L and L2P also
+subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+        & ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
+        & coef_sph, coef_out)
+! Parameters:
+!   nsph: number of all spheres
+!   csph: centers of all spheres
+!   rsph: radiuses of all spheres
+!   ngrid: number of Lebedev grid points on each sphere
+!   grid: coordinates of Lebedev grid points on a unit sphere
+!   ui: "outside" factor of grid points (0 is inside, 1 is "fully" outside)
+!   pm: maximum degree of multipole basis functions
+!   pl: maximum degree of local basis functions
+!   vscales: normalization constants for Y_lm
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   coef_sph: multipole coefficients of bounding spheres of nodes
+!   coef_out: output multipole coefficients of spherical harmonics
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), cluster(2, 2*nsph-1)
+    integer, intent(in) :: children(2, 2*nsph-1)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
+    real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
+    real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
+    real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph), coef_l((pl+1)*(pl+1))
+    real(kind=8) :: coef_node((pm+1)*(pm+1), 2*nsph-1), d(3), x(ngrid)
+    real(kind=8) :: y(ngrid), tmp_v, r
+    integer :: i, j, k(2), indi, indj, far(2*nsph-1), igrid
+    do i = 0, pm
+        indi = i*i + i + 1
+        do j = -i, i
+            indj = indi + j
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+        end do
+    end do
+    call tree_m2m_baseline(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
+        & children, cnode, rnode, coef_node)
+    do i = 1, nsph
+        coef_l = 0
+        x = 0
+        far = 0
+        ! far(i): 0 if M2P or M2L must be ignored, 1 if M2L must be applied,
+        ! 2 if M2P must be applied and 3 if need to decide if M2P or M2L is
+        ! applicable
+        far(1) = 3
+        do j = 1, 2*nsph-1
+            ! If M2P or M2L is not applicable, ignore node
+            if (far(j) .eq. 0) then
+                cycle
+            end if
+            k = children(:, j)
+            d = cnode(:, j) - csph(:, i)
+            r = sqrt(d(1)*d(1) + d(2)*d(2) + d(3)*d(3))
+            ! constant 2 guarantees good convergence and accuracy
+            if (r .gt. 3*max(rsph(i), rnode(j))) then
+                far(j) = 1
+            else if(k(1) .eq. 0) then
+                far(j) = 2
+                ! If it contains the same sphere, then ignore it
+                if (ind(cluster(1, j)) .eq. i) then
+                    far(j) = 0
+                end if
+            else
+                far(j) = 0
+                far(k(1)) = 3
+                far(k(2)) = 3
+            end if
+            ! If M2L is needed
+            if (far(j) .eq. 1) then
+                call fmm_m2l_baseline(d, rnode(j), rsph(i), pm, pl, vscales, &
+                    & coef_node(:, j), coef_l)
+            ! If M2P is needed
+            else if (far(j) .eq. 2) then
+                do igrid = 1, ngrid
+                    if (ui(igrid, i) .ne. 0) then
+                        call fmm_m2p(rsph(i)*grid(:, igrid)-d, rnode(j), pm, &
+                            vscales, coef_node(:, j), tmp_v)
+                        x(igrid) = x(igrid) + tmp_v
+                    end if
+                end do
+            end if
+        end do
+        ! Evaluate L2P and add it to M2P of near-field
+        ! Apply normalization factor to coefficients
+        do j = 0, pl
+            coef_l(j*j+1:(j+1)*(j+1)) = coef_l(j*j+1:(j+1)*(j+1)) / &
+                & (rsph(i) * vscales(j*j+j+1)**2)
+        end do
+        ! Apply L2P
+        y = 0
+        do j = 1, (pl+1)*(pl+1)
+            y = y + coef_l(j)*vgrid(j, :)
+        end do
+        ! Scale by ui
+        x = (x+y) * ui(:, i)
+        call int_grid(pl, ngrid, w, vgrid, x, coef_out(:, i))
+    end do
+end subroutine pcm_matvec_grid_treecode2
 
 end module
 
