@@ -625,6 +625,72 @@ subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
     end if
 end subroutine fmm_l2l_baseline
 
+! Optimized version of M2M, translation over OZ axis only
+subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
+! Parameters:
+!   z: radius-vector from new to old centers of harmonics (z coordinate only)
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1))
+    real(kind=8), intent(in) :: src_m((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: r1, r2, fact(2*p+1), tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, indj, indn, indjn
+    if (z .ne. 0) then
+        r1 = src_r / dst_r
+        r2 = z / dst_r
+        pow_r1(1) = 1
+        pow_r2(1) = 1
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
+        ! Fill square roots of factorials
+        fact(1) = 1
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = 0, j
+                tmp1 = vscales(indj) * fact(j-k+1) * fact(j+k+1)
+                if (k .ne. 0) then
+                    tmp1 = tmp1 * sqrt_2
+                end if
+                do n = 0, j-k
+                    indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
+                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
+                        & vscales(indjn) / fact(n+1) / fact(n+1) / &
+                        & fact(j-n-k+1) / fact(j-n+k+1)
+                    if (k .eq. 0) then
+                        dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
+                    else
+                        tmp2 = tmp2 / sqrt_2
+                        dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
+                        dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
+                    end if
+                end do
+            end do
+        end do
+    else
+        r1 = src_r / dst_r
+        tmp1 = 1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                dst_m(k) = dst_m(k) + src_m(k)*tmp1
+            end do
+            tmp1 = tmp1 * r1
+        end do
+    end if
+end subroutine fmm_m2m_ztranslate
+
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 ! Parameters:
@@ -1132,8 +1198,8 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
     real(kind=8), intent(in) :: coef_sph_m((pm+1)*(pm+1), nsph), w(ngrid)
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
     real(kind=8), intent(inout) :: coef_sph_l((pl+1)*(pl+1), nsph)
-    integer :: isph, i, j, inode, inear, jnode, isph_node, jsph_node, jsph
-    integer :: igrid, indi
+    integer :: isph, i, inode, inear, jnode, isph_node, jsph_node, jsph
+    integer :: igrid
     real(kind=8) :: x(ngrid, nsph), c(3), tmp_v
     x = 0
     ! Apply normalization factor to coefficients
