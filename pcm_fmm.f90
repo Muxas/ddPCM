@@ -691,6 +691,78 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
     end if
 end subroutine fmm_m2m_ztranslate
 
+! Rotate spherical harmonics
+subroutine fmm_sph_rotate(p, r1, src, dst)
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst((p+1)*(p+1))
+    real(kind=8) :: u, uu, v, vv, w, ww, r_prev(-p:p, -p:p), r(-p:p, -p:p)
+    real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3
+    integer :: l, m, n
+    ! l = 0
+    dst(1) = src(1)
+    ! l = 1
+    do m = -1, 1
+        dst(3+m) = 0
+        do n = -1, 1
+            r_prev(n, m) = r1(n, m)
+            dst(3+m) = dst(3+m) + r1(n, m)*src(3+n)
+        end do
+    end do
+    ! l > 1
+    do l = 2, p
+        do m = 0, l
+            if (m .ne. l) then
+                tmpm1 = l*l - m*m
+            else
+                tmpm1 = 2*l
+                tmpm1 = tmpm1 * (tmpm1-1)
+            end if
+            tmpm1 = sqrt(tmpm1)
+            do n = 0, l
+                tmpn1 = sqrt(dble(l*l-n*n))
+                tmpn2 = l + n
+                tmpn2 = sqrt(tmpn2*(tmpn2-1))
+                if (n .eq. 0) then
+                    tmpn2 = -tmpn2 / sqrt_2
+                    tmpn3 = 0
+                else
+                    tmpn2 = tmpn2 / 2
+                    tmpn3 = l - n
+                    tmpn3 = -sqrt(tmpn3*(tmpn3-1)) / 2
+                end if
+                u = tmpn1 / tmpm1
+                v = tmpn2 / tmpm1
+                w = tmpn3 / tmpm1
+                ! define uu only if u is not zero (to avoid out-of-bounds
+                ! access) on array r_prev, which happens in case abs(n)=l
+                if (u .ne. 0) then
+                    uu1 = r1(0, 0) * r_prev(n, m)
+                    uu2 = r1(0, 0) * r_prev(-n, m)
+                    uu3 = r1(0, 0) * r_prev(n, -m)
+                    uu4 = r1(0, 0) * r_prev(-n, -m)
+                else
+                    uu1 = 0
+                    uu2 = 0
+                    uu3 = 0
+                    uu4 = 0
+                end if
+                ! define vv
+                if(n .eq. 1) then
+                else
+                end if
+                ! define ww only if w is not zero (to avoid out-of-bounds
+                ! access) on array r_prev, which happens if abs(n)=l or
+                ! abs(n)=l-1
+                if (w .ne. 0) then
+                else
+                    ww = 0
+                end if
+            end do
+        end do
+    end do
+end subroutine fmm_sph_rotate
+
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 ! Parameters:
