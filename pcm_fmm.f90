@@ -697,8 +697,8 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
     real(kind=8) :: u, uu, v, vv, w, ww, r_prev(-p:p, -p:p), r(-p:p, -p:p)
-    real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3
-    integer :: l, m, n
+    real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3, tmpu1
+    integer :: l, m, n, tm, tn
     ! l = 0
     dst(1) = src(1)
     ! l = 1
@@ -737,18 +737,30 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
                 ! define uu only if u is not zero (to avoid out-of-bounds
                 ! access) on array r_prev, which happens in case abs(n)=l
                 if (u .ne. 0) then
-                    uu1 = r1(0, 0) * r_prev(n, m)
-                    uu2 = r1(0, 0) * r_prev(-n, m)
-                    uu3 = r1(0, 0) * r_prev(n, -m)
-                    uu4 = r1(0, 0) * r_prev(-n, -m)
-                else
-                    uu1 = 0
-                    uu2 = 0
-                    uu3 = 0
-                    uu4 = 0
+                    tmpu1 = u * r1(0, 0)
+                    r(-n:n:2*n, -m:m:2*m) = tmpu1 * r_prev(-n:n:2*n)
+                    do tn = -n, n, 2*n
+                        do tm = -m, m, 2*m
+                            r(tn, tm) = tmpu1 * r_prev(tn, tm)
+                        end do
+                    end do
                 end if
                 ! define vv
-                if(n .eq. 1) then
+                if (n .eq. 0) then
+                    if (m .ne. l) then
+                        !r(n, m) = r1(1, 0)*r_prev(1, m) + r1(-1, 0)*r_prev(-1, m)
+                        !vv3 = r1(1, 0)*r_prev(1, -m) + r1(-1, 0)*r_prev(-1, -m)
+                    else
+                        !vv1 = r1(1, 1)*r_prev(1, l-1) - &
+                        !    & r1(1, -1)*r_prev(1, 1-l) + &
+                        !    & r1(-1, 1)*r_prev(-1, l-1) - &
+                        !    & r1(-1, -1)*r_prev(-1, 1-l)
+                        !vv3 = r1(1, 1)*r_prev(1, l-1) - &
+                        !    & r1(1, -1)*r_prev(1, 1-l) + &
+                        !    & r1(-1, 1)*r_prev(-1, 1-l) + &
+                        !    & r1(-1, -1)*r_prev(-1, l-1)
+                    end if
+                if (n .eq. 1) then
                 else
                 end if
                 ! define ww only if w is not zero (to avoid out-of-bounds
