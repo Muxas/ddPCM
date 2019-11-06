@@ -696,9 +696,9 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
-    real(kind=8) :: u, uu, v, vv, w, ww, r_prev(-p:p, -p:p), r(-p:p, -p:p)
+    real(kind=8) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
     real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3, tmpu1
-    integer :: l, m, n, tm, tn
+    integer :: l, m, n, ind
     ! l = 0
     dst(1) = src(1)
     ! l = 1
@@ -711,6 +711,7 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
     end do
     ! l > 1
     do l = 2, p
+        ind = l*l + l + 1
         do m = 0, l
             if (m .ne. l) then
                 tmpm1 = l*l - m*m
@@ -734,44 +735,172 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
                 u = tmpn1 / tmpm1
                 v = tmpn2 / tmpm1
                 w = tmpn3 / tmpm1
-                ! define uu only if u is not zero (to avoid out-of-bounds
-                ! access) on array r_prev, which happens in case abs(n)=l
+                ! define U only if u is not zero to avoid out-of-bounds
+                ! access on array r_prev, which happens in case abs(n)=l
                 if (u .ne. 0) then
                     tmpu1 = u * r1(0, 0)
-                    r(-n:n:2*n, -m:m:2*m) = tmpu1 * r_prev(-n:n:2*n)
-                    do tn = -n, n, 2*n
-                        do tm = -m, m, 2*m
-                            r(tn, tm) = tmpu1 * r_prev(tn, tm)
-                        end do
-                    end do
-                end if
-                ! define vv
-                if (n .eq. 0) then
                     if (m .ne. l) then
-                        !r(n, m) = r1(1, 0)*r_prev(1, m) + r1(-1, 0)*r_prev(-1, m)
-                        !vv3 = r1(1, 0)*r_prev(1, -m) + r1(-1, 0)*r_prev(-1, -m)
+                        if ((n .ne. 0) .and. (m .ne. 0)) then
+                            r(n, m) = tmpu1 * r_prev(n, m)
+                            r(-n, m) = tmpu1 * r_prev(-n, m)
+                            r(n, -m) = tmpu1 * r_prev(n, -m)
+                            r(-n, -m) = tmpu1 * r_prev(-n, -m)
+                        else if (n .ne. 0) then
+                            r(n, 0) = tmpu1 * r_prev(n, 0)
+                            r(-n, 0) = tmpu1 * r_prev(-n, 0)
+                        else if (m .ne. 0) then
+                            r(0, m) = tmpu1 * r_prev(0, m)
+                            r(0, -m) = tmpu1 * r_prev(0, -m)
+                        else
+                            r(0, 0) = tmpu1 * r_prev(0, 0)
+                        end if
                     else
-                        !vv1 = r1(1, 1)*r_prev(1, l-1) - &
-                        !    & r1(1, -1)*r_prev(1, 1-l) + &
-                        !    & r1(-1, 1)*r_prev(-1, l-1) - &
-                        !    & r1(-1, -1)*r_prev(-1, 1-l)
-                        !vv3 = r1(1, 1)*r_prev(1, l-1) - &
-                        !    & r1(1, -1)*r_prev(1, 1-l) + &
-                        !    & r1(-1, 1)*r_prev(-1, 1-l) + &
-                        !    & r1(-1, -1)*r_prev(-1, l-1)
+                        if (n .ne. 0) then
+                            r(n, l) = u * (r1(0, 1)*r_prev(n, l-1)- &
+                                & r1(0, -1)*r_prev(n, 1-l))
+                            r(-n, l) = u * (r1(0, 1)*r_prev(-n, l-1)- &
+                                & r1(0, -1)*r_prev(-n, 1-l))
+                            r(n, -l) = u * (r1(0, 1)*r_prev(n, 1-l)+ &
+                                & r1(0, -1)*r_prev(n, l-1))
+                            r(-n, -l) = u * (r1(0, 1)*r_prev(-n, 1-l)+ &
+                                & r1(0, -1)*r_prev(-n, l-1))
+                        else
+                            r(0, l) = u * (r1(0, 1)*r_prev(0, l-1)- &
+                                & r1(0, -1)*r_prev(0, 1-l))
+                            r(0, -l) = u * (r1(0, 1)*r_prev(0, 1-l)+ &
+                                & r1(0, -1)*r_prev(0, l-1))
+                        end if
                     end if
-                if (n .eq. 1) then
-                else
                 end if
-                ! define ww only if w is not zero (to avoid out-of-bounds
-                ! access) on array r_prev, which happens if abs(n)=l or
+                ! define V
+                if (n .eq. 0) then
+                    if (m .eq. 0) then
+                        r(0, 0) = r(0, 0) + v*(r1(1, 0)*r_prev(1, 0)+ &
+                            & r1(-1, 0)*r_prev(-1, 0))
+                    else if (m .ne. l) then
+                        r(0, m) = r(0, m) + v*(r1(1, 0)*r_prev(1, m)+ &
+                            & r1(-1, 0)*r_prev(-1, m))
+                        r(0, -m) = r(0, -m) + v*(r1(1, 0)*r_prev(1, -m)+ &
+                            & r1(-1, 0)*r_prev(-1, -m))
+                    else
+                        r(0, l) = r(0, l) + v*(r1(1, 1)*r_prev(1, l-1)- &
+                            & r1(1, -1)*r_prev(1, 1-l)+ &
+                            & r1(-1, 1)*r_prev(-1, l-1)- &
+                            & r1(-1, -1)*r_prev(-1, 1-l))
+                        r(0, -l) = r(0, -l) + v*(r1(1, 1)*r_prev(1, 1-l)+ &
+                            & r1(1, -1)*r_prev(1, l-1)+ &
+                            & r1(-1, 1)*r_prev(-1, 1-l)+ &
+                            & r1(-1, -1)*r_prev(-1, l-1))
+                    end if
+                else if (n .eq. 1) then
+                    if (m .eq. 0) then
+                        r(1, 0) = r(1, 0) + sqrt_2*v*r1(1, 0)*r_prev(0, 0)
+                        r(-1, 0) = r(-1, 0) + sqrt_2*v*r1(-1, 0)*r_prev(0, 0)
+                    else if (m .ne. l) then
+                        r(1, m) = r(1, m) + sqrt_2*v*r1(1, 0)*r_prev(0, m)
+                        r(1, -m) = r(1, -m) + sqrt_2*v*r1(1, 0)*r_prev(0, -m)
+                        r(-1, m) = r(-1, m) + sqrt_2*v*r1(-1, 0)*r_prev(0, m)
+                        r(-1, -m) = r(-1, -m) + sqrt_2*v*r1(-1, 0)* &
+                            & r_prev(0, -m)
+                    else
+                        r(1, l) = r(1, l) + sqrt_2*v*(r1(1, 1)* &
+                            & r_prev(0, l-1)-r1(1, -1)*r_prev(0, 1-l))
+                        r(1, -l) = r(1, -l) + sqrt_2*v*(r1(1, 1)* &
+                            & r_prev(0, 1-l)+r1(1, -1)*r_prev(0, l-1))
+                        r(-1, l) = r(-1, l) + sqrt_2*v*(r1(-1, 1)* &
+                            & r_prev(0, l-1)-r1(-1, -1)*r_prev(0, 1-l))
+                        r(-1, -l) = r(-1, -l) + sqrt_2*v*(r1(-1, 1)* &
+                            & r_prev(0, 1-l)+r1(-1, -1)*r_prev(0, l-1))
+                    end if
+                else
+                    if (m .eq. 0) then
+                        r(n, 0) = r(n, 0) + v*(r1(1, 0)*r_prev(n-1, 0)- &
+                            & r1(-1, 0)*r_prev(1-n, 0))
+                        r(-n, 0) = r(-n, 0) + v*(r1(1, 0)*r_prev(1-n, 0)+ &
+                            & r1(-1, 0)*r_prev(n-1, 0))
+                    else if (m .ne. l) then
+                        r(n, m) = r(n, m) + v*(r1(1, 0)*r_prev(n-1, m)- &
+                            & r1(-1, 0)*r_prev(1-n, m))
+                        r(n, -m) = r(n, -m) + v*(r1(1, 0)*r_prev(n-1, -m)- &
+                            & r1(-1, 0)*r_prev(1-n, -m))
+                        r(-n, m) = r(-n, m) + v*(r1(1, 0)*r_prev(1-n, m)+ &
+                            & r1(-1, 0)*r_prev(n-1, m))
+                        r(-n, -m) = r(-n, -m) + v*(r1(1, 0)*r_prev(1-n, -m)+ &
+                            & r1(-1, 0)*r_prev(n-1, -m))
+                    else
+                        r(n, l) = r(n, l) + v*(r1(1, 1)*r_prev(n-1, l-1)- &
+                            & r1(1, -1)*r_prev(n-1, 1-l) - &
+                            & r1(-1, 1)*r_prev(1-n, l-1) + &
+                            & r1(-1, -1)*r_prev(1-n, 1-l))
+                        r(n, -l) = r(n, -l) + v*(r1(1, 1)*r_prev(n-1, 1-l)+ &
+                            & r1(1, -1)*r_prev(n-1, l-1) - &
+                            & r1(-1, 1)*r_prev(1-n, 1-l) - &
+                            & r1(-1, -1)*r_prev(1-n, l-1))
+                        r(-n, l) = r(-n, l) + v*(r1(1, 1)*r_prev(1-n, l-1)- &
+                            & r1(1, -1)*r_prev(1-n, 1-l) + &
+                            & r1(-1, 1)*r_prev(n-1, l-1) - &
+                            & r1(-1, -1)*r_prev(n-1, 1-l))
+                        r(-n, -l) = r(-n, -l) + v*(r1(1, 1)*r_prev(1-n, 1-l)- &
+                            & r1(1, -1)*r_prev(1-n, l-1) + &
+                            & r1(-1, 1)*r_prev(n-1, 1-l) + &
+                            & r1(-1, -1)*r_prev(n-1, l-1))
+                    end if
+                end if
+                ! define W only if w is not zero (to avoid out-of-bounds
+                ! access) on array r_prev, which happens if n=0 or abs(n)=l or
                 ! abs(n)=l-1
                 if (w .ne. 0) then
+                    if (m .eq. 0) then
+                        r(n, 0) = r(n, 0) + w*(r1(1, 0)*r_prev(n+1, 0)+ &
+                            & r1(-1, 0)*r_prev(-n-1, 0))
+                        r(-n, 0) = r(-n, 0) + w*(r1(1, 0)*r_prev(-n-1, 0)- &
+                            & r1(-1, 0)*r_prev(n+1, 0))
+                    else if (m .ne. l) then
+                        r(n, m) = r(n, m) + w*(r1(1, 0)*r_prev(n+1, m)+ &
+                            & r1(-1, 0)*r_prev(-n-1, m))
+                        r(n, -m) = r(n, -m) + w*(r1(1, 0)*r_prev(n+1, -m)+ &
+                            & r1(-1, 0)*r_prev(-n-1, -m))
+                        r(-n, m) = r(-n, m) + w*(r1(1, 0)*r_prev(-n-1, m)+ &
+                            & r1(-1, 0)*r_prev(n+1, m))
+                        r(-n, -m) = r(-n, -m) + w*(r1(1, 0)*r_prev(-n-1, -m)+ &
+                            & r1(-1, 0)*r_prev(n+1, -m))
+                    else
+                        r(n, l) = r(n, l) + w*(r1(1, 1)*r_prev(n+1, l-1)- &
+                            & r1(1, -1)*r_prev(n+1, 1-l)+ &
+                            & r1(-1, 1)*r_prev(-n-1, l-1)- &
+                            & r1(-1, -1)*r_prev(-n-1, 1-l))
+                        r(n, -l) = r(n, -l) + w*(r1(1, 1)*r_prev(n+1, 1-l)+ &
+                            & r1(1, -1)*r_prev(n+1, l-1)+ &
+                            & r1(-1, 1)*r_prev(-n-1, 1-l)+ &
+                            & r1(-1, -1)*r_prev(-n-1, l-1))
+                        r(-n, l) = r(-n, l) + w*(r1(1, 1)*r_prev(-n-1, l-1)- &
+                            & r1(1, -1)*r_prev(-n-1, 1-l)- &
+                            & r1(-1, 1)*r_prev(n+1, l-1)+ &
+                            & r1(-1, -1)*r_prev(n+1, 1-l))
+                        r(-n, -l) = r(-n, -l) + w*(r1(1, 1)*r_prev(-n-1, 1-l)+ &
+                            & r1(1, -1)*r_prev(-n-1, l-1)- &
+                            & r1(-1, 1)*r_prev(n+1, 1-l)- &
+                            & r1(-1, -1)*r_prev(n+1, l-1))
+                    end if
+                end if
+                ! Apply computed rotations
+                if ((m .eq. 0) .and. (n .eq. 0)) then
+                    dst(ind) = dst(ind) + r(0, 0)*src(ind)
+                else if (m .eq. 0) then
+                    dst(ind) = dst(ind) + r(n, 0)*src(ind+n) + &
+                        & r(-n, 0)*src(ind-n)
+                else if (n .eq. 0) then
+                    dst(ind+m) = dst(ind+m) + r(0, m)*src(ind)
+                    dst(ind-m) = dst(ind-m) + r(0, -m)*src(ind)
                 else
-                    ww = 0
+                    dst(ind+m) = dst(ind+m) + r(n, m)*src(ind+n) + &
+                        & r(-n, m)*src(ind-n)
+                    dst(ind-m) = dst(ind-m) + r(n, -m)*src(ind+n) + &
+                        & r(-n, -m)*src(ind-n)
                 end if
             end do
         end do
+        r_prev(-l:l, -l:l) = r(-l:l, -l:l)
     end do
 end subroutine fmm_sph_rotate
 
