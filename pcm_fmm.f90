@@ -904,6 +904,170 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
     end do
 end subroutine fmm_sph_rotate
 
+subroutine fmm_sph_rotate2_get_u(l, n, m, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(out) :: c
+    c = l*l - n*n
+    if (abs(m) .eq. l) then
+        c = c / (2*l) / (2*l-1)
+    else
+        c = c / (l*l - m*m)
+    end if
+    c = sqrt(c)
+end subroutine fmm_sph_rotate2_get_u
+
+subroutine fmm_sph_rotate2_get_v(l, n, m, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(out) :: c
+    integer :: k
+    c = 1
+    if (abs(m) .eq. l) then
+        c = c / (2*l) / (2*l-1)
+    else
+        c = c / (l*l - m*m)
+    end if
+    if (n .eq. 0) then
+        c = c * 2 * l * (l-1)
+        c = -sqrt(c) / 2
+    else
+        k = abs(n)
+        c = c * (l+k-1) * (l+k)
+        c = sqrt(c) / 2
+    end if
+end subroutine fmm_sph_rotate2_get_v
+
+subroutine fmm_sph_rotate2_get_w(l, n, m, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(out) :: c
+    integer :: k
+    if (n .eq. 0) then
+        c = 0
+        return
+    end if
+    c = 1
+    if (abs(m) .eq. l) then
+        c = c / (2*l) / (2*l-1)
+    else
+        c = c / (l*l - m*m)
+    end if
+    k = abs(n)
+    c = c * (l-k-1) * (l-k)
+    c = -sqrt(c) / 2
+end subroutine fmm_sph_rotate2_get_w
+
+subroutine fmm_sph_rotate2_get_p(l, i, n, m, r, r_prev, c)
+    integer, intent(in) :: l, i, n, m
+    real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
+    real(kind=8), intent(out) :: c
+    if (m .eq. l) then
+        c = r(i, 1)*r_prev(n, l-1) - r(i, -1)*r_prev(n, 1-l)
+    else if (m .eq. -l) then
+        c = r(i, 1)*r_prev(n, 1-l) + r(i, -1)*r_prev(n, l-1)
+    else
+        c = r(i, 0) * r_prev(n, m)
+    end if
+end subroutine fmm_sph_rotate2_get_p
+
+subroutine fmm_sph_rotate2_get_uu(l, n, m, r, r_prev, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
+    real(kind=8), intent(out) :: c
+    real(kind=8) :: c1
+    call fmm_sph_rotate2_get_u(l, n, m, c)
+    if (c .ne. 0) then
+        call fmm_sph_rotate2_get_p(l, 0, n, m, r, r_prev, c1)
+        c = c * c1
+    end if
+end subroutine fmm_sph_rotate2_get_uu
+
+subroutine fmm_sph_rotate2_get_vv(l, n, m, r, r_prev, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
+    real(kind=8), intent(out) :: c
+    real(kind=8) :: c1, c2
+    call fmm_sph_rotate2_get_v(l, n, m, c)
+    if (c .eq. 0) then
+        return
+    end if
+    if (n .gt. 1) then
+        call fmm_sph_rotate2_get_p(l, 1, n-1, m, r, r_prev, c1)
+        call fmm_sph_rotate2_get_p(l, -1, 1-n, m, r, r_prev, c2)
+        c = c * (c1-c2)
+    else if (n .eq. 1) then
+        call fmm_sph_rotate2_get_p(l, 1, 0, m, r, r_prev, c1)
+        c = sqrt_2 * c * c1
+    else if (n .eq. 0) then
+        call fmm_sph_rotate2_get_p(l, 1, 1, m, r, r_prev, c1)
+        call fmm_sph_rotate2_get_p(l, -1, -1, m, r, r_prev, c2)
+        c = c * (c1+c2)
+    else if (n .eq. -1) then
+        call fmm_sph_rotate2_get_p(l, -1, 0, m, r, r_prev, c1)
+        c = sqrt_2 * c * c1
+    else
+        call fmm_sph_rotate2_get_p(l, 1, n+1, m, r, r_prev, c1)
+        call fmm_sph_rotate2_get_p(l, -1, -1-n, m, r, r_prev, c2)
+        c = c * (c1+c2)
+    end if
+end subroutine fmm_sph_rotate2_get_vv
+
+subroutine fmm_sph_rotate2_get_ww(l, n, m, r, r_prev, c)
+    integer, intent(in) :: l, n, m
+    real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
+    real(kind=8), intent(out) :: c
+    real(kind=8) :: c1, c2
+    call fmm_sph_rotate2_get_w(l, n, m, c)
+    if (c .eq. 0) then
+        return
+    end if
+    if (n .lt. 0) then
+        call fmm_sph_rotate2_get_p(l, 1, n-1, m, r, r_prev, c1)
+        call fmm_sph_rotate2_get_p(l, -1, 1-n, m, r, r_prev, c2)
+        c = c * (c1-c2)
+    else
+        call fmm_sph_rotate2_get_p(l, 1, n+1, m, r, r_prev, c1)
+        call fmm_sph_rotate2_get_p(l, -1, -1-n, m, r, r_prev, c2)
+        c = c * (c1+c2)
+    end if
+end subroutine fmm_sph_rotate2_get_ww
+
+! Rotate spherical harmonics
+subroutine fmm_sph_rotate2(p, r1, src, dst)
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst((p+1)*(p+1))
+    real(kind=8) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
+    real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3, tmpu1
+    integer :: l, m, n, ind
+    ! l = 0
+    dst(1) = src(1)
+    ! l = 1
+    do m = -1, 1
+        dst(3+m) = 0
+        do n = -1, 1
+            r_prev(n, m) = r1(n, m)
+            dst(3+m) = dst(3+m) + r1(n, m)*src(3+n)
+        end do
+    end do
+    ! l > 2
+    do l = 2, p
+        ind = l*l + l + 1
+        do m = -l, l
+            dst(ind+m) = 0
+            do n = -l, l
+                call fmm_sph_rotate2_get_uu(l, n, m, r1, &
+                    & r_prev(1-l:l-1, 1-l:l-1), u)
+                call fmm_sph_rotate2_get_vv(l, n, m, r1, &
+                    & r_prev(1-l:l-1, 1-l:l-1), v)
+                call fmm_sph_rotate2_get_ww(l, n, m, r1, &
+                    & r_prev(1-l:l-1, 1-l:l-1), w)
+                r(n, m) = u + v + w
+                dst(ind+m) = dst(ind+m) + r(n, m)*src(ind+n)
+            end do
+        end do
+        r_prev(-l:l, -l:l) = r(-l:l, -l:l)
+    end do
+end subroutine fmm_sph_rotate2
+
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 ! Parameters:
