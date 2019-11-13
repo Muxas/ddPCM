@@ -824,7 +824,6 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
     real(kind=8) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
-    real(kind=8) :: tmpm1, tmpn1, tmpn2, tmpn3, tmpu1
     integer :: l, m, n, ind
     ! l = 0
     dst(1) = src(1)
@@ -1123,14 +1122,14 @@ subroutine fmm_sph_rotate2(p, r1, src, dst)
 end subroutine fmm_sph_rotate2
 
 ! Rotate spherical harmonics
-! Optimized version (faster than fmm_sph_rotate)
+! Optimized version (faster than fmm_sph_rotate2)
 subroutine fmm_sph_rotate3(p, r1, src, dst)
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
     real(kind=8) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
     real(kind=8) :: scal_uvw_m(-p:p), scal_u_n(-p:p), scal_v_n(-p:p)
-    real(kind=8) :: scal_w_n(-p:p), tmp(-p:p)
+    real(kind=8) :: scal_w_n(-p:p)
     integer :: l, m, n, ind
     ! Compute rotations/reflections
     ! l = 0
@@ -1415,6 +1414,270 @@ subroutine fmm_sph_rotate3(p, r1, src, dst)
     end do
 end subroutine fmm_sph_rotate3
 
+! Rotate spherical harmonics around OY
+subroutine fmm_sph_rotate3_oy(p, r1, src, dst)
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: r1(0:1, 0:1), src((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst((p+1)*(p+1))
+    real(kind=8) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
+    real(kind=8) :: scal_uvw_m(-p:p), scal_u_n(-p:p), scal_v_n(-p:p)
+    real(kind=8) :: scal_w_n(-p:p)
+    integer :: l, m, n, ind
+    ! Compute rotations/reflections
+    ! l = 0
+    dst(1) = src(1)
+    if (p .eq. 0) then
+        return
+    end if
+    ! l = 1
+    dst(2) = src(2)
+    dst(3) = src(3)*r1(0, 0) + src(4)*r1(1, 0)
+    dst(4) = src(3)*r1(0, 1) + src(4)*r1(1, 1)
+    if (p .eq. 1) then
+        return
+    end if
+    ! l = 2
+    r(2, 2) = (r1(1, 1)*r1(1, 1) + 1) / 2
+    r(2, 1) = r1(1, 1)*r1(1, 0)
+    r(2, 0) = sqrt(dble(3)) / 2 * r1(1, 0) * r1(1, 0)
+    r(2, -1) = 0
+    r(2, -2) = 0
+    r(1, 2) = r1(1, 1)*r1(0, 1)
+    r(1, 1) = r1(1, 1)*r1(0, 0) + r1(1, 0)*r1(0, 1)
+    r(1, 0) = sqrt(dble(3)) * r1(1, 0) * r1(0, 0)
+    r(1, -1) = 0
+    r(1, -2) = 0
+    r(0, 2) = sqrt(dble(3)) / 2 * r1(0, 1) * r1(0, 1)
+    r(0, 1) = sqrt(dble(3)) * r1(0, 1) * r1(0, 0)
+    r(0, 0) = (3*r1(0, 0)*r1(0, 0)-1) / 2
+    r(0, -1) = 0
+    r(0, -2) = 0
+    r(-1, 2) = 0
+    r(-1, 1) = 0
+    r(-1, 0) = 0
+    r(-1, -1) = r1(0, 0)
+    r(-1, -2) = r1(0, 1)
+    r(-2, 2) = 0
+    r(-2, 1) = 0
+    r(-2, 0) = 0
+    r(-2, -1) = r1(1, 0)
+    r(-2, -2) = r1(1, 1)
+    dst(9) = src(9)*r(2, 2) + src(8)*r(1, 2) + src(7)*r(0, 2)
+    dst(8) = src(9)*r(2, 1) + src(8)*r(1, 1) + src(7)*r(0, 1)
+    dst(7) = src(9)*r(2, 0) + src(8)*r(1, 0) + src(7)*r(0, 0)
+    dst(6) = src(6)*r(-1, -1) + src(5)*r(-2, -1)
+    dst(5) = src(6)*r(-1, -2) + src(5)*r(-2, -2)
+    ! l > 2
+    do l = 3, p
+        ! Prepare previous rotation matrix
+        r_prev(1-l:l-1, 1-l:l-1) = r(1-l:l-1, 1-l:l-1)
+        ! Prepare scalar factors
+        scal_uvw_m(0) = l
+        do m = 1, l-1
+        u = sqrt(dble(l*l-m*m))
+        scal_uvw_m(m) = u
+        scal_uvw_m(-m) = u
+        end do
+        u = 2 * l
+        u = sqrt(dble(u*(u-1)))
+        scal_uvw_m(l) = u
+        scal_uvw_m(-l) = u
+        scal_u_n(0) = l
+        scal_v_n(0) = -sqrt(dble(l*(l-1))) / sqrt_2
+        scal_w_n(0) = 0
+        do n = 1, l-2
+        u = sqrt(dble(l*l-n*n))
+        scal_u_n(n) = u
+        scal_u_n(-n) = u
+        v = l + n
+        v = sqrt(v*(v-1)) / 2
+        scal_v_n(n) = v
+        scal_v_n(-n) = v
+        w = l - n
+        w = -sqrt(w*(w-1)) / 2
+        scal_w_n(n) = w
+        scal_w_n(-n) = w
+        end do
+        u = sqrt(dble(2*l-1))
+        scal_u_n(l-1) = u
+        scal_u_n(1-l) = u
+        scal_u_n(l) = 0
+        scal_u_n(-l) = 0
+        v = sqrt(dble((2*l-1)*(2*l-2))) / 2
+        scal_v_n(l-1) = v
+        scal_v_n(1-l) = v
+        v = sqrt(dble(2*l*(2*l-1))) / 2
+        scal_v_n(l) = v
+        scal_v_n(-l) = v
+        scal_w_n(l-1) = 0
+        scal_w_n(l) = 0
+        scal_w_n(-l) = 0
+        scal_w_n(1-l) = 0
+        ind = l*l + l + 1
+        ! m = l, n = l
+        v = r1(1, 1)*r_prev(l-1, l-1) + r_prev(1-l, 1-l)
+        r(l, l) = v * scal_v_n(l) / scal_uvw_m(l)
+        dst(ind+l) = src(ind+l) * r(l, l)
+        ! m = l, n = -l
+        v = r1(1, 1)*r_prev(1-l, l-1) - r_prev(l-1, 1-l)
+        r(-l, l) = v * scal_v_n(l) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind-l)*r(-l, l)
+        ! m = l, n = l-1
+        u = r1(0, 1) * r_prev(l-1, l-1)
+        v = r1(1, 1)*r_prev(l-2, l-1) + r_prev(2-l, 1-l)
+        r(l-1, l) = (u*scal_u_n(l-1)+v*scal_v_n(l-1)) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind+l-1)*r(l-1, l)
+        ! m = l, n = 1-l
+        u = r1(0, 1) * r_prev(1-l, l-1)
+        v = r1(1, 1)*r_prev(2-l, l-1) - r_prev(l-2, 1-l)
+        r(1-l, l) = (u*scal_u_n(l-1)+v*scal_v_n(l-1)) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind+1-l)*r(1-l, l)
+        ! m = l, n = 1
+        u = r1(0, 1) * r_prev(1, l-1)
+        v = r1(1, 1) * r_prev(0, l-1)
+        w = r1(1, 1)*r_prev(2, l-1) - r_prev(-2, 1-l)
+        r(1, l) = u*scal_u_n(1) + sqrt_2*v*scal_v_n(1) + w*scal_w_n(1)
+        r(1, l) = r(1, l) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind+1)*r(1, l)
+        ! m = l, n = -1
+        u = r1(0, 1) * r_prev(-1, l-1)
+        v = r_prev(0, 1-l)
+        w = r1(1, 1)*r_prev(-2, l-1) + r_prev(2, 1-l)
+        r(-1, l) = u*scal_u_n(1) + sqrt_2*v*scal_v_n(1) + w*scal_w_n(1)
+        r(-1, l) = r(-1, l) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind-1)*r(-1, l)
+        ! m = l, n = 0
+        u = r1(0, 1) * r_prev(0, l-1)
+        v = r1(1, 1)*r_prev(1, l-1) - r_prev(-1, 1-l)
+        r(0, l) = (u*scal_u_n(0) + v*scal_v_n(0)) / scal_uvw_m(l)
+        dst(ind+l) = dst(ind+l) + src(ind)*r(0, l)
+        ! m = l, n = 2-l..l-2, n != -1,0,1
+        do n = 2, l-2
+            u = r1(0, 1) * r_prev(n, l-1)
+            v = r1(1, 1)*r_prev(n-1, l-1) + r_prev(1-n, 1-l)
+            w = r1(1, 1)*r_prev(n+1, l-1) - r_prev(-n-1, 1-l)
+            r(n, l) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+            r(n, l) = r(n, l) / scal_uvw_m(l)
+            dst(ind+l) = dst(ind+l) + src(ind+n)*r(n, l)
+            u = r1(0, 1) * r_prev(-n, l-1)
+            v = r1(1, 1)*r_prev(1-n, l-1) - r_prev(n-1, 1-l)
+            w = r1(1, 1)*r_prev(-n-1, l-1) + r_prev(n+1, 1-l)
+            r(-n, l) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+            r(-n, l) = r(-n, l) / scal_uvw_m(l)
+            dst(ind+l) = dst(ind+l) + src(ind-n)*r(-n, l)
+        end do
+        ! m = -l, n = l
+        v = r1(1, 1)*r_prev(l-1, 1-l) - r_prev(1-l, l-1)
+        r(l, -l) = v * scal_v_n(l) / scal_uvw_m(l)
+        dst(ind-l) = src(ind+l)*r(l, -l)
+        ! m = -l, n = -l
+        v = r1(1, 1)*r_prev(1-l, 1-l) + r_prev(l-1, l-1)
+        r(-l, -l) = v * scal_v_n(l) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind-l)*r(-l, -l)
+        ! m = -l, n = l-1
+        u = r1(0, 1) * r_prev(l-1, 1-l)
+        v = r1(1, 1)*r_prev(l-2, 1-l) - r_prev(2-l, l-1)
+        r(l-1, -l) = (u*scal_u_n(l-1)+v*scal_v_n(l-1)) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind+l-1)*r(l-1, -l)
+        ! m = -l, n = 1-l
+        u = r1(0, 1) * r_prev(1-l, 1-l)
+        v = r1(1, 1)*r_prev(2-l, 1-l) + r_prev(l-2, l-1)
+        r(1-l, -l) = (u*scal_u_n(l-1)+v*scal_v_n(l-1)) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind+1-l)*r(1-l, -l)
+        ! m = -l, n = 1
+        u = r1(0, 1) * r_prev(1, 1-l)
+        v = r1(1, 1) * r_prev(0, 1-l)
+        w = r1(1, 1)*r_prev(2, 1-l) + r_prev(-2, l-1)
+        r(1, -l) = u*scal_u_n(1) + sqrt_2*v*scal_v_n(1) + w*scal_w_n(1)
+        r(1, -l) = r(1, -l) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind+1)*r(1, -l)
+        ! m = -l, n = -1
+        u = r1(0, 1) * r_prev(-1, 1-l)
+        v = r_prev(0, l-1)
+        w = r1(1, 1)*r_prev(-2, 1-l) - r_prev(2, l-1)
+        r(-1, -l) = u*scal_u_n(1) + sqrt_2*v*scal_v_n(1) + w*scal_w_n(1)
+        r(-1, -l) = r(-1, -l) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind-1)*r(-1, -l)
+        ! m = -l, n = 0
+        u = r1(0, 1) * r_prev(0, 1-l)
+        v = r1(1, 1)*r_prev(1, 1-l) + r_prev(-1, l-1)
+        r(0, -l) = (u*scal_u_n(0) + v*scal_v_n(0)) / scal_uvw_m(l)
+        dst(ind-l) = dst(ind-l) + src(ind)*r(0, -l)
+        ! m = -l, n = 2-l..l-2, n != -1,0,1
+        do n = 2, l-2
+            u = r1(0, 1) * r_prev(n, 1-l)
+            v = r1(1, 1)*r_prev(n-1, 1-l) - r_prev(1-n, l-1)
+            w = r1(1, 1)*r_prev(n+1, 1-l) + r_prev(-n-1, l-1)
+            r(n, -l) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+            r(n, -l) = r(n, -l) / scal_uvw_m(l)
+            dst(ind-l) = dst(ind-l) + src(ind+n)*r(n, -l)
+            u = r1(0, 1) * r_prev(-n, 1-l)
+            v = r1(1, 1)*r_prev(1-n, 1-l) + r_prev(n-1, l-1)
+            w = r1(1, 1)*r_prev(-n-1, 1-l) - r_prev(n+1, l-1)
+            r(-n, -l) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+            r(-n, -l) = r(-n, -l) / scal_uvw_m(l)
+            dst(ind-l) = dst(ind-l) + src(ind-n)*r(-n, -l)
+        end do
+        ! Now deal with m=1-l..l-1
+        do m = 1-l, l-1
+            ! n = l
+            v = r1(1, 0) * r_prev(l-1, m)
+            r(l, m) = v * scal_v_n(l) / scal_uvw_m(m)
+            dst(ind+m) = src(ind+l) * r(l, m)
+            ! n = -l
+            v = r1(1, 0) * r_prev(1-l, m)
+            r(-l, m) = v * scal_v_n(l) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind-l)*r(-l, m)
+            ! n = l-1
+            u = r1(0, 0) * r_prev(l-1, m)
+            v = r1(1, 0) * r_prev(l-2, m)
+            r(l-1, m) = u*scal_u_n(l-1) + v*scal_v_n(l-1)
+            r(l-1, m) = r(l-1, m) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind+l-1)*r(l-1, m)
+            ! n = 1-l
+            u = r1(0, 0) * r_prev(1-l, m)
+            v = r1(1, 0) * r_prev(2-l, m)
+            r(1-l, m) = u*scal_u_n(l-1) + v*scal_v_n(l-1)
+            r(1-l, m) = r(1-l, m) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind+1-l)*r(1-l, m)
+            ! n = 0
+            u = r1(0, 0) * r_prev(0, m)
+            v = r1(1, 0) * r_prev(1, m)
+            r(0, m) = u*scal_u_n(0) + v*scal_v_n(0)
+            r(0, m) = r(0, m) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind)*r(0, m)
+            ! n = 1
+            u = r1(0, 0) * r_prev(1, m)
+            v = r1(1, 0) * r_prev(0, m)
+            w = r1(1, 0) * r_prev(2, m)
+            r(1, m) = u*scal_u_n(1) + sqrt_2*v*scal_v_n(1) + w*scal_w_n(1)
+            r(1, m) = r(1, m) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind+1)*r(1, m)
+            ! n = -1
+            u = r1(0, 0) * r_prev(-1, m)
+            w = r1(1, 0) * r_prev(-2, m)
+            r(-1, m) = u*scal_u_n(1) + w*scal_w_n(1)
+            r(-1, m) = r(-1, m) / scal_uvw_m(m)
+            dst(ind+m) = dst(ind+m) + src(ind-1)*r(-1, m)
+            ! n = 2-l..l-2, n != -1,0,1
+            do n = 2, l-2
+                u = r1(0, 0) * r_prev(n, m)
+                v = r1(1, 0) * r_prev(n-1, m)
+                w = r1(1, 0) * r_prev(n+1, m)
+                r(n, m) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+                r(n, m) = r(n, m) / scal_uvw_m(m)
+                dst(ind+m) = dst(ind+m) + src(ind+n)*r(n, m)
+                u = r1(0, 0) * r_prev(-n, m)
+                v = r1(1, 0) * r_prev(1-n, m)
+                w = r1(1, 0) * r_prev(-n-1, m)
+                r(-n, m) = u*scal_u_n(n) + v*scal_v_n(n) + w*scal_w_n(n)
+                r(-n, m) = r(-n, m) / scal_uvw_m(m)
+                dst(ind+m) = dst(ind+m) + src(ind-n)*r(-n, m)
+            end do
+        end do
+    end do
+end subroutine fmm_sph_rotate3_oy
+
 ! M2M translation by reflection (p^3 operations)
 ! Uses single reflection, no rotations
 subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, src_m, dst_m)
@@ -1432,7 +1695,7 @@ subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, src_m, dst_m)
     real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
     real(kind=8) :: c1(3), r1(3, 3), norm, nsgn, tmp_m((p+1)*(p+1)), r
     real(kind=8) :: tmp_m2((p+1)*(p+1))
-    integer :: l, n, m
+    integer :: n, m
     r = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
     c1(1) = c(2) / r
     c1(2) = c(3) / r
@@ -1476,7 +1739,7 @@ subroutine fmm_m2m_reflection3(c, src_r, dst_r, p, vscales, src_m, dst_m)
     real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
     real(kind=8) :: c1(3), r1(3, 3), norm, nsgn, tmp_m((p+1)*(p+1)), r
     real(kind=8) :: tmp_m2((p+1)*(p+1))
-    integer :: l, n, m
+    integer :: n, m
     r = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
     c1(1) = c(2) / r
     c1(2) = c(3) / r
@@ -1502,6 +1765,68 @@ subroutine fmm_m2m_reflection3(c, src_r, dst_r, p, vscales, src_m, dst_m)
     call fmm_sph_rotate3(p, r1, tmp_m2, tmp_m)
     dst_m = dst_m + tmp_m
 end subroutine fmm_m2m_reflection3
+
+! Rotate spherical harmonics around OZ axis
+subroutine fmm_sph_rotate_oz(p, vcos, vsin, src, dst)
+    real(kind=8), intent(in) :: vcos(p+1), vsin(p+1), src((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: dst((p+1)*(p+1))
+    integer :: l, m, ind
+    dst(1) = src(1)
+    do l = 1, p
+        ind = l*l + l + 1
+        dst(ind) = src(ind)
+        do m = 1, l
+            dst(ind+m) = src(ind+m)*vcos(1+m) - src(ind-m)*vsin(1+m)
+            dst(ind-m) = src(ind+m)*vsin(1+m) + src(ind-m)*vcos(1+m)
+        end do
+    end do
+end subroutine fmm_sph_rotate_oz
+
+! M2M translation by OZ and OY rotation (p^3 operations)
+subroutine fmm_m2m_fast(c, src_r, dst_r, p, vscales, src_m, dst_m)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    real(kind=8), intent(in) :: src_m((p+1)*(p+1)), vscales((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: r1(2, 2), tmp_m((p+1)*(p+1)), r, ctheta, stheta
+    real(kind=8) :: tmp_m2((p+1)*(p+1)), cphi, sphi, vcos(p+1), vsin(p+1)
+    real(kind=8) :: vmsin(p+1)
+    stheta = c(1)*c(1) + c(2)*c(2)
+    if (stheta .eq. 0) then
+        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, src_m, dst_m)
+        return
+    end if
+    r = sqrt(stheta + c(3)*c(3))
+    ctheta = c(3) / r
+    stheta = sqrt(stheta)
+    cphi = c(1) / stheta
+    sphi = c(2) / stheta
+    stheta = stheta / r
+    call trgev(cphi, sphi, p, vcos, vsin)
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(p, vcos, vmsin, src_m, tmp_m)
+    r1(1, 1) = ctheta
+    r1(1, 2) = -stheta
+    r1(2, 1) = stheta
+    r1(2, 2) = ctheta
+    call fmm_sph_rotate3_oy(p, r1, tmp_m, tmp_m2)
+    tmp_m = 0
+    call fmm_m2m_ztranslate(r, src_r, dst_r, p, vscales, tmp_m2, tmp_m)
+    r1(1, 2) = stheta
+    r1(2, 1) = -stheta
+    call fmm_sph_rotate3_oy(p, r1, tmp_m, tmp_m2)
+    call fmm_sph_rotate_oz(p, vcos, vsin, tmp_m2, tmp_m)
+    dst_m = dst_m + tmp_m
+end subroutine fmm_m2m_fast
 
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
