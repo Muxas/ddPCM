@@ -568,15 +568,14 @@ subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
         do j = 0, p
             indj = j*j + j + 1
             do k = 0, j
-                tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
+                tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1) * vscales(indj)
                 if (k .ne. 0) then
                     tmp1 = tmp1 * sqrt_2
                 end if
                 do n = j, p
                     indn = n*n + n + 1
                     indjn = (n-j)**2 + (n-j) + 1
-                    tmp2 = tmp1 * pow_r1(n+1) * vscales(indj) / &
-                        & vscales(indjn) / vscales(indn)
+                    tmp2 = tmp1 * pow_r1(n+1) / vscales(indjn) / vscales(indn)
                     if (mod(n+j, 2) .eq. 1) then
                         tmp2 = -tmp2
                     end if
@@ -661,9 +660,6 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
             indj = j*j + j + 1
             do k = 0, j
                 tmp1 = vscales(indj) * fact(j-k+1) * fact(j+k+1)
-                if (k .ne. 0) then
-                    tmp1 = tmp1 * sqrt_2
-                end if
                 do n = 0, j-k
                     indn = n*n + n + 1
                     indjn = (j-n)**2 + (j-n) + 1
@@ -673,7 +669,6 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
                     if (k .eq. 0) then
                         dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
                     else
-                        tmp2 = tmp2 / sqrt_2
                         dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
                         dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
                     end if
@@ -692,6 +687,135 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
         end do
     end if
 end subroutine fmm_m2m_ztranslate
+
+! Optimized version of M2L, translation over OZ axis only
+subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
+! Parameters:
+!   z: radius-vector from new to old centers of harmonics (z coordinate only)
+!   src_r: radius of old (multipole) harmonics
+!   dst_r: radius of new (local) harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm (of degree up to pl+pm)
+!   src_m: expansion in old (multipole) harmonics
+!   dst_l: expansion in new (local) harmonics
+    real(kind=8), intent(in) :: z, src_r, dst_r
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
+    real(kind=8) :: fact(2*(pm+pl)+1), tmp1, tmp2, pow_r1(pm+1), pow_r2(pl+1)
+    real(kind=8) :: r1, r2
+    integer :: j, k, n, indj, indn, indjn
+    ! z cannot be zero, as input sphere (multipole) must not intersect with
+    ! output sphere (local)
+    if (z .eq. 0) then
+        return
+    end if
+    r1 = src_r / z
+    r2 = dst_r / z
+    pow_r1(1) = 1
+    ! This abs(r2) makes it possible to work with negative z to avoid
+    ! unnecessary rotation to positive z
+    pow_r2(1) = abs(r2)
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    ! Fill square roots of factorials
+    fact(1) = 1
+    do j = 2, 2*(pm+pl)+1
+        fact(j) = sqrt(dble(j-1)) * fact(j-1)
+    end do
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = vscales(indj) * pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
+            do n = k, pm
+                indn = n*n + n + 1
+                indjn = (j+n)**2 + (j+n) + 1
+                tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / fact(n-k+1) / &
+                    & fact(n+k+1) * fact(j+n+1) * fact(j+n+1)
+                if (mod(n+k, 2) .eq. 1) then
+                    tmp2 = -tmp2
+                end if
+                if (k .eq. 0) then
+                    dst_l(indj) = dst_l(indj) + tmp2*src_m(indn)
+                else
+                    dst_l(indj+k) = dst_l(indj+k) + tmp2*src_m(indn+k)
+                    dst_l(indj-k) = dst_l(indj-k) + tmp2*src_m(indn-k)
+                end if
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate
+
+! Optimized version of L2L, translation over OZ axis only
+subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
+! Parameters:
+!   z: radius-vector from new to old centers of harmonics (z coordinate only)
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm (of degree up to p)
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1))
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: r1, r2, fact(2*p+1)
+    real(kind=8) :: tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, indj, indn, indjn
+    if (z .ne. 0) then
+        r1 = z / src_r
+        r2 = dst_r / z
+        pow_r1(1) = r1
+        pow_r2(1) = r2
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
+        ! Fill square roots of factorials
+        fact(1) = 1
+        do j = 2, 2*p+1
+            fact(j) = sqrt(dble(j-1)) * fact(j-1)
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = 0, j
+                tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1) * vscales(indj)
+                do n = j, p
+                    indn = n*n + n + 1
+                    indjn = (n-j)**2 + (n-j) + 1
+                    tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) * fact(n-k+1) * &
+                        & fact(n+k+1) / fact(n-j+1) / fact(n-j+1)
+                    if (mod(n+j, 2) .eq. 1) then
+                        tmp2 = -tmp2
+                    end if
+                    if (k .eq. 0) then
+                        dst_l(indj) = dst_l(indj) + tmp2*src_l(indn)
+                    else
+                        dst_l(indj+k) = dst_l(indj+k) + tmp2*src_l(indn+k)
+                        dst_l(indj-k) = dst_l(indj-k) + tmp2*src_l(indn-k)
+                    end if
+                end do
+            end do
+        end do
+    else
+        r1 = dst_r / src_r
+        tmp1 = r1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                dst_l(k) = dst_l(k) + src_l(k)*tmp1
+            end do
+            tmp1 = tmp1 * r1
+        end do
+    end if
+end subroutine fmm_l2l_ztranslate
 
 ! Auxiliary routine to transform (rotate, reflect) spherical harmonics
 ! Factor u_lnm (lower case) from the paper:
@@ -1950,6 +2074,105 @@ subroutine fmm_m2m_fast(c, src_r, dst_r, p, vscales, src_m, dst_m)
     dst_m = dst_m + tmp_m
 end subroutine fmm_m2m_fast
 
+! M2L translation by rotation around OZ and OY (p^3 operations)
+! Based on fmm_m2m_fast
+subroutine fmm_m2l_fast(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   src_m: expansion in old (multipole) harmonics
+!   dst_l: expansion in new (local) harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
+    real(kind=8) :: r1(2, 2), tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1))
+    real(kind=8) :: r, ctheta, stheta
+    real(kind=8) :: tmp_ml2((max(pm,pl)+1)*(max(pm,pl)+1)), cphi, sphi
+    real(kind=8) :: vcos(max(pm,pl)+1), vsin(max(pm,pl)+1)
+    real(kind=8) :: vmsin(max(pm,pl)+1)
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for rotations, just do translation along z
+    if (stheta .eq. 0) then
+        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, src_m, &
+            & dst_l)
+        return
+    end if
+    r = sqrt(stheta + c(3)*c(3))
+    ctheta = c(3) / r
+    stheta = sqrt(stheta)
+    cphi = c(1) / stheta
+    sphi = c(2) / stheta
+    stheta = stheta / r
+    call trgev(cphi, sphi, max(pm,pl), vcos, vsin)
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(pm, vcos, vmsin, src_m, tmp_ml)
+    r1(1, 1) = ctheta
+    r1(1, 2) = -stheta
+    r1(2, 1) = stheta
+    r1(2, 2) = ctheta
+    call fmm_sph_transform3_oxz(pm, r1, tmp_ml, tmp_ml2)
+    tmp_ml = 0
+    call fmm_m2l_ztranslate(r, src_r, dst_r, pm, pl, vscales, tmp_ml2, tmp_ml)
+    r1(1, 2) = stheta
+    r1(2, 1) = -stheta
+    call fmm_sph_transform3_oxz(pl, r1, tmp_ml, tmp_ml2)
+    call fmm_sph_rotate_oz(pl, vcos, vsin, tmp_ml2, tmp_ml)
+    dst_l = dst_l + tmp_ml(1:(pl+1)*(pl+1))
+end subroutine fmm_m2l_fast
+
+! L2L translation by rotation around OZ and OY (p^3 operations)
+! Based on fmm_m2m_fast
+subroutine fmm_l2l_fast(c, src_r, dst_r, p, vscales, src_l, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1)), vscales((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: r1(2, 2), tmp_l((p+1)*(p+1)), r, ctheta, stheta
+    real(kind=8) :: tmp_l2((p+1)*(p+1)), cphi, sphi, vcos(p+1), vsin(p+1)
+    real(kind=8) :: vmsin(p+1)
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for rotations, just do translation along z
+    if (stheta .eq. 0) then
+        call fmm_l2l_ztranslate(c(3), src_r, dst_r, p, vscales, src_l, dst_l)
+        return
+    end if
+    r = sqrt(stheta + c(3)*c(3))
+    ctheta = c(3) / r
+    stheta = sqrt(stheta)
+    cphi = c(1) / stheta
+    sphi = c(2) / stheta
+    stheta = stheta / r
+    call trgev(cphi, sphi, p, vcos, vsin)
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(p, vcos, vmsin, src_l, tmp_l)
+    r1(1, 1) = ctheta
+    r1(1, 2) = -stheta
+    r1(2, 1) = stheta
+    r1(2, 2) = ctheta
+    call fmm_sph_transform3_oxz(p, r1, tmp_l, tmp_l2)
+    tmp_l = 0
+    call fmm_l2l_ztranslate(r, src_r, dst_r, p, vscales, tmp_l2, tmp_l)
+    r1(1, 2) = stheta
+    r1(2, 1) = -stheta
+    call fmm_sph_transform3_oxz(p, r1, tmp_l, tmp_l2)
+    call fmm_sph_rotate_oz(p, vcos, vsin, tmp_l2, tmp_l)
+    dst_l = dst_l + tmp_l
+end subroutine fmm_l2l_fast
+
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 ! Parameters:
@@ -2252,6 +2475,48 @@ subroutine tree_m2m_baseline(nsph, p, vscales, coef_sph, ind, cluster, &
     end do
 end subroutine tree_m2m_baseline
 
+! Transfer multipole coefficients for each node of tree
+subroutine tree_m2m_fast(nsph, p, vscales, coef_sph, ind, cluster, &
+        & children, cnode, rnode, coef_node)
+! Parameters:
+!   nsph: Number of all spheres
+!   p: maximum degree of multipole basis functions
+!   vscales: normalization constants for Y_lm
+!   coef_sph: multipole coefficients of input spheres
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   coef_node: multipole coefficients of bounding spheres of nodes
+    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
+    real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
+    integer, intent(in) :: children(2, 2*nsph-1)
+    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    real(kind=8), intent(out) :: coef_node((p+1)*(p+1), 2*nsph-1)
+    integer :: i, j(2)
+    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r
+    do i = 2*nsph-1, 1, -1
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            coef_node(:, i) = coef_sph(:, ind(cluster(1, i)))
+        else
+            c = cnode(:, i)
+            r = rnode(i)
+            c1 = cnode(:, j(1))
+            r1 = rnode(j(1))
+            c2 = cnode(:, j(2))
+            r2 = rnode(j(2))
+            coef_node(:, i) = 0
+            call fmm_m2m_fast(c1-c, r1, r, p, vscales, &
+                & coef_node(:, j(1)), coef_node(:, i))
+            call fmm_m2m_fast(c2-c, r2, r, p, vscales, &
+                & coef_node(:, j(2)), coef_node(:, i))
+        end if
+    end do
+end subroutine tree_m2m_fast
+
 ! Apply M2P from entire tree to a given point
 subroutine tree_m2p_treecode(c, leaf, p, vscales, nclusters, children, cnode, &
         & rnode, coef_node, v)
@@ -2404,6 +2669,40 @@ subroutine tree_m2l_baseline(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
     end do
 end subroutine tree_m2l_baseline
 
+! Obtain local coefficients from multipole for each node of tree (M2L)
+subroutine tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
+        & pl, vscales, coef_m, coef_l)
+! Parameters:
+!   nclusters: Number of all clusters
+!   p: maximum degree of multipole basis functions
+!   vscales: normalization constants for Y_lm
+!   coef_sph: multipole coefficients of input spheres
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   coef_node: multipole coefficients of bounding spheres of nodes
+    integer, intent(in) :: nclusters, nnfar, sfar(nclusters+1), far(nnfar)
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: coef_m((pm+1)*(pm+1), nclusters)
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    real(kind=8), intent(out) :: coef_l((pl+1)*(pl+1), nclusters)
+    integer :: i, j, k
+    real(kind=8) :: c(3), r1, r2
+    do i = 1, nclusters
+        coef_l(:, i) = 0
+        do j = sfar(i), sfar(i+1)-1
+            k = far(j)
+            c = cnode(:, k) - cnode(:, i)
+            r1 = rnode(k)
+            r2 = rnode(i)
+            call fmm_m2l_fast(c, r1, r2, pm, pl, vscales, coef_m(:, k), &
+                & coef_l(:, i))
+        end do
+    end do
+end subroutine tree_m2l_fast
+
 ! Transfer local coefficients for each node of tree
 subroutine tree_l2l_baseline(nsph, p, vscales, coef_node, ind, cluster, &
         & children, cnode, rnode, coef_sph)
@@ -2444,6 +2743,47 @@ subroutine tree_l2l_baseline(nsph, p, vscales, coef_node, ind, cluster, &
         end if
     end do
 end subroutine tree_l2l_baseline
+
+! Transfer local coefficients for each node of tree
+subroutine tree_l2l_fast(nsph, p, vscales, coef_node, ind, cluster, &
+        & children, cnode, rnode, coef_sph)
+! Parameters:
+!   nsph: Number of all spheres
+!   p: maximum degree of local basis functions
+!   vscales: normalization constants for Y_lm
+!   coef_node: local coefficients of bounding spherical harmonics of each node
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   coef_sph: local coefficients of output spherical hamonics
+    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
+    integer, intent(in) :: children(2, 2*nsph-1)
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1)), cnode(3, 2*nsph-1)
+    real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), 2*nsph-1)
+    real(kind=8), intent(in) :: rnode(2*nsph-1)
+    real(kind=8), intent(out) :: coef_sph((p+1)*(p+1), nsph)
+    integer :: i, j(2)
+    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r
+    do i = 1, 2*nsph-1
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            coef_sph(:, ind(cluster(1, i))) = coef_node(:, i)
+        else
+            c = cnode(:, i)
+            r = rnode(i)
+            c1 = cnode(:, j(1))
+            r1 = rnode(j(1))
+            c2 = cnode(:, j(2))
+            r2 = rnode(j(2))
+            call fmm_l2l_fast(c-c1, r, r1, p, vscales, &
+                & coef_node(:, i), coef_node(:, j(1)))
+            call fmm_l2l_fast(c-c2, r, r2, p, vscales, &
+                & coef_node(:, i), coef_node(:, j(2)))
+        end if
+    end do
+end subroutine tree_l2l_fast
 
 ! Apply L2P from local spherical harmonics to grid points and add near M2P
 subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
@@ -2512,8 +2852,8 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
 end subroutine tree_l2p_m2p_fmm
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
-subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-        & ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
+subroutine pcm_matvec_grid_fmm_baseline(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
         & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
     integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), cluster(2, 2*nsph-1)
     integer, intent(in) :: children(2, 2*nsph-1), nnfar
@@ -2545,7 +2885,43 @@ subroutine pcm_matvec_grid_fmm(nsph, csph, rsph, ngrid, grid, w, vgrid, &
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
         & cluster, ind, ui)
-end subroutine pcm_matvec_grid_fmm
+end subroutine pcm_matvec_grid_fmm_baseline
+
+! Apply matvec for ddPCM spherical harmonics by FMM
+subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
+        & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), cluster(2, 2*nsph-1)
+    integer, intent(in) :: children(2, 2*nsph-1), nnfar
+    integer, intent(in) :: sfar(2*nsph), far(nnfar), nnnear, snear(2*nsph)
+    integer, intent(in) :: near(nnnear)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
+    real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
+    real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
+    real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_node_m((pm+1)*(pm+1), 2*nsph-1)
+    real(kind=8) :: coef_node_l((pl+1)*(pl+1), 2*nsph-1)
+    integer :: i, j, indi, indj
+    do i = 0, pm
+        indi = i*i + i + 1
+        do j = -i, i
+            indj = indi + j
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+        end do
+    end do
+    call tree_m2m_fast(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
+        & children, cnode, rnode, coef_node_m)
+    call tree_m2l_fast(2*nsph-1, cnode, rnode, nnfar, sfar, far, pm, &
+        & pl, vscales, coef_node_m, coef_node_l)
+    call tree_l2l_fast(nsph, pl, vscales, coef_node_l, ind, cluster, &
+        & children, cnode, rnode, coef_out)
+    call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
+        & cluster, ind, ui)
+end subroutine pcm_matvec_grid_fmm_fast
 
 ! Apply matvec for ddPCM spherical harmonics by tree-code
 ! Per-sphere tree-code, which used not only M2P, but M2L and L2P also
