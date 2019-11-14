@@ -408,6 +408,7 @@ subroutine fmm_l2p(c, r, p, vscales, l, v)
 end subroutine fmm_l2p
 
 ! Compute local expansion by given multipole expansion
+! Baseline in terms of operation count: p^4
 subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
 ! Parameters:
 !   c: radius-vector from new (local) to old (multipole) centers of harmonics
@@ -515,6 +516,7 @@ subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
 end subroutine fmm_m2l_baseline
 
 ! Translate local expansion to another sphere
+! Baseline in terms of operation count: p^4
 subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -691,7 +693,18 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
     end if
 end subroutine fmm_m2m_ztranslate
 
-subroutine fmm_sph_rotate_get_u(l, n, m, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor u_lnm (lower case) from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_u(l, n, m, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   c: value of factor u_lnm (lower case)
     integer, intent(in) :: l, n, m
     real(kind=8), intent(out) :: c
     c = l*l - n*n
@@ -701,9 +714,20 @@ subroutine fmm_sph_rotate_get_u(l, n, m, c)
         c = c / (l*l - m*m)
     end if
     c = sqrt(c)
-end subroutine fmm_sph_rotate_get_u
+end subroutine fmm_sph_transform_get_u
 
-subroutine fmm_sph_rotate_get_v(l, n, m, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor v_lnm (lower case) from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_v(l, n, m, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   c: value of factor v_lnm (lower case)
     integer, intent(in) :: l, n, m
     real(kind=8), intent(out) :: c
     integer :: k
@@ -721,9 +745,20 @@ subroutine fmm_sph_rotate_get_v(l, n, m, c)
         c = c * (l+k-1) * (l+k)
         c = sqrt(c) / 2
     end if
-end subroutine fmm_sph_rotate_get_v
+end subroutine fmm_sph_transform_get_v
 
-subroutine fmm_sph_rotate_get_w(l, n, m, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor w_lnm (lower case) from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_w(l, n, m, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   c: value of factor w_lnm (lower case)
     integer, intent(in) :: l, n, m
     real(kind=8), intent(out) :: c
     integer :: k
@@ -740,9 +775,23 @@ subroutine fmm_sph_rotate_get_w(l, n, m, c)
     k = abs(n)
     c = c * (l-k-1) * (l-k)
     c = -sqrt(c) / 2
-end subroutine fmm_sph_rotate_get_w
+end subroutine fmm_sph_transform_get_w
 
-subroutine fmm_sph_rotate_get_p(l, i, n, m, r, r_prev, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor P_linm from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_p(l, i, n, m, r, r_prev, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   i: -1, 0 or 1
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   r: transformation matrix from initial axes to rotated axes
+!   r_prev: transformation matrix for all spherical harmonics of order l-1
+!   c: value of factor P_linm
     integer, intent(in) :: l, i, n, m
     real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
     real(kind=8), intent(out) :: c
@@ -753,73 +802,117 @@ subroutine fmm_sph_rotate_get_p(l, i, n, m, r, r_prev, c)
     else
         c = r(i, 0) * r_prev(n, m)
     end if
-end subroutine fmm_sph_rotate_get_p
+end subroutine fmm_sph_transform_get_p
 
-subroutine fmm_sph_rotate_get_uu(l, n, m, r, r_prev, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor u_lnm * U_lnm from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_uu(l, n, m, r, r_prev, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   r: transformation matrix from initial axes to rotated axes
+!   r_prev: transformation matrix for all spherical harmonics of order l-1
+!   c: value of factor u_lnm * U_lnm
     integer, intent(in) :: l, n, m
     real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
     real(kind=8), intent(out) :: c
     real(kind=8) :: c1
-    call fmm_sph_rotate_get_u(l, n, m, c)
+    call fmm_sph_transform_get_u(l, n, m, c)
     if (c .ne. 0) then
-        call fmm_sph_rotate_get_p(l, 0, n, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, 0, n, m, r, r_prev, c1)
         c = c * c1
     end if
-end subroutine fmm_sph_rotate_get_uu
+end subroutine fmm_sph_transform_get_uu
 
-subroutine fmm_sph_rotate_get_vv(l, n, m, r, r_prev, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor v_lnm * V_lnm from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_vv(l, n, m, r, r_prev, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   r: transformation matrix from initial axes to rotated axes
+!   r_prev: transformation matrix for all spherical harmonics of order l-1
+!   c: value of factor v_lnm * V_lnm
     integer, intent(in) :: l, n, m
     real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
     real(kind=8), intent(out) :: c
     real(kind=8) :: c1, c2
-    call fmm_sph_rotate_get_v(l, n, m, c)
+    call fmm_sph_transform_get_v(l, n, m, c)
     if (c .eq. 0) then
         return
     end if
     if (n .gt. 1) then
-        call fmm_sph_rotate_get_p(l, 1, n-1, m, r, r_prev, c1)
-        call fmm_sph_rotate_get_p(l, -1, 1-n, m, r, r_prev, c2)
+        call fmm_sph_transform_get_p(l, 1, n-1, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, 1-n, m, r, r_prev, c2)
         c = c * (c1-c2)
     else if (n .eq. 1) then
-        call fmm_sph_rotate_get_p(l, 1, 0, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, 1, 0, m, r, r_prev, c1)
         c = sqrt_2 * c * c1
     else if (n .eq. 0) then
-        call fmm_sph_rotate_get_p(l, 1, 1, m, r, r_prev, c1)
-        call fmm_sph_rotate_get_p(l, -1, -1, m, r, r_prev, c2)
+        call fmm_sph_transform_get_p(l, 1, 1, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, -1, m, r, r_prev, c2)
         c = c * (c1+c2)
     else if (n .eq. -1) then
-        call fmm_sph_rotate_get_p(l, -1, 0, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, 0, m, r, r_prev, c1)
         c = sqrt_2 * c * c1
     else
-        call fmm_sph_rotate_get_p(l, 1, n+1, m, r, r_prev, c1)
-        call fmm_sph_rotate_get_p(l, -1, -1-n, m, r, r_prev, c2)
+        call fmm_sph_transform_get_p(l, 1, n+1, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, -1-n, m, r, r_prev, c2)
         c = c * (c1+c2)
     end if
-end subroutine fmm_sph_rotate_get_vv
+end subroutine fmm_sph_transform_get_vv
 
-subroutine fmm_sph_rotate_get_ww(l, n, m, r, r_prev, c)
+! Auxiliary routine to transform (rotate, reflect) spherical harmonics
+! Factor w_lnm * W_lnm from the paper:
+!   ``Rotation Matrices for Real Spherical Harmonics. Direct Determination by
+!   Recursion'', J.Ivanic and K.Ruedenberg, J. Phys. Chem. 1996, 100, 6342-6347
+! This routine serves only for debugging purposes, as there are much faster
+! implementations
+subroutine fmm_sph_transform_get_ww(l, n, m, r, r_prev, c)
+! Parameters:
+!   l: order of spherical harmonics
+!   n: index of initial spherical harmonic
+!   m: index of output (rotated or reflected) spherical harmonic
+!   r: transformation matrix from initial axes to rotated axes
+!   r_prev: transformation matrix for all spherical harmonics of order l-1
+!   c: value of factor w_lnm * W_lnm
     integer, intent(in) :: l, n, m
     real(kind=8), intent(in) :: r(-1:1, -1:1), r_prev(1-l:l-1, 1-l:l-1)
     real(kind=8), intent(out) :: c
     real(kind=8) :: c1, c2
-    call fmm_sph_rotate_get_w(l, n, m, c)
+    call fmm_sph_transform_get_w(l, n, m, c)
     if (c .eq. 0) then
         return
     end if
     if (n .lt. 0) then
-        call fmm_sph_rotate_get_p(l, 1, n-1, m, r, r_prev, c1)
-        call fmm_sph_rotate_get_p(l, -1, 1-n, m, r, r_prev, c2)
+        call fmm_sph_transform_get_p(l, 1, n-1, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, 1-n, m, r, r_prev, c2)
         c = c * (c1-c2)
     else
-        call fmm_sph_rotate_get_p(l, 1, n+1, m, r, r_prev, c1)
-        call fmm_sph_rotate_get_p(l, -1, -1-n, m, r, r_prev, c2)
+        call fmm_sph_transform_get_p(l, 1, n+1, m, r, r_prev, c1)
+        call fmm_sph_transform_get_p(l, -1, -1-n, m, r, r_prev, c2)
         c = c * (c1+c2)
     end if
-end subroutine fmm_sph_rotate_get_ww
+end subroutine fmm_sph_transform_get_ww
 
-! Rotate spherical harmonics
+! Transform (rotate or reflect) spherical harmonics
 ! Baseline implementation (very slow)
-subroutine fmm_sph_rotate(p, r1, src, dst)
+subroutine fmm_sph_transform(p, r1, src, dst)
+! Parameters:
+!   p: maximum order of spherical harmonics
+!   r1: transformation matrix from initial axes to output axes
+!   src: coefficients of initial spherical harmonics
+!   dst: coefficients of output (rotated) spherical harmonics
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
@@ -841,11 +934,11 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
         do m = -l, l
             dst(ind+m) = 0
             do n = -l, l
-                call fmm_sph_rotate_get_uu(l, n, m, r1, &
+                call fmm_sph_transform_get_uu(l, n, m, r1, &
                     & r_prev(1-l:l-1, 1-l:l-1), u)
-                call fmm_sph_rotate_get_vv(l, n, m, r1, &
+                call fmm_sph_transform_get_vv(l, n, m, r1, &
                     & r_prev(1-l:l-1, 1-l:l-1), v)
-                call fmm_sph_rotate_get_ww(l, n, m, r1, &
+                call fmm_sph_transform_get_ww(l, n, m, r1, &
                     & r_prev(1-l:l-1, 1-l:l-1), w)
                 r(n, m) = u + v + w
                 dst(ind+m) = dst(ind+m) + r(n, m)*src(ind+n)
@@ -853,11 +946,17 @@ subroutine fmm_sph_rotate(p, r1, src, dst)
         end do
         r_prev(-l:l, -l:l) = r(-l:l, -l:l)
     end do
-end subroutine fmm_sph_rotate
+end subroutine fmm_sph_transform
 
-! Rotate spherical harmonics
-! More or less optimized version (1000 times faster than baseline)
-subroutine fmm_sph_rotate2(p, r1, src, dst)
+! Transform (rotate or reflect) spherical harmonics
+! More or less optimized version, 1000 times faster than fmm_sph_transform, but
+! it is slower, than fmm_sph_transform3
+subroutine fmm_sph_transform2(p, r1, src, dst)
+! Parameters:
+!   p: maximum order of spherical harmonics
+!   r1: transformation matrix from initial axes to output axes
+!   src: coefficients of initial spherical harmonics
+!   dst: coefficients of output (rotated) spherical harmonics
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
@@ -1119,11 +1218,16 @@ subroutine fmm_sph_rotate2(p, r1, src, dst)
             r_prev(-l:l, -l:l) = r(-l:l, -l:l)
         end if
     end do
-end subroutine fmm_sph_rotate2
+end subroutine fmm_sph_transform2
 
-! Rotate spherical harmonics
-! Optimized version (faster than fmm_sph_rotate2)
-subroutine fmm_sph_rotate3(p, r1, src, dst)
+! Transform (rotate or reflect) spherical harmonics
+! Most optimized version (faster than fmm_sph_transform2)
+subroutine fmm_sph_transform3(p, r1, src, dst)
+! Parameters:
+!   p: maximum order of spherical harmonics
+!   r1: transformation matrix from initial axes to output axes
+!   src: coefficients of initial spherical harmonics
+!   dst: coefficients of output (rotated or reflected) spherical harmonics
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
@@ -1412,10 +1516,17 @@ subroutine fmm_sph_rotate3(p, r1, src, dst)
             end do
         end do
     end do
-end subroutine fmm_sph_rotate3
+end subroutine fmm_sph_transform3
 
-! Rotate spherical harmonics around OY
-subroutine fmm_sph_rotate3_oy(p, r1, src, dst)
+! Transform spherical harmonics in OXZ plane (y coordinate remains the same)
+! Based on fmm_sph_transform3 by assuming r1(-1,i)=0 and r1(i,-1)=0 for i=0,1
+! and r1(-1,-1)=1
+subroutine fmm_sph_transform3_oxz(p, r1, src, dst)
+! Parameters:
+!   p: maximum order of spherical harmonics
+!   r1: transformation matrix from initial axes to output axes
+!   src: coefficients of initial spherical harmonics
+!   dst: coefficients of output (rotated) spherical harmonics
     integer, intent(in) :: p
     real(kind=8), intent(in) :: r1(0:1, 0:1), src((p+1)*(p+1))
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
@@ -1676,10 +1787,11 @@ subroutine fmm_sph_rotate3_oy(p, r1, src, dst)
             end do
         end do
     end do
-end subroutine fmm_sph_rotate3_oy
+end subroutine fmm_sph_transform3_oxz
 
 ! M2M translation by reflection (p^3 operations)
-! Uses single reflection, no rotations
+! Uses single reflection (done by a fmm_sph_transform2). fmm_m2m_fast is faster
+! than this function, although result is the same
 subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, src_m, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -1715,15 +1827,16 @@ subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, src_m, dst_m)
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
-    call fmm_sph_rotate2(p, r1, src_m, tmp_m)
+    call fmm_sph_transform2(p, r1, src_m, tmp_m)
     tmp_m2 = 0
     call fmm_m2m_ztranslate(nsgn*r, src_r, dst_r, p, vscales, tmp_m, tmp_m2)
-    call fmm_sph_rotate2(p, r1, tmp_m2, tmp_m)
+    call fmm_sph_transform2(p, r1, tmp_m2, tmp_m)
     dst_m = dst_m + tmp_m
 end subroutine fmm_m2m_reflection
 
 ! M2M translation by reflection (p^3 operations)
-! Uses single reflection, no rotations
+! Uses single reflection (done by a fmm_sph_transform3). fmm_m2m_fast is faster
+! than this function, although result is the same
 subroutine fmm_m2m_reflection3(c, src_r, dst_r, p, vscales, src_m, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -1759,15 +1872,22 @@ subroutine fmm_m2m_reflection3(c, src_r, dst_r, p, vscales, src_m, dst_m)
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
-    call fmm_sph_rotate3(p, r1, src_m, tmp_m)
+    call fmm_sph_transform3(p, r1, src_m, tmp_m)
     tmp_m2 = 0
     call fmm_m2m_ztranslate(nsgn*r, src_r, dst_r, p, vscales, tmp_m, tmp_m2)
-    call fmm_sph_rotate3(p, r1, tmp_m2, tmp_m)
+    call fmm_sph_transform3(p, r1, tmp_m2, tmp_m)
     dst_m = dst_m + tmp_m
 end subroutine fmm_m2m_reflection3
 
 ! Rotate spherical harmonics around OZ axis
+! Rotate on angle phi, presented by cos(m*phi) and sin(m*phi)
 subroutine fmm_sph_rotate_oz(p, vcos, vsin, src, dst)
+! Parameters:
+!   p: maximum order of spherical harmonics
+!   vcos: values of cos(m*phi)
+!   vsin: values of sin(m*phi)
+!   src: coefficients of initial spherical harmonics
+!   dst: coefficients of rotated spherical harmonics
     real(kind=8), intent(in) :: vcos(p+1), vsin(p+1), src((p+1)*(p+1))
     integer, intent(in) :: p
     real(kind=8), intent(out) :: dst((p+1)*(p+1))
@@ -1783,7 +1903,8 @@ subroutine fmm_sph_rotate_oz(p, vcos, vsin, src, dst)
     end do
 end subroutine fmm_sph_rotate_oz
 
-! M2M translation by OZ and OY rotation (p^3 operations)
+! M2M translation by rotation around OZ and OY (p^3 operations)
+! This is the fastest M2M operation I have implemented
 subroutine fmm_m2m_fast(c, src_r, dst_r, p, vscales, src_m, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -1801,6 +1922,7 @@ subroutine fmm_m2m_fast(c, src_r, dst_r, p, vscales, src_m, dst_m)
     real(kind=8) :: tmp_m2((p+1)*(p+1)), cphi, sphi, vcos(p+1), vsin(p+1)
     real(kind=8) :: vmsin(p+1)
     stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for rotations, just do translation along z
     if (stheta .eq. 0) then
         call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, src_m, dst_m)
         return
@@ -1818,12 +1940,12 @@ subroutine fmm_m2m_fast(c, src_r, dst_r, p, vscales, src_m, dst_m)
     r1(1, 2) = -stheta
     r1(2, 1) = stheta
     r1(2, 2) = ctheta
-    call fmm_sph_rotate3_oy(p, r1, tmp_m, tmp_m2)
+    call fmm_sph_transform3_oxz(p, r1, tmp_m, tmp_m2)
     tmp_m = 0
     call fmm_m2m_ztranslate(r, src_r, dst_r, p, vscales, tmp_m2, tmp_m)
     r1(1, 2) = stheta
     r1(2, 1) = -stheta
-    call fmm_sph_rotate3_oy(p, r1, tmp_m, tmp_m2)
+    call fmm_sph_transform3_oxz(p, r1, tmp_m, tmp_m2)
     call fmm_sph_rotate_oz(p, vcos, vsin, tmp_m2, tmp_m)
     dst_m = dst_m + tmp_m
 end subroutine fmm_m2m_fast
