@@ -2314,6 +2314,98 @@ subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
     end do
 end subroutine tree_init
 
+! Compute sizes to store improved tree
+! This function makes it possible to call tree2_init from other programming
+! languages, since allocation of object of unknown size (it is not known
+! apriori, only after calling tree_init) is now on a user side.
+subroutine tree2_preinit(nsph, children, parent, nclusters, maxlevel)
+! Parameters:
+!   nsph: Number of all spheres
+!   children: children of each cluster. 0 means no children
+!   parent: parent of each cluster. 0 means no parent
+!   nclusters: real amount of clusters
+    integer, intent(in) :: nsph, children(2, 2*nsph-1), parent(2*nsph-1)
+    integer, intent(out) :: nclusters, maxlevel
+    integer :: leaf(2*nsph-1), i, j
+    ! Positive value of leaf(i) means it is a leaf node on the level leaf(i)
+    ! Negative value means it is not a leaf node on a level -leaf(i)
+    leaf(1) = -1
+    maxlevel = 1
+    do i = 2, 2*nsph-1
+        ! If this is not leaf node
+        if (children(1, i) .ne. 0) then
+            leaf(i) = leaf(parent(i)) - 1
+        ! If this is a leaf node
+        else
+            leaf(i) = 1 - leaf(parent(i))
+        end if
+        j = abs(leaf(i))
+        if (j .gt. maxlevel) then
+            maxlevel = j
+        end if
+    end do
+    ! Find amount of additional nodes we need to create. Each new node is the
+    ! only child of existing or added node
+    nclusters = 2*nsph - 1
+    do i = 1, 2*nsph-1
+        if (leaf(i) .gt. 0) then
+            nclusters = nclusters + maxlevel - leaf(i)
+        end if
+    end do
+end subroutine tree2_preinit
+
+! Prepare improved tree (divide and compute bounding spheres)
+! Uses tree, initialized by tree_init with 2*nsph-1 nodes and then creates
+! auxiliary child node for each leaf node not on the lowest level of tree. This
+! child simply equal to its parent. So, all the real leaf nodes are on the
+! bottom of tree
+subroutine tree2_init(nsph, csph, rsph, nclusters, maxlevel, ind, cluster, &
+        & children, parent, cnode, rnode, snode)
+! Parameters:
+!   nsph: Number of all spheres
+!   csph: Centers of all spheres
+!   rsph: Radiuses of all spheres
+!   nclusters: number of nodes
+!   ind: Permutation of spheres (to localize them)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   parent: parent of each cluster. 0 means no parent
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   snode: which node is leaf and contains only given sphere
+    integer, intent(in) :: nsph
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
+    integer, intent(inout) :: ind(nsph)
+    integer, intent(out) :: cluster(2, nclusters), children(2, nclusters)
+    integer, intent(out) :: parent(2*nsph-1)
+    real(kind=8), intent(out) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    integer, intent(out) :: snode(nsph)
+    integer :: i, j, n, s, e, div
+    real(kind=8) :: r, r1, r2, c(3), c1(3), c2(3), d
+    integer :: leaf(2*nsph-1), i, j
+    ! Positive value of leaf(i) means it is a leaf node on the level leaf(i)
+    ! Negative value means it is not a leaf node on a level -leaf(i)
+    leaf(1) = -1
+    maxlevel = 1
+    do i = 2, 2*nsph-1
+        ! If this is not leaf node
+        if (children(1, i) .ne. 0) then
+            leaf(i) = leaf(parent(i)) - 1
+        ! If this is a leaf node
+        else
+            leaf(i) = 1 - leaf(parent(i))
+        end if
+        j = abs(leaf(i))
+        if (j .gt. maxlevel) then
+            maxlevel = j
+        end if
+    end do
+    do i = 2, 2*nsph-1
+        if (children(1, i) .eq. 0) then
+        end if
+    end do
+end subroutine tree2_init
+
 ! Find near and far admissible pairs of tree nodes and store it in work array
 subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
         & jwork, work, nnfar, nfar, nnnear, nnear)
@@ -2852,6 +2944,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
 end subroutine tree_l2p_m2p_fmm
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
+! Baseline in terms of p^4 operations
 subroutine pcm_matvec_grid_fmm_baseline(nsph, csph, rsph, ngrid, grid, w, &
         & vgrid, ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
         & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
@@ -2888,6 +2981,7 @@ subroutine pcm_matvec_grid_fmm_baseline(nsph, csph, rsph, ngrid, grid, w, &
 end subroutine pcm_matvec_grid_fmm_baseline
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
+! Optimized in terms of p^3 operations
 subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
         & vgrid, ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
         & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
@@ -2964,7 +3058,7 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
             coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
         end do
     end do
-    call tree_m2m_baseline(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
+    call tree_m2m_fast(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
         & children, cnode, rnode, coef_node)
     do i = 1, nsph
         coef_l = 0
@@ -2998,7 +3092,7 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
             end if
             ! If M2L is needed
             if (far(j) .eq. 1) then
-                call fmm_m2l_baseline(d, rnode(j), rsph(i), pm, pl, vscales, &
+                call fmm_m2l_fast(d, rnode(j), rsph(i), pm, pl, vscales, &
                     & coef_node(:, j), coef_l)
             ! If M2P is needed
             else if (far(j) .eq. 2) then
