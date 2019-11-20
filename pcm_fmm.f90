@@ -2193,7 +2193,7 @@ subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 end subroutine int_grid
 
 ! Divide given cluster of spheres into two subclusters by inertial bisection
-subroutine cluster_divide(nsph, csph, n, ind, div)
+subroutine btree1_node_divide(nsph, csph, n, ind, div)
 ! Parameters:
 !   nsph: Number of all spheres
 !   csph: Centers of all spheres
@@ -2232,12 +2232,56 @@ subroutine cluster_divide(nsph, csph, n, ind, div)
     end do
     div = r
     ind = tmp_ind
-end subroutine cluster_divide
+end subroutine btree1_node_divide
 
-! Prepare tree (divide and compute bounding spheres)
-! Number of clusters is always 2*nsph-1
-subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
-        & rnode, snode)
+! Divide given cluster into two subclusters by shifted inertial bisection
+! Shifted along principal vector of geometry so that two subclusters are equal
+! or +-1 in number of spheres in each of them
+subroutine btree2_node_divide(nsph, csph, n, ind, div)
+! Parameters:
+!   nsph: Number of all spheres
+!   csph: Centers of all spheres
+!   n: Number of spheres in given cluster
+!   ind: Indexes of spheres in given cluster (sorted on exit)
+!   div: Break point between two clusters. ind(1:div) belong to first cluster
+!       and ind(div+1:n) belongs to second cluster
+    integer, intent(in) :: nsph, n
+    real(kind=8), intent(in) :: csph(3, nsph)
+    integer, intent(inout) :: ind(n)
+    integer, intent(out) :: div
+    real(kind=8) :: c(3), tmp_csph(3, n), a(3, 3), w(3), work(9), scal(n)
+    real(kind=8) :: alpha=1, beta=0
+    integer :: i, l, r, lwork=9, info, tmp_ind(n)
+    c = 0
+    do i = 1, n
+        c = c + csph(:, ind(i))
+    end do
+    c = c / n
+    do i = 1, n
+        tmp_csph(:, i) = csph(:, ind(i)) - c
+    end do
+    call dgemm('N', 'T', 3, 3, n, alpha, tmp_csph, 3, tmp_csph, 3, beta, a, 3)
+    call dsyev('V', 'L', 3, a, 3, w, work, lwork, info)
+    call dgemv('T', 3, n, alpha, tmp_csph, 3, a(:, 3), 1, beta, scal, 1)
+    l = 1
+    r = n
+    do i = 1, n
+        if (scal(i) .ge. 0) then
+            tmp_ind(l) = ind(i)
+            l = l + 1
+        else
+            tmp_ind(r) = ind(i)
+            r = r - 1
+        end if
+    end do
+    div = r
+    ind = tmp_ind
+end subroutine btree2_node_divide
+
+! Prepare binary tree (divide and compute bounding spheres)
+! Number of clusters (nodes) is always 2*nsph-1
+subroutine btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
+        cnode, rnode, snode)
 ! Parameters:
 !   nsph: Number of all spheres
 !   csph: Centers of all spheres
@@ -2268,7 +2312,7 @@ subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
         e = cluster(2, i)
         n = e - s + 1
         if (n .gt. 1) then
-            call cluster_divide(nsph, csph, n, ind(s:e), div)
+            call btree1_node_divide(nsph, csph, n, ind(s:e), div)
             cluster(1, j) = s
             cluster(2, j) = s + div - 1
             cluster(1, j+1) = s + div
@@ -2312,60 +2356,16 @@ subroutine tree_init(nsph, csph, rsph, ind, cluster, children, parent, cnode, &
             rnode(i) = r
         end if
     end do
-end subroutine tree_init
+end subroutine btree1_init
 
-! Compute sizes to store improved tree
-! This function makes it possible to call tree2_init from other programming
-! languages, since allocation of object of unknown size (it is not known
-! apriori, only after calling tree_init) is now on a user side.
-subroutine tree2_preinit(nsph, children, parent, nclusters, maxlevel)
-! Parameters:
-!   nsph: Number of all spheres
-!   children: children of each cluster. 0 means no children
-!   parent: parent of each cluster. 0 means no parent
-!   nclusters: real amount of clusters
-    integer, intent(in) :: nsph, children(2, 2*nsph-1), parent(2*nsph-1)
-    integer, intent(out) :: nclusters, maxlevel
-    integer :: leaf(2*nsph-1), i, j
-    ! Positive value of leaf(i) means it is a leaf node on the level leaf(i)
-    ! Negative value means it is not a leaf node on a level -leaf(i)
-    leaf(1) = -1
-    maxlevel = 1
-    do i = 2, 2*nsph-1
-        ! If this is not leaf node
-        if (children(1, i) .ne. 0) then
-            leaf(i) = leaf(parent(i)) - 1
-        ! If this is a leaf node
-        else
-            leaf(i) = 1 - leaf(parent(i))
-        end if
-        j = abs(leaf(i))
-        if (j .gt. maxlevel) then
-            maxlevel = j
-        end if
-    end do
-    ! Find amount of additional nodes we need to create. Each new node is the
-    ! only child of existing or added node
-    nclusters = 2*nsph - 1
-    do i = 1, 2*nsph-1
-        if (leaf(i) .gt. 0) then
-            nclusters = nclusters + maxlevel - leaf(i)
-        end if
-    end do
-end subroutine tree2_preinit
-
-! Prepare improved tree (divide and compute bounding spheres)
-! Uses tree, initialized by tree_init with 2*nsph-1 nodes and then creates
-! auxiliary child node for each leaf node not on the lowest level of tree. This
-! child simply equal to its parent. So, all the real leaf nodes are on the
-! bottom of tree
-subroutine tree2_init(nsph, csph, rsph, nclusters, maxlevel, ind, cluster, &
-        & children, parent, cnode, rnode, snode)
+! Prepare binary tree (divide and compute bounding spheres)
+! Number of clusters (nodes) is always 2*nsph-1
+subroutine btree2_init(nsph, csph, rsph, ind, cluster, children, parent, &
+        cnode, rnode, snode)
 ! Parameters:
 !   nsph: Number of all spheres
 !   csph: Centers of all spheres
 !   rsph: Radiuses of all spheres
-!   nclusters: number of nodes
 !   ind: Permutation of spheres (to localize them)
 !   cluster: first and last spheres (from ind array), belonging to each cluster
 !   children: children of each cluster. 0 means no children
@@ -2376,42 +2376,180 @@ subroutine tree2_init(nsph, csph, rsph, nclusters, maxlevel, ind, cluster, &
     integer, intent(in) :: nsph
     real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
     integer, intent(inout) :: ind(nsph)
-    integer, intent(out) :: cluster(2, nclusters), children(2, nclusters)
+    integer, intent(out) :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
     integer, intent(out) :: parent(2*nsph-1)
     real(kind=8), intent(out) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
     integer, intent(out) :: snode(nsph)
     integer :: i, j, n, s, e, div
     real(kind=8) :: r, r1, r2, c(3), c1(3), c2(3), d
-    integer :: leaf(2*nsph-1), i, j
-    ! Positive value of leaf(i) means it is a leaf node on the level leaf(i)
-    ! Negative value means it is not a leaf node on a level -leaf(i)
-    leaf(1) = -1
-    maxlevel = 1
-    do i = 2, 2*nsph-1
-        ! If this is not leaf node
-        if (children(1, i) .ne. 0) then
-            leaf(i) = leaf(parent(i)) - 1
-        ! If this is a leaf node
+    cluster(1, 1) = 1
+    cluster(2, 1) = nsph
+    parent(1) = 0
+    j = 2
+    ! Divide tree until leaves with single spheres inside
+    do i = 1, 2*nsph-1
+        s = cluster(1, i)
+        e = cluster(2, i)
+        n = e - s + 1
+        if (n .gt. 1) then
+            call btree2_node_divide(nsph, csph, n, ind(s:e), div)
+            cluster(1, j) = s
+            cluster(2, j) = s + div - 1
+            cluster(1, j+1) = s + div
+            cluster(2, j+1) = e
+            children(1, i) = j
+            children(2, i) = j + 1
+            parent(j) = i
+            parent(j+1) = i
+            j = j + 2
         else
-            leaf(i) = 1 - leaf(parent(i))
-        end if
-        j = abs(leaf(i))
-        if (j .gt. maxlevel) then
-            maxlevel = j
+            children(:, i) = 0
+            snode(ind(s)) = i
         end if
     end do
-    do i = 2, 2*nsph-1
+    ! Compute bounding spheres
+    do i = 2*nsph-1, 1, -1
         if (children(1, i) .eq. 0) then
+            j = cluster(1, i)
+            cnode(:, i) = csph(:, ind(j))
+            rnode(i) = rsph(ind(j))
+        else
+            j = children(1, i)
+            c1 = cnode(:, j)
+            r1 = rnode(j)
+            j = children(2, i)
+            c2 = cnode(:, j)
+            r2 = rnode(j)
+            c = c1 - c2
+            d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
+            if ((r1-r2) .ge. d) then
+                c = c1
+                r = r1
+            else if((r2-r1) .ge. d) then
+                c = c2
+                r = r2
+            else
+                r = (r1+r2+d) / 2
+                c = c2 + c/d*(r-r2)
+            end if
+            cnode(:, i) = c
+            rnode(i) = r
         end if
     end do
-end subroutine tree2_init
+end subroutine btree2_init
+
+! Compute number of levels in a cluster tree
+subroutine tree_get_height(n, p, h)
+! Parameters:
+!   n: Number of all nodes of a tree
+!   p: parent of each node. 0 means no children
+!   h: height of a given tree
+    integer, intent(in) :: n, p(n)
+    integer, intent(out) :: h
+    integer :: level(n), i, j
+    level(1) = 1
+    h = 1
+    do i = 2, n
+        j = level(p(i)) + 1
+        level(i) = j
+        if (j .gt. h) then
+            h = j
+        end if
+    end do
+end subroutine tree_get_height
+
+! Compute number of nodes in an improved tree
+subroutine tree_improve_get_size(n, c, h, n_improved)
+! Parameters:
+!   n: Number of all nodes in a tree
+!   c: Children of all nodes. Actual indexes of children are c(1,i):c(2,i)
+!   h: Height of a tree
+    integer, intent(in) :: n, c(2, n), h
+    integer, intent(out) :: n_improved
+    integer :: i, j, level(n)
+    level(1) = 1
+    n_improved = n
+    do i = 1, n
+        if (c(1, i) .ne. 0) then
+            do j = c(1, i), c(2, i)
+                level(j) = level(i) + 1
+            end do
+        else
+            n_improved = n_improved + h - level(i)
+        end if
+    end do
+end subroutine tree_improve_get_size
+
+! Improve tree by adding "fake" children, so that all the leaves are on bottom
+subroutine tree_improve(n, n_improved, height, cluster, children, parent, &
+        & cnode, rnode, cluster_improved, children_improved, parent_improved, &
+        & cnode_improved, rnode_improved)
+! Parameters:
+!   n: Number of nodes in input tree
+!   n_improved: Number of nodes of output tree
+!   height: Height of a given tree (same for input and output)
+!   cluster: first and last spheres, belonging to each cluster
+!   children: first and last children of each cluster. 0 means no children
+!   parent: parent of each cluster. 0 means no parent
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   cluster_improved: first and last spheres, belonging to each cluster
+!   children_improved: first and last children of each cluster.
+!   parent_improved: parent of each cluster.
+!   cnode_improved: center of bounding sphere of each cluster (node) of tree
+!   rnode_improved: radius of bounding sphere of each cluster (node) of tree
+    integer, intent(in) :: n, n_improved, height, cluster(2, n)
+    integer, intent(in) :: children(2, n), parent(n)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    integer, intent(out) :: cluster_improved(2, n_improved)
+    integer, intent(out) :: children_improved(2, n_improved)
+    integer, intent(out) :: parent_improved(n_improved)
+    real(kind=8), intent(out) :: cnode_improved(3, n_improved)
+    real(kind=8), intent(out) :: rnode_improved(n_improved)
+    integer :: level(n), i, j, k, last
+    cluster_improved(:, :n) = cluster
+    children_improved(:, :n) = children
+    parent_improved(:n) = parent
+    cnode_improved(:, :n) = cnode
+    rnode_improved(:n) = rnode
+    level(1) = 1
+    last = n + 1
+    do i = 2, n
+        j = level(parent(i)) + 1
+        level(i) = j
+        ! If this is not leaf node, just ignore it
+        if (children(1, i) .ne. 0) then
+            cycle
+        end if
+        ! If this leaf node is on bottom, also ignore it
+        if (height .eq. j) then
+            cycle
+        end if
+        ! Add chain of children for i-th node
+        children_improved(:, i) = last
+        parent_improved(last) = i
+        do k = 1, height-j-1
+            children_improved(:, last+k-1) = last + k
+            parent_improved(last+k) = last + k - 1
+        end do
+        children_improved(:, last+height-j-1) = 0
+        ! Update all other information
+        cluster_improved(1, last:last+height-j-1) = cluster(1, i)
+        cluster_improved(2, last:last+height-j-1) = cluster(2, i)
+        cnode_improved(1, last:last+height-j-1) = cnode(1, i)
+        cnode_improved(2, last:last+height-j-1) = cnode(2, i)
+        cnode_improved(3, last:last+height-j-1) = cnode(3, i)
+        rnode_improved(last:last+height-j-1) = rnode(i)
+        last = last + height - j
+    end do
+end subroutine tree_improve
 
 ! Find near and far admissible pairs of tree nodes and store it in work array
-subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
+subroutine tree_get_farnear_work(n, children, cnode, rnode, lwork, iwork, &
         & jwork, work, nnfar, nfar, nnnear, nnear)
 ! Parameters:
-!   nsph: number of leaf nodes in a tree. total number of nodes is 2*nsph-1
-!   children: children of each cluster. 0 means no children
+!   n: number of nodes
+!   children: first and last children of each cluster. 0 means no children
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
 !   lwork: size of work array in dimension 2
@@ -2431,24 +2569,28 @@ subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
 !       greater than jwork on exit
 !   nnear: amount of near admissible pairs for each node. valid only if iwork
 !       is greater than jwork on exit
-    integer, intent(in) :: nsph, children(2, 2*nsph-1), lwork
-    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    integer, intent(in) :: n, children(2, n), lwork
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
     integer, intent(inout) :: iwork, jwork, work(3, lwork)
-    integer, intent(out) :: nnfar, nfar(2*nsph-1), nnnear, nnear(2*nsph-1)
-    integer :: j(2)
+    integer, intent(out) :: nnfar, nfar(n), nnnear, nnear(n)
+    integer :: j(2), npairs, k1, k2
     real(kind=8) :: c(3), r, d
+    ! iwork is current temporary item in work array to process
     if (iwork .eq. 0) then
         work(1, 1) = 1
         work(2, 1) = 1
         iwork = 1
         jwork = 1
     end if
+    ! jwork is total amount of temporary items in work array
     do while (iwork .le. jwork)
         j = work(1:2, iwork)
         c = cnode(:, j(1)) - cnode(:, j(2))
         r = rnode(j(1)) + rnode(j(2)) + max(rnode(j(1)), rnode(j(2)))
         !r = rnode(j(1)) + rnode(j(2))
         d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
+        npairs = (children(2, j(1))-children(1, j(1))+1) * &
+            & (children(2, j(2))-children(1, j(2))+1)
         if (d .ge. r) then
             ! Mark as far admissible pair
             !write(*,*) "FAR:", j
@@ -2458,22 +2600,20 @@ subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
             ! Mark as near admissible pair if one of nodes is a leaf node
             !write(*,*) "NEAR:", j
             work(3, iwork) = 2
-        else if (jwork+4 .gt. lwork) then
+        else if (jwork+npairs .gt. lwork) then
             ! Exit procedure, since work array was too small
             !write(*,*) "SMALL LWORK"
             return
         else
             ! Mark as non-admissible pair and check all pairs of children nodes
             work(3, iwork) = 0
-            work(1, jwork+1) = children(1, j(1))
-            work(2, jwork+1) = children(1, j(2))
-            work(1, jwork+2) = children(1, j(1))
-            work(2, jwork+2) = children(2, j(2))
-            work(1, jwork+3) = children(2, j(1))
-            work(2, jwork+3) = children(1, j(2))
-            work(1, jwork+4) = children(2, j(1))
-            work(2, jwork+4) = children(2, j(2))
-            jwork = jwork + 4
+            do k1 = children(1, j(1)), children(2, j(1))
+                do k2 = children(1, j(2)), children(2, j(2))
+                    jwork = jwork + 1
+                    work(1, jwork) = k1
+                    work(2, jwork) = k2
+                end do
+            end do
             !write(*,*) "NON:", j
         end if
         iwork = iwork + 1
@@ -2492,19 +2632,31 @@ subroutine tree_get_farnear_work(nsph, children, cnode, rnode, lwork, iwork, &
     nnnear = sum(nnear)
 end subroutine tree_get_farnear_work
 
-! Get near and far admissible pairs from work array of tree_get_m2l_work
-subroutine tree_get_farnear(jwork, lwork, work, nsph, nnfar, nfar, sfar, far, &
+! Get near and far admissible pairs from work array of tree_get_farnear_work
+! Works only for binary tree
+subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
         nnnear, nnear, snear, near)
 ! Parameters:
-    integer, intent(in) :: jwork, lwork, work(3, lwork), nsph, nnfar, nnnear
-    integer, intent(in) :: nfar(2*nsph-1), nnear(2*nsph-1)
-    integer, intent(out) :: sfar(2*nsph), far(nnfar), snear(2*nsph)
-    integer, intent(out) :: near(nnnear)
+!   jwork: Total number of checked pairs in work array
+!   lwork: Total length of work array
+!   work: Work array itself
+!   n: Number of nodes
+!   nnfar: Total number of all far-field interactions
+!   nfar: Number of far-field interactions of each node
+!   sfar: Index in far array of first far-field node for each node
+!   far: Indexes of far-field nodes
+!   nnnear: Total number of all near-field interactions
+!   nnear: Number of near-field interactions of each node
+!   snear: Index in near array of first near-field node for each node
+!   near: Indexes of near-field nodes
+    integer, intent(in) :: jwork, lwork, work(3, lwork), n, nnfar, nnnear
+    integer, intent(in) :: nfar(n), nnear(n)
+    integer, intent(out) :: sfar(n+1), far(nnfar), snear(n+1), near(nnnear)
     integer :: i, j
-    integer :: cfar(2*nsph), cnear(2*nsph)
+    integer :: cfar(n+1), cnear(n+1)
     sfar(1) = 1
     snear(1) = 1
-    do i = 2, 2*nsph
+    do i = 2, n+1
         sfar(i) = sfar(i-1) + nfar(i-1)
         snear(i) = snear(i-1) + nnear(i-1)
     end do
@@ -2514,11 +2666,17 @@ subroutine tree_get_farnear(jwork, lwork, work, nsph, nnfar, nfar, sfar, far, &
         if (work(3, i) .eq. 1) then
             ! Far
             j = work(1, i)
+            if ((j .gt. n) .or. (j .le. 0)) then
+                write(*,*) "ALARM", j
+            end if
             far(cfar(j)) = work(2, i)
             cfar(j) = cfar(j) + 1
         else if (work(3, i) .eq. 2) then
             ! Near
             j = work(1, i)
+            if ((j .gt. n) .or. (j .le. 0)) then
+                write(*,*) "ALARM", j
+            end if
             near(cnear(j)) = work(2, i)
             cnear(j) = cnear(j) + 1
         end if
@@ -2568,10 +2726,11 @@ subroutine tree_m2m_baseline(nsph, p, vscales, coef_sph, ind, cluster, &
 end subroutine tree_m2m_baseline
 
 ! Transfer multipole coefficients for each node of tree
-subroutine tree_m2m_fast(nsph, p, vscales, coef_sph, ind, cluster, &
+subroutine tree_m2m_fast(nsph, n, p, vscales, coef_sph, ind, cluster, &
         & children, cnode, rnode, coef_node)
 ! Parameters:
 !   nsph: Number of all spheres
+!   n : Number of nodes in a tree
 !   p: maximum degree of multipole basis functions
 !   vscales: normalization constants for Y_lm
 !   coef_sph: multipole coefficients of input spheres
@@ -2581,30 +2740,30 @@ subroutine tree_m2m_fast(nsph, p, vscales, coef_sph, ind, cluster, &
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
 !   coef_node: multipole coefficients of bounding spheres of nodes
-    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
+    integer, intent(in) :: nsph, n, p, ind(nsph), cluster(2, n)
     real(kind=8), intent(in) :: vscales((p+1)*(p+1))
     real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
-    integer, intent(in) :: children(2, 2*nsph-1)
-    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
-    real(kind=8), intent(out) :: coef_node((p+1)*(p+1), 2*nsph-1)
-    integer :: i, j(2)
-    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r
-    do i = 2*nsph-1, 1, -1
+    integer, intent(in) :: children(2, n)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    real(kind=8), intent(out) :: coef_node((p+1)*(p+1), n)
+    integer :: i, j(2), k
+    real(kind=8) :: c1(3), c(3), r1, r
+    do i = n, 1, -1
         j = children(:, i)
         if (j(1) .eq. 0) then
+            ! In case of leaf node load input weights
             coef_node(:, i) = coef_sph(:, ind(cluster(1, i)))
         else
+            ! In case of non-leaf compute weights by M2M
             c = cnode(:, i)
             r = rnode(i)
-            c1 = cnode(:, j(1))
-            r1 = rnode(j(1))
-            c2 = cnode(:, j(2))
-            r2 = rnode(j(2))
             coef_node(:, i) = 0
-            call fmm_m2m_fast(c1-c, r1, r, p, vscales, &
-                & coef_node(:, j(1)), coef_node(:, i))
-            call fmm_m2m_fast(c2-c, r2, r, p, vscales, &
-                & coef_node(:, j(2)), coef_node(:, i))
+            do k = j(1), j(2)
+                c1 = cnode(:, k)
+                r1 = rnode(k)
+                call fmm_m2m_fast(c1-c, r1, r, p, vscales, &
+                    & coef_node(:, k), coef_node(:, i))
+            end do
         end if
     end do
 end subroutine tree_m2m_fast
@@ -2837,10 +2996,11 @@ subroutine tree_l2l_baseline(nsph, p, vscales, coef_node, ind, cluster, &
 end subroutine tree_l2l_baseline
 
 ! Transfer local coefficients for each node of tree
-subroutine tree_l2l_fast(nsph, p, vscales, coef_node, ind, cluster, &
+subroutine tree_l2l_fast(nsph, n, p, vscales, coef_node, ind, cluster, &
         & children, cnode, rnode, coef_sph)
 ! Parameters:
 !   nsph: Number of all spheres
+!   n: Number of all nodes in a tree
 !   p: maximum degree of local basis functions
 !   vscales: normalization constants for Y_lm
 !   coef_node: local coefficients of bounding spherical harmonics of each node
@@ -2850,38 +3010,38 @@ subroutine tree_l2l_fast(nsph, p, vscales, coef_node, ind, cluster, &
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
 !   coef_sph: local coefficients of output spherical hamonics
-    integer, intent(in) :: nsph, p, ind(nsph), cluster(2, 2*nsph-1)
-    integer, intent(in) :: children(2, 2*nsph-1)
-    real(kind=8), intent(in) :: vscales((p+1)*(p+1)), cnode(3, 2*nsph-1)
-    real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), 2*nsph-1)
-    real(kind=8), intent(in) :: rnode(2*nsph-1)
+    integer, intent(in) :: nsph, n, p, ind(nsph), cluster(2, n)
+    integer, intent(in) :: children(2, n)
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1)), cnode(3, n)
+    real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), n)
+    real(kind=8), intent(in) :: rnode(n)
     real(kind=8), intent(out) :: coef_sph((p+1)*(p+1), nsph)
-    integer :: i, j(2)
-    real(kind=8) :: c1(3), c2(3), c(3), r1, r2, r
-    do i = 1, 2*nsph-1
+    integer :: i, j(2), k
+    real(kind=8) :: c1(3), c(3), r1, r
+    do i = 1, n
         j = children(:, i)
         if (j(1) .eq. 0) then
+            ! Output weights in case of a leaf node
             coef_sph(:, ind(cluster(1, i))) = coef_node(:, i)
         else
+            ! Do L2L in case of non-leaf node
             c = cnode(:, i)
             r = rnode(i)
-            c1 = cnode(:, j(1))
-            r1 = rnode(j(1))
-            c2 = cnode(:, j(2))
-            r2 = rnode(j(2))
-            call fmm_l2l_fast(c-c1, r, r1, p, vscales, &
-                & coef_node(:, i), coef_node(:, j(1)))
-            call fmm_l2l_fast(c-c2, r, r2, p, vscales, &
-                & coef_node(:, i), coef_node(:, j(2)))
+            do k = j(1), j(2)
+                c1 = cnode(:, k)
+                r1 = rnode(k)
+                call fmm_l2l_fast(c-c1, r, r1, p, vscales, &
+                    & coef_node(:, i), coef_node(:, k))
+            end do
         end if
     end do
 end subroutine tree_l2l_fast
 
 ! Apply L2P from local spherical harmonics to grid points and add near M2P
 subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
-        & vscales, w, vgrid, coef_sph_m, coef_sph_l, nnnear, snear, near, &
-        & cluster, ind, ui)
-    integer, intent(in) :: nsph, ngrid, pm, pl, nnnear
+        & vscales, w, vgrid, coef_sph_m, coef_sph_l, nclusters, nnnear, &
+        & snear, near, cluster, ind, ui)
+    integer, intent(in) :: nsph, ngrid, pm, pl, nclusters, nnnear
     integer, intent(in) :: snear(2*nsph), near(nnnear)
     integer, intent(in) :: cluster(2, 2*nsph-1), ind(nsph)
     real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
@@ -2906,7 +3066,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         end do
         x(:, isph) = x(:, isph) / rsph(isph)
     end do
-    do inode = 1, 2*nsph-1
+    do inode = 1, nclusters
         do inear = snear(inode), snear(inode+1)-1
             jnode = near(inear)
             do isph_node = cluster(1, inode), cluster(2, inode)
@@ -2976,28 +3136,29 @@ subroutine pcm_matvec_grid_fmm_baseline(nsph, csph, rsph, ngrid, grid, w, &
     call tree_l2l_baseline(nsph, pl, vscales, coef_node_l, ind, cluster, &
         & children, cnode, rnode, coef_out)
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
-        & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
-        & cluster, ind, ui)
+        & vscales, w, vgrid, coef_sph_scaled, coef_out, 2*nsph-1, nnnear, &
+        & snear, near, cluster, ind, ui)
 end subroutine pcm_matvec_grid_fmm_baseline
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
 ! Optimized in terms of p^3 operations
 subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
-        & vgrid, ui, pm, pl, vscales, ind, cluster, children, cnode, rnode, &
-        & nnfar, sfar, far, nnnear, snear, near, coef_sph, coef_out)
-    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), cluster(2, 2*nsph-1)
-    integer, intent(in) :: children(2, 2*nsph-1), nnfar
-    integer, intent(in) :: sfar(2*nsph), far(nnfar), nnnear, snear(2*nsph)
-    integer, intent(in) :: near(nnnear)
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, coef_sph, &
+        & coef_out)
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
+    integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
+    integer, intent(in) :: sfar(nclusters+1), far(nnfar), nnnear
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
     real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
     real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
     real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
-    real(kind=8), intent(in) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
     real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
-    real(kind=8) :: coef_node_m((pm+1)*(pm+1), 2*nsph-1)
-    real(kind=8) :: coef_node_l((pl+1)*(pl+1), 2*nsph-1)
+    real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
+    real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
     integer :: i, j, indi, indj
     do i = 0, pm
         indi = i*i + i + 1
@@ -3006,15 +3167,15 @@ subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
             coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
         end do
     end do
-    call tree_m2m_fast(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
-        & children, cnode, rnode, coef_node_m)
-    call tree_m2l_fast(2*nsph-1, cnode, rnode, nnfar, sfar, far, pm, &
+    call tree_m2m_fast(nsph, nclusters, pm, vscales, coef_sph_scaled, ind, &
+        & cluster, children, cnode, rnode, coef_node_m)
+    call tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         & pl, vscales, coef_node_m, coef_node_l)
-    call tree_l2l_fast(nsph, pl, vscales, coef_node_l, ind, cluster, &
-        & children, cnode, rnode, coef_out)
+    call tree_l2l_fast(nsph, nclusters, pl, vscales, coef_node_l, ind, &
+        & cluster, children, cnode, rnode, coef_out)
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
-        & vscales, w, vgrid, coef_sph_scaled, coef_out, nnnear, snear, near, &
-        & cluster, ind, ui)
+        & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
+        & snear, near, cluster, ind, ui)
 end subroutine pcm_matvec_grid_fmm_fast
 
 ! Apply matvec for ddPCM spherical harmonics by tree-code
@@ -3058,8 +3219,8 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
             coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
         end do
     end do
-    call tree_m2m_fast(nsph, pm, vscales, coef_sph_scaled, ind, cluster, &
-        & children, cnode, rnode, coef_node)
+    call tree_m2m_fast(nsph, 2*nsph-1, pm, vscales, coef_sph_scaled, ind, &
+        & cluster, children, cnode, rnode, coef_node)
     do i = 1, nsph
         coef_l = 0
         x = 0
