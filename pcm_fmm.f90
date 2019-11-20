@@ -2234,6 +2234,55 @@ subroutine btree1_node_divide(nsph, csph, n, ind, div)
     ind = tmp_ind
 end subroutine btree1_node_divide
 
+! Auxiliary routine for sorting
+subroutine sort_by_index_partition(n, low, high, val, ind, ipiv)
+    integer, intent(in) :: n, low, high
+    real(kind=8), intent(in) :: val(n)
+    integer, intent(inout) :: ind(n)
+    integer, intent(out) :: ipiv
+    integer :: i, j
+    real(kind=8) :: pivot
+    i = (low+high) / 2
+    pivot = val(ind(i))
+    i = low - 1
+    j = high + 1
+    do
+        do
+            i = i + 1
+            if ((val(ind(i)) .lt. pivot) .or. (i .eq. high)) then
+                exit
+            end if
+        end do
+        do
+            j = j - 1
+            if ((val(ind(j)) .gt. pivot) .or. (j .eq. low)) then
+                exit
+            end if
+        end do
+        if (i .ge. j) then
+            ipiv = j
+            return
+        end if
+        ipiv = ind(i)
+        ind(i) = ind(j)
+        ind(j) = ipiv
+    end do
+end subroutine sort_by_index_partition
+
+! Auxiliary routine for sorting
+recursive subroutine sort_by_index_qsort(n, low, high, val, ind)
+    integer, intent(in) :: n, low, high
+    real(kind=8), intent(in) :: val(n)
+    integer, intent(inout) :: ind(n)
+    integer :: ipiv
+    real(kind=8) :: pivot
+    if (low .lt. high) then
+        call sort_by_index_partition(n, low, high, val, ind, ipiv)
+        call sort_by_index_qsort(n, low, ipiv-1, val, ind)
+        call sort_by_index_qsort(n, ipiv+1, high, val, ind)
+    end if
+end subroutine sort_by_index_qsort
+
 ! Divide given cluster into two subclusters by shifted inertial bisection
 ! Shifted along principal vector of geometry so that two subclusters are equal
 ! or +-1 in number of spheres in each of them
@@ -2251,7 +2300,7 @@ subroutine btree2_node_divide(nsph, csph, n, ind, div)
     integer, intent(out) :: div
     real(kind=8) :: c(3), tmp_csph(3, n), a(3, 3), w(3), work(9), scal(n)
     real(kind=8) :: alpha=1, beta=0
-    integer :: i, l, r, lwork=9, info, tmp_ind(n)
+    integer :: i, l, r, lwork=9, info, tmp_ind(n), ipiv(n)
     c = 0
     do i = 1, n
         c = c + csph(:, ind(i))
@@ -2263,18 +2312,21 @@ subroutine btree2_node_divide(nsph, csph, n, ind, div)
     call dgemm('N', 'T', 3, 3, n, alpha, tmp_csph, 3, tmp_csph, 3, beta, a, 3)
     call dsyev('V', 'L', 3, a, 3, w, work, lwork, info)
     call dgemv('T', 3, n, alpha, tmp_csph, 3, a(:, 3), 1, beta, scal, 1)
-    l = 1
-    r = n
     do i = 1, n
-        if (scal(i) .ge. 0) then
-            tmp_ind(l) = ind(i)
-            l = l + 1
-        else
-            tmp_ind(r) = ind(i)
-            r = r - 1
+        ipiv(i) = i
+    end do
+    write(*,*) "START SORT"
+    call sort_by_index_qsort(n, 1, n, scal, ipiv)
+    write(*,*) "FINISH SORT"
+    do i = 1, n
+        tmp_ind(i) = ind(ipiv(i))
+    end do
+    do i = 2, n
+        if (tmp_ind(i-1) .gt. tmp_ind(i)) then
+            write(*,*) "ALARM2"
         end if
     end do
-    div = r
+    div = (n+1) / 2
     ind = tmp_ind
 end subroutine btree2_node_divide
 
