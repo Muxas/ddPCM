@@ -21,6 +21,8 @@ integer :: pm
 integer :: pl
 ! Scalar factors for M2M, M2L and L2L operations
 real*8, allocatable :: vscales(:)
+! Values of L (local) spherical harmonics in grid points
+real*8, allocatable :: vgrid(:, :)
 !! Cluster tree information
 ! Reordering of spheres for better locality
 integer, allocatable :: ind(:)
@@ -93,7 +95,7 @@ contains
   ! rinf rhs
   dodiag = .true.
   call rinfx(nbasis*nsph,xs,rhs)
-  call prtsph('rhs',nsph,0,rhs)
+  !call prtsph('rhs',nsph,0,rhs)
 
   ! solve the ddpcm linear system
   n_iter = 200
@@ -136,13 +138,13 @@ contains
       parent(nclusters), cnode(3, nclusters), rnode(nclusters), snode(nsph))
   pm = lmax ! This must be updated to achieve required accuracy of FMM
   pl = lmax ! This must be updated to achieve required accuracy of FMM
-  allocate(vscales((pm+pl+1)*(pm+pl+1)))
+  allocate(vscales((pm+pl+1)*(pm+pl+1)), vgrid((pl+1)*(pl+1), ngrid))
   ! Init order of spheres
   do isph = 1, nsph
     ind(isph) = isph
   end do
   ! Init constants vscales
-  call init_globals(pm, pl, vscales, ngrid, w, grid, basis)
+  call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
   ! Build initial binary tree
   call btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
         cnode, rnode, snode)
@@ -205,7 +207,7 @@ contains
   ! rinf rhs
   dodiag = .true.
   call rinfx_fmm(nbasis*nsph,xs,rhs)
-  call prtsph('rhs',nsph,0,rhs)
+  !call prtsph('rhs',nsph,0,rhs)
 
   ! solve the ddpcm linear system
   n_iter = 200
@@ -228,8 +230,9 @@ contains
   esolv = pt5*sprod(nsph*nbasis,xs,psi)
 
   ! Deallocate FMM-related arrays
-  deallocate(ind, cluster, children, parent, cnode, rnode, snode)
-  deallocate(vscales)
+  deallocate(ind, snode)
+  deallocate(cluster, children, parent, cnode, rnode)
+  deallocate(vscales, vgrid)
   deallocate(cluster2, children2, parent2)
   deallocate(cnode2, rnode2)
   deallocate(nfar, nnear)
@@ -368,13 +371,36 @@ contains
   real*8, intent(in) :: x(nbasis,nsph)
   real*8, intent(inout) :: y(nbasis,nsph)
   real*8 :: fac
+  !real*8 :: z(nbasis, nsph), norm, diff
+  !integer :: i, j
 
   call dx_fmm(n,x,y)
+  !call dx(n, x, z)
+  !norm = 0
+  !diff = 0
+  !do i = 1, nbasis
+  !  do j = 1, nsph
+  !    norm = norm + z(i, j)**2
+  !    diff = diff + (z(i, j)-y(i, j))**2
+  !  end do
+  !end do
+  !write(*,*) 'error/norm of fmm matvec=', sqrt(diff), '/', sqrt(norm)
   y = -y
+  !z = -z
 
   if (dodiag) then
     fac = two*pi
     y = y + fac*x
+    !z = z + fac*x
+    !norm = 0
+    !diff = 0
+    !do i = 1, nbasis
+    !  do j = 1, nsph
+    !    norm = norm + z(i, j)**2
+    !    diff = diff + (z(i, j)-y(i, j))**2
+    !  end do
+    !end do
+    !write(*,*) 'error/norm of fmm matvec (diag=T)=', sqrt(diff), '/', sqrt(norm)
   end if
   end subroutine rinfx_fmm
 
@@ -461,14 +487,37 @@ contains
   real*8, intent(inout) :: y(nbasis,nsph)
   real*8 :: fmm_x((pm+1)*(pm+1), nsph) ! Input for FMM
   real*8 :: fmm_y((pl+1)*(pl+1), nsph) ! Output of FMM
+  integer :: isph, igrid, l, lind, m
+  real*8 :: f, vts(ngrid), fourpi
   fmm_x(1:nbasis, :) = x
   fmm_x(nbasis+1:, :) = zero
   ! Do actual FMM matvec
-  call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, basis, ui, &
+  call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
       pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
       nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  ! Cut fmm_y to fit into output y
-  y = fmm_y(1:nbasis, :)
+  ! Apply diagonal contribution if needed
+  if(dodiag) then
+    fourpi = four * pi
+    do isph = 1, nsph
+      do igrid = 1, ngrid
+        vts(igrid) = zero
+        do l = 0, lmax
+          lind = l*l + l + 1
+          f = (two*dble(l)+one) / fourpi
+          do m = -l, l
+            vts(igrid) = vts(igrid) - pt5*x(lind+m,isph)*basis(lind+m,igrid)/f
+          end do
+        end do
+        vts(igrid) = ui(igrid, isph) * vts(igrid)
+      end do
+      call intrhs(isph, vts, y(:, isph))
+    end do
+    ! Cut fmm_y to fit into output y
+    y = y + fmm_y(1:nbasis, :)
+  else
+    ! Cut fmm_y to fit into output y
+    y = fmm_y(1:nbasis, :)
+  end if
   !write(*,*) 'I did actual FMM matvec'
   end subroutine dx_fmm
 
