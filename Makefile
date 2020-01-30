@@ -11,12 +11,17 @@ FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
-MODS   = ddcosmo.o ddpcm_lib.o
-OBJS   = mkrhs.o llgnew.o main.o ddcosmo.o ddpcm_lib.o forces_dd.o efld.o\
+MODS   = ddcosmo.o pcm_fmm.o ddpcm_lib.o
+OBJS   = ${MODS} mkrhs.o llgnew.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o
 #
-all:    $(MODS) $(OBJS)
-	$(RunF77) $(FFLAGS) -o main.exe $(OBJS)
+all:    main.exe main_fmm.exe
+	
+main.exe: $(MODS) $(OBJS)
+	$(RunF77) $(FFLAGS) main.f90 -o main.exe $(OBJS)
+
+main_fmm.exe: $(MODS) $(OBJS)
+	$(RunF77) $(FFLAGS) main_fmm.f90 -o main_fmm.exe $(OBJS)
 #
 %.o: %.f
 	$(RunF77) $(FFLAGS) -c $*.f
@@ -24,13 +29,10 @@ all:    $(MODS) $(OBJS)
 	$(RunF77) $(FFLAGS) -c $*.f90
 #
 clean:
-	rm -fr $(OBJS) *.exe *.mod *.so pcm_fmm.o
-
-mydx:	all mydx.f90
-	f2py -m mydx -c mydx.f90 $(OBJS)
-
-pcm_fmm:	pcm_fmm.f90 llgnew.f
-	f2py -m pcm_fmm -c pcm_fmm.f90 llgnew.f --opt="${FFLAGS}"
-
-.PHONY:	all clean mydx pcm_fmm
+	rm -fr $(OBJS) *.exe *.mod *.so
+#
+test_pcm_fmm: pcm_fmm.f90 llgnew.o
+	f2py -m test_pcm_fmm -c pcm_fmm.f90 llgnew.o --opt="${FFLAGS}"
+#
+.PHONY:	all clean pcm_fmm
 

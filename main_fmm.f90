@@ -190,10 +190,10 @@ allocate (sigma(nbasis,n))
 !
 ! call cosmo(.false., .true., phi, xx, psi, sigma, esolv)
 call cpu_time(start_time)
-call ddpcm(phi,psi,esolv)
+call ddpcm_fmm(phi,psi,esolv)
 call cpu_time(finish_time)
-write(6,*) 'ddpcm esolv:  ', esolv
-write(6,*) 'ddpcm time: ', finish_time-start_time
+write(6,*) 'ddpcm_fmm esolv:  ', esolv
+write(6,*) 'ddpcm_fmm time: ', finish_time-start_time
 return
 call cosmo(.false.,.true.,phi, xx, psi, sigma, esolv)
 write(6,*) 'ddcosmo esolv:', esolv

@@ -2687,7 +2687,7 @@ end subroutine tree_get_farnear_work
 ! Get near and far admissible pairs from work array of tree_get_farnear_work
 ! Works only for binary tree
 subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
-        nnnear, nnear, snear, near)
+        & nnnear, nnear, snear, near)
 ! Parameters:
 !   jwork: Total number of checked pairs in work array
 !   lwork: Total length of work array
@@ -3335,5 +3335,5 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
     end do
 end subroutine pcm_matvec_grid_treecode2
 
-end module
+end module pcm_fmm
 
