@@ -2193,7 +2193,7 @@ subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 end subroutine int_grid
 
 ! Divide given cluster of spheres into two subclusters by inertial bisection
-subroutine btree1_node_divide(nsph, csph, n, ind, div)
+subroutine btree_node_divide(nsph, csph, n, ind, div)
 ! Parameters:
 !   nsph: Number of all spheres
 !   csph: Centers of all spheres
@@ -2232,7 +2232,7 @@ subroutine btree1_node_divide(nsph, csph, n, ind, div)
     end do
     div = r
     ind = tmp_ind
-end subroutine btree1_node_divide
+end subroutine btree_node_divide
 
 ! Auxiliary routine for sorting
 subroutine sort_by_index_partition(n, low, high, val, ind, ipiv)
@@ -2283,56 +2283,9 @@ recursive subroutine sort_by_index_qsort(n, low, high, val, ind)
     end if
 end subroutine sort_by_index_qsort
 
-! Divide given cluster into two subclusters by shifted inertial bisection
-! Shifted along principal vector of geometry so that two subclusters are equal
-! or +-1 in number of spheres in each of them
-subroutine btree2_node_divide(nsph, csph, n, ind, div)
-! Parameters:
-!   nsph: Number of all spheres
-!   csph: Centers of all spheres
-!   n: Number of spheres in given cluster
-!   ind: Indexes of spheres in given cluster (sorted on exit)
-!   div: Break point between two clusters. ind(1:div) belong to first cluster
-!       and ind(div+1:n) belongs to second cluster
-    integer, intent(in) :: nsph, n
-    real(kind=8), intent(in) :: csph(3, nsph)
-    integer, intent(inout) :: ind(n)
-    integer, intent(out) :: div
-    real(kind=8) :: c(3), tmp_csph(3, n), a(3, 3), w(3), work(9), scal(n)
-    real(kind=8) :: alpha=1, beta=0
-    integer :: i, l, r, lwork=9, info, tmp_ind(n), ipiv(n)
-    c = 0
-    do i = 1, n
-        c = c + csph(:, ind(i))
-    end do
-    c = c / n
-    do i = 1, n
-        tmp_csph(:, i) = csph(:, ind(i)) - c
-    end do
-    call dgemm('N', 'T', 3, 3, n, alpha, tmp_csph, 3, tmp_csph, 3, beta, a, 3)
-    call dsyev('V', 'L', 3, a, 3, w, work, lwork, info)
-    call dgemv('T', 3, n, alpha, tmp_csph, 3, a(:, 3), 1, beta, scal, 1)
-    do i = 1, n
-        ipiv(i) = i
-    end do
-    write(*,*) "START SORT"
-    call sort_by_index_qsort(n, 1, n, scal, ipiv)
-    write(*,*) "FINISH SORT"
-    do i = 1, n
-        tmp_ind(i) = ind(ipiv(i))
-    end do
-    do i = 2, n
-        if (tmp_ind(i-1) .gt. tmp_ind(i)) then
-            write(*,*) "ALARM2"
-        end if
-    end do
-    div = (n+1) / 2
-    ind = tmp_ind
-end subroutine btree2_node_divide
-
 ! Prepare binary tree (divide and compute bounding spheres)
 ! Number of clusters (nodes) is always 2*nsph-1
-subroutine btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
+subroutine btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
         cnode, rnode, snode)
 ! Parameters:
 !   nsph: Number of all spheres
@@ -2364,7 +2317,7 @@ subroutine btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
         e = cluster(2, i)
         n = e - s + 1
         if (n .gt. 1) then
-            call btree1_node_divide(nsph, csph, n, ind(s:e), div)
+            call btree_node_divide(nsph, csph, n, ind(s:e), div)
             cluster(1, j) = s
             cluster(2, j) = s + div - 1
             cluster(1, j+1) = s + div
@@ -2408,87 +2361,7 @@ subroutine btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
             rnode(i) = r
         end if
     end do
-end subroutine btree1_init
-
-! Prepare binary tree (divide and compute bounding spheres)
-! Number of clusters (nodes) is always 2*nsph-1
-subroutine btree2_init(nsph, csph, rsph, ind, cluster, children, parent, &
-        cnode, rnode, snode)
-! Parameters:
-!   nsph: Number of all spheres
-!   csph: Centers of all spheres
-!   rsph: Radiuses of all spheres
-!   ind: Permutation of spheres (to localize them)
-!   cluster: first and last spheres (from ind array), belonging to each cluster
-!   children: children of each cluster. 0 means no children
-!   parent: parent of each cluster. 0 means no parent
-!   cnode: center of bounding sphere of each cluster (node) of tree
-!   rnode: radius of bounding sphere of each cluster (node) of tree
-!   snode: which node is leaf and contains only given sphere
-    integer, intent(in) :: nsph
-    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph)
-    integer, intent(inout) :: ind(nsph)
-    integer, intent(out) :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
-    integer, intent(out) :: parent(2*nsph-1)
-    real(kind=8), intent(out) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
-    integer, intent(out) :: snode(nsph)
-    integer :: i, j, n, s, e, div
-    real(kind=8) :: r, r1, r2, c(3), c1(3), c2(3), d
-    cluster(1, 1) = 1
-    cluster(2, 1) = nsph
-    parent(1) = 0
-    j = 2
-    ! Divide tree until leaves with single spheres inside
-    do i = 1, 2*nsph-1
-        s = cluster(1, i)
-        e = cluster(2, i)
-        n = e - s + 1
-        if (n .gt. 1) then
-            call btree2_node_divide(nsph, csph, n, ind(s:e), div)
-            cluster(1, j) = s
-            cluster(2, j) = s + div - 1
-            cluster(1, j+1) = s + div
-            cluster(2, j+1) = e
-            children(1, i) = j
-            children(2, i) = j + 1
-            parent(j) = i
-            parent(j+1) = i
-            j = j + 2
-        else
-            children(:, i) = 0
-            snode(ind(s)) = i
-        end if
-    end do
-    ! Compute bounding spheres
-    do i = 2*nsph-1, 1, -1
-        if (children(1, i) .eq. 0) then
-            j = cluster(1, i)
-            cnode(:, i) = csph(:, ind(j))
-            rnode(i) = rsph(ind(j))
-        else
-            j = children(1, i)
-            c1 = cnode(:, j)
-            r1 = rnode(j)
-            j = children(2, i)
-            c2 = cnode(:, j)
-            r2 = rnode(j)
-            c = c1 - c2
-            d = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
-            if ((r1-r2) .ge. d) then
-                c = c1
-                r = r1
-            else if((r2-r1) .ge. d) then
-                c = c2
-                r = r2
-            else
-                r = (r1+r2+d) / 2
-                c = c2 + c/d*(r-r2)
-            end if
-            cnode(:, i) = c
-            rnode(i) = r
-        end if
-    end do
-end subroutine btree2_init
+end subroutine btree_init
 
 ! Compute number of levels in a cluster tree
 subroutine tree_get_height(n, p, h)

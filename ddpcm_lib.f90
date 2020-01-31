@@ -146,7 +146,7 @@ contains
   ! Init constants vscales
   call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
   ! Build initial binary tree
-  call btree1_init(nsph, csph, rsph, ind, cluster, children, parent, &
+  call btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
         cnode, rnode, snode)
   nclusters = 2*nsph-1
   ! Get its height
