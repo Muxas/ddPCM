@@ -162,7 +162,7 @@ contains
   ! Allocate space to find all admissible pairs
   allocate(nfar(nclusters), nnear(nclusters))
   ! Try to find all admissibly far and near pairs of tree nodes
-  lwork = nclusters*100 ! Some magic constant which might be changed
+  lwork = nclusters*200 ! Some magic constant which might be changed
   allocate(work(3, lwork))
   iwork = 0 ! init with zero for first call to tree_get_farnear_work
   call tree_get_farnear_work(nclusters, children2, cnode2, rnode2, lwork, &
@@ -171,7 +171,7 @@ contains
   ! tree_get_farnear_work uses previously computed work array, so it will not
   ! do the same work several times.
   if (iwork .ne. jwork+1) then
-    write(*,*) 'Please increase lwork on line 150 of ddpcm_lib.f90 in the code'
+    write(*,*) 'Please increase lwork on line 174 of ddpcm_lib.f90 in the code'
     stop
   end if
   ! Allocate arrays for admissible far and near pairs
