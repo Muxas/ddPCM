@@ -56,6 +56,10 @@ integer, allocatable :: sfar(:), snear(:)
 ! Temporary variables to get list of all admissible pairs
 integer :: lwork, iwork, jwork
 integer, allocatable :: work(:, :)
+! Reflection matrices for M2M and L2L operations
+real(kind=8), allocatable :: m2m_reflect_mat(:)
+! Reflection matrices for M2L operations
+!real(kind=8), allocatable :: m2l_reflect_mat(:)
 contains
 
   subroutine ddpcm(phi, psi, esolv)
@@ -179,6 +183,12 @@ contains
   ! Get list of admissible pairs from temporary work array
   call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
       far, nnnear, nnear, snear, near)
+  ! Allocate M2M reflection matrices
+  allocate(m2m_reflect_mat((nclusters-1) * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
+      & * (2*max(pm,pl)+3) / 3))
+  ! Precompute reflection matrices for M2M
+  call tree_get_m2m_reflect_mat(nclusters, parent2, cnode2, rnode2, pm, &
+      & m2m_reflect_mat)
 
   ! Continue with ddpcm
   allocate(rx_prc(nbasis,nbasis,nsph))
@@ -238,6 +248,7 @@ contains
   deallocate(nfar, nnear)
   deallocate(work)
   deallocate(far, sfar, near, snear)
+  deallocate(m2m_reflect_mat)
   return
   end subroutine ddpcm_fmm
 
