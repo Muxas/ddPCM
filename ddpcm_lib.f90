@@ -187,8 +187,8 @@ contains
   allocate(m2m_reflect_mat((nclusters-1) * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
       & * (2*max(pm,pl)+3) / 3))
   ! Precompute reflection matrices for M2M
-  call tree_get_m2m_reflect_mat(nclusters, parent2, cnode2, rnode2, pm, &
-      & m2m_reflect_mat)
+  !call tree_get_m2m_reflect_mat(nclusters, parent2, cnode2, rnode2, pm, &
+  !    & m2m_reflect_mat)
 
   ! Continue with ddpcm
   allocate(rx_prc(nbasis,nbasis,nsph))
@@ -503,7 +503,10 @@ contains
   fmm_x(1:nbasis, :) = x
   fmm_x(nbasis+1:, :) = zero
   ! Do actual FMM matvec
-  call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+  !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+  !    pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
+  !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
+  call pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
       pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
       nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
   ! Apply diagonal contribution if needed

@@ -3512,63 +3512,6 @@ subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
     end do
 end subroutine tree_get_farnear
 
-! Compute reflection matrices for fast M2M and L2L
-! If trees for sources and destinations are the same, then reflection matrices
-! are the same for both M2M and L2L. Need to check if this is true.
-subroutine tree_get_m2m_reflect_mat(nclusters, parent, cnode, rnode, p, mat)
-! Parameters:
-!   nclusters: Number of nodes of the input tree
-!   parent: Parent of each node
-!   cnode: center of bounding sphere of each cluster (node) of tree
-!   rnode: radius of bounding sphere of each cluster (node) of tree
-!   p: maximum degree of multipole basis functions
-!   mat: reflection matrices to align each node with its parent onto OZ axis
-    integer, intent(in) :: nclusters
-    integer, intent(in) :: parent(nclusters)
-    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
-    integer, intent(in) :: p
-    real(kind=8), intent(out) :: mat((nclusters-1)*(p+1)*(2*p+1)*(2*p+3)/3)
-    integer :: icluster, n, m, matsize
-    real(kind=8) :: c(3), stheta, r, c1(3), nsgn, norm, r1(3, 3)
-    matsize = (p+1)*(2*p+1)*(2*p+3)/3
-    ! Cycle over all nodes, except root one
-    do icluster = 2, nclusters
-        c = cnode(:, icluster) - cnode(:, parent(icluster))
-        ! Check if this node and parent node require no reflection
-        stheta = c(1)*c(1) + c(2)*c(2)
-        if (stheta .eq. 0) then
-            mat((icluster-2)*matsize+1:(icluster-1)*matsize) = 0
-            cycle
-        end if
-        ! Otherwise normalize and permute coordinates to compute corresponding
-        ! reflection matrix from old permuted coordinates to new permuted
-        ! coordinates, where OZ axis is aligned along vector, connecting
-        ! centers of bounding spheres of this and parent nodes.
-        r = sqrt(stheta + c(3)*c(3))
-        c1(1) = c(2) / r
-        c1(2) = c(3) / r
-        c1(3) = c(1) / r
-        if (c1(2) .ge. 0) then
-            nsgn = -1
-        else
-            nsgn = 1
-        end if
-        c1(2) = c1(2) - nsgn
-        norm = sqrt(c1(1)*c1(1) + c1(2)*c1(2) + c1(3)*c1(3))
-        c1 = c1 / norm
-        r1 = 0
-        do m = 1, 3
-            r1(m, m) = 1
-            do n = 1, 3
-                r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
-            end do
-        end do
-        ! Use reflection matrix to generate transformations for all spherical
-        ! harmonics.
-        call fmm_sph_get_reflect_mat(p, r1, mat((icluster-2)*matsize+1))
-    end do
-end subroutine tree_get_m2m_reflect_mat
-
 ! Transfer multipole coefficients for each node of tree
 subroutine tree_m2m_baseline(nsph, p, vscales, coef_sph, ind, cluster, &
         & children, cnode, rnode, coef_node)
@@ -3654,14 +3597,53 @@ subroutine tree_m2m_fast(nsph, n, p, vscales, coef_sph, ind, cluster, &
     end do
 end subroutine tree_m2m_fast
 
+! Compute reflection matrices for fast M2M and L2L
+! If trees for sources and destinations are the same, then reflection matrices
+! are the same for both M2M and L2L. Need to check if this is true.
+subroutine tree_m2m_get_mat(n, children, cnode, rnode, p, vscales, &
+        & reflect_mat, ztrans_mat)
+! Parameters:
+!   n: Number of nodes of the input tree
+!   children: children of each node
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   p: maximum degree of multipole basis functions
+!   reflect_mat: reflection to OZ matrices
+!   ztrans_mat: OZ translation matrices
+    integer, intent(in) :: n
+    integer, intent(in) :: children(2, n)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
+    real(kind=8), intent(out) :: reflect_mat((n-1)*(p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(out) :: ztrans_mat((n-1)*(p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: c(3)
+    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
+    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
+    ! Cycle over all nodes, except root one
+    do i = n, 1, -1
+        j = children(:, i)
+        ! In case of leaf node do nothing
+        if (j(1) .eq. 0) then
+            cycle
+        end if
+        do k = j(1), j(2)
+            c = cnode(:, k) - cnode(:, i)
+            call fmm_m2m_get_mat(c, rnode(k), rnode(i), p, vscales, &
+                & reflect_mat((k-2)*reflect_mat_size+1), &
+                & ztrans_mat((k-2)*ztrans_mat_size+1))
+        end do
+    end do
+end subroutine tree_m2m_get_mat
+
 ! Transfer multipole coefficients using precomputed reflection matrices
-subroutine tree_m2m_use_reflect_mat(nsph, n, p, vscales, coef_sph, ind, &
-        & cluster, children, cnode, rnode, reflect_mat, coef_node)
+subroutine tree_m2m_use_mat(nsph, n, p, coef_sph, ind, cluster, children, &
+        & cnode, rnode, reflect_mat, ztrans_mat, coef_node)
 ! Parameters:
 !   nsph: Number of all spheres
 !   n : Number of nodes in a tree
 !   p: maximum degree of multipole basis functions
-!   vscales: normalization constants for Y_lm
 !   coef_sph: multipole coefficients of input spheres
 !   ind: permutation of all spheres (to localize sequential spheres)
 !   cluster: first and last spheres (from ind array), belonging to each cluster
@@ -3669,17 +3651,19 @@ subroutine tree_m2m_use_reflect_mat(nsph, n, p, vscales, coef_sph, ind, &
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
 !   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
 !   coef_node: multipole coefficients of bounding spheres of nodes
     integer, intent(in) :: nsph, n, p, ind(nsph), cluster(2, n)
-    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
     real(kind=8), intent(in) :: reflect_mat((n-1)*(p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(in) :: ztrans_mat((n-1)*(p+1)*(p+2)*(p+3)/6)
     real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
     integer, intent(in) :: children(2, n)
     real(kind=8), intent(in) :: cnode(3, n), rnode(n)
     real(kind=8), intent(out) :: coef_node((p+1)*(p+1), n)
-    integer :: i, j(2), k, matsize
-    real(kind=8) :: c1(3), c(3), r1, r, d(3), stheta
-    matsize = (p+1)*(2*p+1)*(2*p+3)/3
+    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    real(kind=8) :: c1(3), c(3), r1, r
+    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
+    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
     do i = n, 1, -1
         j = children(:, i)
         if (j(1) .eq. 0) then
@@ -3693,15 +3677,14 @@ subroutine tree_m2m_use_reflect_mat(nsph, n, p, vscales, coef_sph, ind, &
             do k = j(1), j(2)
                 c1 = cnode(:, k)
                 r1 = rnode(k)
-                !call fmm_m2m_fast(c1-c, r1, r, p, vscales, &
-                !    & coef_node(:, k), coef_node(:, i))
-                !call fmm_m2m_use_reflect_mat(c1-c, r1, r, p, vscales, &
-                !    & reflect_mat((k-2)*matsize+1), coef_node(:, k), &
-                !    & coef_node(:, i))
+                call fmm_m2m_use_mat(c1-c, r1, r, p, &
+                    & reflect_mat((k-2)*reflect_mat_size+1), &
+                    & ztrans_mat((k-2)*ztrans_mat_size+1), coef_node(:, k), &
+                    & coef_node(:, i))
             end do
         end if
     end do
-end subroutine tree_m2m_use_reflect_mat
+end subroutine tree_m2m_use_mat
 
 ! Apply M2P from entire tree to a given point
 subroutine tree_m2p_treecode(c, leaf, p, vscales, nclusters, children, cnode, &
@@ -4114,11 +4097,10 @@ subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
 end subroutine pcm_matvec_grid_fmm_fast
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
-! Uses previously computed reflection matrices to align spherical harmonics
-! of node and its parent to OZ axis (to simplify M2M, M2L and L2L translations)
-subroutine pcm_matvec_grid_fmm_mat(nsph, csph, rsph, ngrid, grid, w, &
+! Computes and uses reflection and OZ translation matrices for M2M
+subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
         & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, children, &
-        & cnode, rnode, reflect_mat, nnfar, sfar, far, nnnear, snear, near, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
         & coef_sph, coef_out)
     integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
     integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
@@ -4128,13 +4110,15 @@ subroutine pcm_matvec_grid_fmm_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
     real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
-    real(kind=8), intent(in) :: reflect_mat((nclusters-1) * &
-        & (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
     real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
     real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
+    real(kind=8) :: reflect_mat((nclusters-1) * &
+        & (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8) :: ztrans_mat((nclusters-1) * &
+        & (max(pm,pl)+1) * (max(pm,pl)+2) * (max(pm,pl)+3) / 6)
     integer :: i, j, indi, indj
     do i = 0, pm
         indi = i*i + i + 1
@@ -4143,9 +4127,10 @@ subroutine pcm_matvec_grid_fmm_mat(nsph, csph, rsph, ngrid, grid, w, &
             coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
         end do
     end do
-    call tree_m2m_use_reflect_mat(nsph, nclusters, pm, vscales, &
-        & coef_sph_scaled, ind, cluster, children, cnode, rnode, &
-        & reflect_mat, coef_node_m)
+    call tree_m2m_get_mat(nclusters, children, cnode, rnode, pm, vscales, &
+        & reflect_mat, ztrans_mat)
+    call tree_m2m_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
+        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node_m)
     call tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         & pl, vscales, coef_node_m, coef_node_l)
     call tree_l2l_fast(nsph, nclusters, pl, vscales, coef_node_l, ind, &
@@ -4153,7 +4138,7 @@ subroutine pcm_matvec_grid_fmm_mat(nsph, csph, rsph, ngrid, grid, w, &
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
         & snear, near, cluster, ind, ui)
-end subroutine pcm_matvec_grid_fmm_mat
+end subroutine pcm_matvec_grid_fmm_test_mat
 
 ! Apply matvec for ddPCM spherical harmonics by tree-code
 ! Per-sphere tree-code, which used not only M2P, but M2L and L2P also
