@@ -761,12 +761,6 @@ subroutine fmm_m2m_get_ztrans_mat(z, src_r, dst_r, p, vscales, mat)
                     & vscales(indjn) / fact(n+1) / fact(n+1) / &
                     & fact(j-n-k+1) / fact(j-n+k+1)
                 indmat = indmat + 1
-                !if (k .eq. 0) then
-                !    dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
-                !else
-                !    dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
-                !    dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
-                !end if
             end do
         end do
     end do
@@ -795,7 +789,6 @@ subroutine fmm_m2m_use_ztrans_mat(p, mat, src_m, dst_m)
             indn = n*n + n + 1
             indjn = (j-n)**2 + (j-n) + 1
             dst_m(indj) = dst_m(indj) + mat(indmat)*src_m(indjn)
-            !dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
             indmat = indmat + 1
         end do
         ! k > 0
@@ -806,9 +799,7 @@ subroutine fmm_m2m_use_ztrans_mat(p, mat, src_m, dst_m)
                 indn = n*n + n + 1
                 indjn = (j-n)**2 + (j-n) + 1
                 dst_m(indj+k) = dst_m(indj+k) + mat(indmat)*src_m(indjn+k)
-                !dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
                 dst_m(indj-k) = dst_m(indj-k) + mat(indmat)*src_m(indjn-k)
-                !dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
                 indmat = indmat + 1
             end do
         end do
@@ -818,8 +809,8 @@ end subroutine fmm_m2m_use_ztrans_mat
 ! Use precomputed translation matrices over OZ axis
 ! Check if centers of spherical harmonics are different, otherwise use function
 ! fmm_m2m_scale, since case of the same center requires only scaling.
-! Only difference with fmm_m2m_use_ztrans_mat is that output dst_m is treated as
-! inout, not just out. This is done to improve performance.
+! Only difference with fmm_m2m_use_ztrans_mat is that output dst_m is treated
+! as inout, not just out. This is done to improve performance.
 subroutine fmm_m2m_use_ztrans_mat2(p, mat, src_m, dst_m)
 ! Parameters:
 !   p: maximum degree of spherical harmonics
@@ -839,7 +830,6 @@ subroutine fmm_m2m_use_ztrans_mat2(p, mat, src_m, dst_m)
             indn = n*n + n + 1
             indjn = (j-n)**2 + (j-n) + 1
             dst_m(indj) = dst_m(indj) + mat(indmat)*src_m(indjn)
-            !dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
             indmat = indmat + 1
         end do
         ! k > 0
@@ -848,9 +838,7 @@ subroutine fmm_m2m_use_ztrans_mat2(p, mat, src_m, dst_m)
                 indn = n*n + n + 1
                 indjn = (j-n)**2 + (j-n) + 1
                 dst_m(indj+k) = dst_m(indj+k) + mat(indmat)*src_m(indjn+k)
-                !dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
                 dst_m(indj-k) = dst_m(indj-k) + mat(indmat)*src_m(indjn-k)
-                !dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
                 indmat = indmat + 1
             end do
         end do
@@ -875,7 +863,7 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
     real(kind=8) :: fact(2*(pm+pl)+1), tmp1, tmp2, pow_r1(pm+1), pow_r2(pl+1)
     real(kind=8) :: r1, r2
-    integer :: j, k, n, indj, indn, indjn
+    integer :: j, k, n, indj, indn
     ! z cannot be zero, as input sphere (multipole) must not intersect with
     ! output sphere (local)
     if (z .eq. 0) then
@@ -904,7 +892,6 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
             tmp1 = vscales(indj) * pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
             do n = k, pm
                 indn = n*n + n + 1
-                indjn = (j+n)**2 + (j+n) + 1
                 tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / fact(n-k+1) / &
                     & fact(n+k+1) * fact(j+n+1) * fact(j+n+1)
                 if (mod(n+k, 2) .eq. 1) then
@@ -920,6 +907,142 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
         end do
     end do
 end subroutine fmm_m2l_ztranslate
+
+! Compute and store translation over OZ axis in a special sparse matrix
+subroutine fmm_m2l_get_ztrans_mat(z, src_r, dst_r, pm, pl, vscales, mat)
+! Parameters:
+!   z: radius-vector from new to old centers of harmonics (z coordinate only).
+!       Value of z must be non-zero, since spheres with multipole and local
+!       harmonics must be separated in space.
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   mat: translation matrix for spherical harmonics
+    real(kind=8), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1))
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(out) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8) :: r1, r2, fact(2*(pm+pl)+1), tmp1, pow_r1(pm+1), pow_r2(pl+1)
+    integer :: j, k, n, indj, indn, indjn, indmat
+    if (z .eq. 0) then
+        return
+    end if
+    r1 = src_r / z
+    r2 = dst_r / z
+    pow_r1(1) = 1
+    ! This abs(r2) makes it possible to work with negative z to avoid
+    ! unnecessary rotation to positive z
+    pow_r2(1) = abs(r2)
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    ! Fill square roots of factorials
+    fact(1) = 1
+    do j = 2, 2*(pm+pl)+1
+        fact(j) = sqrt(dble(j-1)) * fact(j-1)
+    end do
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = vscales(indj) * pow_r2(j+1) / fact(j-k+1) / fact(j+k+1)
+            do n = k, pm
+                indn = n*n + n + 1
+                if(indmat .gt. (min(pm,pl)+1)*(min(pm,pl)+2) &
+                    & *(3*max(pm,pl)+3-min(pm,pl))/6) then
+                    write(*,*) "wrong max index in fmm_m2l_get_ztrans_mat"
+                    exit
+                end if
+                mat(indmat) = tmp1 * pow_r1(n+1) / vscales(indn) &
+                    & / fact(n-k+1) / fact(n+k+1) * fact(j+n+1) * fact(j+n+1)
+                if (mod(n+k, 2) .eq. 1) then
+                    mat(indmat) = -mat(indmat)
+                end if
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_get_ztrans_mat
+
+! Use precomputed translation matrices over OZ axis
+subroutine fmm_m2l_use_ztrans_mat(pm, pl, mat, src_m, dst_l)
+! Parameters:
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in old (multipole) harmonics
+!   dst_l: expansion in new (local) harmonics
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
+    real(kind=8), intent(out) :: dst_l((pl+1)*(pl+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        dst_l(indj) = 0
+        ! k = 0
+        do n = 0, pm
+            indn = n*n + n + 1
+            dst_l(indj) = dst_l(indj) + mat(indmat)*src_m(indn)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            dst_l(indj+k) = 0
+            dst_l(indj-k) = 0
+            do n = k, pm
+                indn = n*n + n + 1
+                dst_l(indj+k) = dst_l(indj+k) + mat(indmat)*src_m(indn+k)
+                dst_l(indj-k) = dst_l(indj-k) + mat(indmat)*src_m(indn-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_use_ztrans_mat
+
+! Use precomputed translation matrices over OZ axis
+! Only difference with fmm_m2l_use_ztrans_mat is that output dst_l is treated
+! as inout, not just out. This is done to improve performance.
+subroutine fmm_m2l_use_ztrans_mat2(pm, pl, mat, src_m, dst_l)
+! Parameters:
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in old (multipole) harmonics
+!   dst_l: expansion in new (local) harmonics
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
+    real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, pm
+            indn = n*n + n + 1
+            dst_l(indj) = dst_l(indj) + mat(indmat)*src_m(indn)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = k, pm
+                indn = n*n + n + 1
+                dst_l(indj+k) = dst_l(indj+k) + mat(indmat)*src_m(indn+k)
+                dst_l(indj-k) = dst_l(indj-k) + mat(indmat)*src_m(indn-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_use_ztrans_mat2
 
 ! Optimized version of L2L, translation over OZ axis only
 subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
@@ -937,7 +1060,7 @@ subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
     real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
     real(kind=8) :: r1, r2, fact(2*p+1)
     real(kind=8) :: tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
-    integer :: j, k, n, indj, indn, indjn
+    integer :: j, k, n, indj, indn
     if (z .ne. 0) then
         r1 = z / src_r
         r2 = dst_r / z
@@ -958,7 +1081,6 @@ subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
                 tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1) * vscales(indj)
                 do n = j, p
                     indn = n*n + n + 1
-                    indjn = (n-j)**2 + (n-j) + 1
                     tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) * fact(n-k+1) * &
                         & fact(n+k+1) / fact(n-j+1) / fact(n-j+1)
                     if (mod(n+j, 2) .eq. 1) then
@@ -985,6 +1107,160 @@ subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
         end do
     end if
 end subroutine fmm_l2l_ztranslate
+
+! Scale L2L, when spherical harmonics are centered in the same point
+subroutine fmm_l2l_scale(src_r, dst_r, p, src_l, dst_l)
+! Parameters:
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: r1, tmp1
+    integer :: j, k, indj
+    r1 = dst_r / src_r
+    tmp1 = r1
+    do j = 0, p
+        indj = j*j + j + 1
+        do k = indj-j, indj+j
+            dst_l(k) = dst_l(k) + src_l(k)*tmp1
+        end do
+        tmp1 = tmp1 * r1
+    end do
+end subroutine fmm_l2l_scale
+
+! Compute and store translation over OZ axis in a special sparse matrix
+subroutine fmm_l2l_get_ztrans_mat(z, src_r, dst_r, p, vscales, mat)
+! Parameters:
+!   z: radius-vector from new to old centers of harmonics (z coordinate only).
+!       Value of z must be non-zero. In case z=0 call ordinary fmm_l2l_scale,
+!       since this case is simply scaling, no need to compute and save matrix.
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   mat: translation matrix for spherical harmonics
+    real(kind=8), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1))
+    integer, intent(in) :: p
+    real(kind=8), intent(out) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: r1, r2, fact(2*p+1), tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, indj, indn, indmat
+    if (z .eq. 0) then
+        return
+    end if
+    r1 = z / src_r
+    r2 = dst_r / z
+    pow_r1(1) = r1
+    pow_r2(1) = r2
+    do j = 2, p+1
+        pow_r1(j) = pow_r1(j-1) * r1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    ! Fill square roots of factorials
+    fact(1) = 1
+    do j = 2, 2*p+1
+        fact(j) = sqrt(dble(j-1)) * fact(j-1)
+    end do
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = pow_r2(j+1) / fact(j-k+1) / fact(j+k+1) * vscales(indj)
+            do n = j, p
+                indn = n*n + n + 1
+                if(indmat .gt. (p+1)*(p+2)*(p+3)/6) then
+                    write(*,*) "wrong max index in fmm_l2l_get_ztrans_mat"
+                    exit
+                end if
+                mat(indmat) = tmp1 * pow_r1(n+1) / vscales(indn) &
+                    & * fact(n-k+1) * fact(n+k+1) / fact(n-j+1) / fact(n-j+1)
+                if (mod(n+j, 2) .eq. 1) then
+                    mat(indmat) = -mat(indmat)
+                end if
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_l2l_get_ztrans_mat
+
+! Use precomputed translation matrices over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_l2l_scale, since case of the same center requires only scaling
+subroutine fmm_l2l_use_ztrans_mat(p, mat, src_l, dst_l)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst_l((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indmat
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        dst_l(indj) = 0
+        ! k = 0
+        do n = j, p
+            indn = n*n + n + 1
+            dst_l(indj) = dst_l(indj) + mat(indmat)*src_l(indn)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            dst_l(indj+k) = 0
+            dst_l(indj-k) = 0
+            do n = j, p
+                indn = n*n + n + 1
+                dst_l(indj+k) = dst_l(indj+k) + mat(indmat)*src_l(indn+k)
+                dst_l(indj-k) = dst_l(indj-k) + mat(indmat)*src_l(indn-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_l2l_use_ztrans_mat
+
+! Use precomputed translation matrices over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_l2l_scale, since case of the same center requires only scaling
+! Only difference with fmm_l2l_use_ztrans_mat is that output dst_l is treated
+! as inout, not just out. This is done to improve performance.
+subroutine fmm_l2l_use_ztrans_mat2(p, mat, src_l, dst_l)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indmat
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = j, p
+            indn = n*n + n + 1
+            dst_l(indj) = dst_l(indj) + mat(indmat)*src_l(indn)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = j, p
+                indn = n*n + n + 1
+                dst_l(indj+k) = dst_l(indj+k) + mat(indmat)*src_l(indn+k)
+                dst_l(indj-k) = dst_l(indj-k) + mat(indmat)*src_l(indn-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_l2l_use_ztrans_mat2
 
 ! Auxiliary routine to transform (rotate, reflect) spherical harmonics
 ! Factor u_lnm (lower case) from the paper:
@@ -2749,17 +3025,15 @@ subroutine fmm_m2m_test_mat(c, src_r, dst_r, p, vscales, src_m, dst_m)
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
-    !reflect_mat = 0
     call fmm_sph_get_reflect_mat(p, r1, reflect_mat)
     call fmm_sph_use_reflect_mat(p, reflect_mat, src_m, tmp_m)
-    !ztrans_mat = 0
     call fmm_m2m_get_ztrans_mat(nsgn*r, src_r, dst_r, p, vscales, &
         & ztrans_mat)
     call fmm_m2m_use_ztrans_mat(p, ztrans_mat, tmp_m, tmp_m2)
     call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_m2, dst_m)
 end subroutine fmm_m2m_test_mat
 
-! Compute and stores reflection and OZ-translation matrices.
+! Compute and store reflection and OZ-translation matrices.
 ! This function does nothing if c is a zero-vector, if c(1)=c(2)=0, then this
 ! function computes only ztrans_mat. Zero cases must be treated with simple
 ! scaling by fmm_m2m_scale and c(1)=c(2)=0 must be treated by applying only
@@ -2779,15 +3053,14 @@ subroutine fmm_m2m_get_mat(c, src_r, dst_r, p, vscales, reflect_mat, &
     real(kind=8), intent(in) :: vscales((p+1)*(p+1))
     real(kind=8), intent(out) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
     real(kind=8), intent(out) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
-    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, tmp_m((p+1)*(p+1)), r
-    real(kind=8) :: tmp_m2((p+1)*(p+1))
+    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, r
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
     ! If no need for transformation, just do translation along z
     if (stheta .eq. 0) then
         ! If centers are the same do nothing
         if(c(3) .eq. 0) then
-        ! Otherwise compute ztrans matrix and use it
+        ! Otherwise compute ztrans matrix
         else
             call fmm_m2m_get_ztrans_mat(c(3), src_r, dst_r, p, vscales, &
                 & ztrans_mat)
@@ -2815,7 +3088,9 @@ subroutine fmm_m2m_get_mat(c, src_r, dst_r, p, vscales, reflect_mat, &
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
+    ! Compute reflection and translation
     call fmm_sph_get_reflect_mat(p, r1, reflect_mat)
+    call fmm_m2m_get_ztrans_mat(nsgn*r, src_r, dst_r, p, vscales, ztrans_mat)
 end subroutine fmm_m2m_get_mat
 
 ! M2M translation by precomputed reflection and OZ tranlation (p^3 operations)
@@ -2838,13 +3113,13 @@ subroutine fmm_m2m_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
     real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
     real(kind=8), intent(in) :: src_m((p+1)*(p+1))
     real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
-    real(kind=8) :: stheta, nsgn, tmp_m((p+1)*(p+1)), r
+    real(kind=8) :: stheta, nsgn, tmp_m((p+1)*(p+1))
     real(kind=8) :: tmp_m2((p+1)*(p+1))
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
     ! If no need for transformation, just do translation along z
     if (stheta .eq. 0) then
-        ! If centers are the same do nothing (must be treated
+        ! If centers are the same just scale
         if(c(3) .eq. 0) then
             call fmm_m2m_scale(src_r, dst_r, p, src_m, dst_m)
         ! Otherwise compute ztrans matrix and use it
@@ -2853,12 +3128,7 @@ subroutine fmm_m2m_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
         end if
         return
     end if
-    r = sqrt(stheta + c(3)*c(3))
-    if (c(3) .ge. 0) then
-        nsgn = -1
-    else
-        nsgn = 1
-    end if
+    ! Apply reflection->translation->reflection
     call fmm_sph_use_reflect_mat(p, reflect_mat, src_m, tmp_m)
     call fmm_m2m_use_ztrans_mat(p, ztrans_mat, tmp_m, tmp_m2)
     call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_m2, dst_m)
@@ -2917,16 +3187,17 @@ subroutine fmm_m2l_fast(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
 end subroutine fmm_m2l_fast
 
 ! M2L translation by reflection (p^3 operations)
-! Computes and stores reflection matrices. This procedure helps debugging
-! fmm_sph_get_reflect_mat and fmm_sph_use_reflect_mat
+! Computes and uses reflection and OZ-translation matrices. This procedure
+! helps debugging fmm_sph_get_reflect_mat, fmm_sph_use_reflect_mat,
+! fmm_m2l_get_ztrans_mat and fmm_m2l_use_ztrans_mat
 subroutine fmm_m2l_test_mat(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
 ! Parameters:
-!   c: radius-vector from new (local) to old (multipole) centers of harmonics
-!   src_r: radius of old (multipole) harmonics
-!   dst_r: radius of new (local) harmonics
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
 !   pm: maximum degree of multipole spherical harmonics
 !   pl: maximum degree of local spherical harmonics
-!   vscales: normalization constants for Y_lm (of degree up to pl+pm)
+!   vscales: normalization constants for Y_lm
 !   src_m: expansion in old (multipole) harmonics
 !   dst_l: expansion in new (local) harmonics
     real(kind=8), intent(in) :: c(3), src_r, dst_r
@@ -2934,23 +3205,31 @@ subroutine fmm_m2l_test_mat(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
     integer, intent(in) :: pm, pl
     real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
-    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn
-    real(kind=8) :: tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1)), r
+    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, r
+    real(kind=8) :: tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1))
     real(kind=8) :: tmp_ml2((max(pm,pl)+1)*(max(pm,pl)+1))
-    real(kind=8) :: mat((max(pm,pl)+1)*(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3)
+    real(kind=8) :: reflect_mat((max(pm,pl)+1) * (2*max(pm,pl)+1) &
+        & * (2*max(pm,pl)+3) / 3)
+    real(kind=8) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
     ! If no need for transformation, just do translation along z
     if (stheta .eq. 0) then
-        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, src_m, &
-            & dst_l)
+        ! If centers are the same do nothing (but it must not happen)
+        if(c(3) .eq. 0) then
+        ! Otherwise compute ztrans matrix and use it
+        else
+            call fmm_m2l_get_ztrans_mat(c(3), src_r, dst_r, pm, pl, vscales, &
+                & ztrans_mat)
+            call fmm_m2l_use_ztrans_mat2(pm, pl, ztrans_mat, src_m, dst_l)
+        end if
         return
     end if
     r = sqrt(stheta + c(3)*c(3))
     c1(1) = c(2) / r
     c1(2) = c(3) / r
     c1(3) = c(1) / r
-    if (c1(2) .ge. 0) then
+    if (c(3) .ge. 0) then
         nsgn = -1
     else
         nsgn = 1
@@ -2965,14 +3244,114 @@ subroutine fmm_m2l_test_mat(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
-    call fmm_sph_get_reflect_mat(max(pm,pl), r1, mat)
-    call fmm_sph_use_reflect_mat(pm, mat, src_m, tmp_ml)
-    tmp_ml2 = 0
-    call fmm_m2l_ztranslate(nsgn*r, src_r, dst_r, pm, pl, vscales, tmp_ml, &
-        & tmp_ml2)
-    call fmm_sph_use_reflect_mat(pl, mat, tmp_ml2, tmp_ml)
-    dst_l = dst_l + tmp_ml
+    call fmm_sph_get_reflect_mat(max(pm,pl), r1, reflect_mat)
+    call fmm_sph_use_reflect_mat(pm, reflect_mat, src_m, tmp_ml)
+    call fmm_m2l_get_ztrans_mat(nsgn*r, src_r, dst_r, pm, pl, vscales, &
+        & ztrans_mat)
+    call fmm_m2l_use_ztrans_mat(pm, pl, ztrans_mat, tmp_ml, tmp_ml2)
+    call fmm_sph_use_reflect_mat2(pl, reflect_mat, tmp_ml2, dst_l)
 end subroutine fmm_m2l_test_mat
+
+! Compute and store reflection and OZ-translation matrices.
+subroutine fmm_m2l_get_mat(c, src_r, dst_r, pm, pl, vscales, reflect_mat, &
+        & ztrans_mat)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(out) :: reflect_mat((max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(out) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
+    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, r
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same do nothing (but this must not happen)
+        if(c(3) .eq. 0) then
+        ! Otherwise compute ztrans matrix
+        else
+            call fmm_m2l_get_ztrans_mat(c(3), src_r, dst_r, pm, pl, vscales, &
+                & ztrans_mat)
+        end if
+        return
+    end if
+    ! Compute reflection of old coordinates into new ones to generate
+    ! reflection of spherical harmonics
+    r = sqrt(stheta + c(3)*c(3))
+    c1(1) = c(2) / r
+    c1(2) = c(3) / r
+    c1(3) = c(1) / r
+    if (c(3) .ge. 0) then
+        nsgn = -1
+    else
+        nsgn = 1
+    end if
+    c1(2) = c1(2) - nsgn
+    norm = sqrt(c1(1)*c1(1) + c1(2)*c1(2) + c1(3)*c1(3))
+    c1 = c1 / norm
+    r1 = 0
+    do m = 1, 3
+        r1(m, m) = 1
+        do n = 1, 3
+            r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
+        end do
+    end do
+    ! Compute reflection and translation
+    call fmm_sph_get_reflect_mat(max(pm,pl), r1, reflect_mat)
+    call fmm_m2l_get_ztrans_mat(nsgn*r, src_r, dst_r, pm, pl, vscales, &
+        & ztrans_mat)
+end subroutine fmm_m2l_get_mat
+
+! M2L translation by precomputed reflection and OZ tranlation (p^3 operations)
+! This function applies precomputed reflection and translation to make FMM
+! matvecs much faster.
+subroutine fmm_m2l_use_mat(c, src_r, dst_r, pm, pl, reflect_mat, ztrans_mat, &
+        & src_m, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+!   src_m: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: reflect_mat((max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(in) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
+    real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
+    real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
+    real(kind=8) :: stheta, nsgn, tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1))
+    real(kind=8) :: tmp_ml2((max(pm,pl)+1)*(max(pm,pl)+1))
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same do nothing (but this must not happen)
+        if(c(3) .eq. 0) then
+        ! Otherwise use ztrans matrix
+        else
+            call fmm_m2l_use_ztrans_mat2(pm, pl, ztrans_mat, src_m, dst_l)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_use_reflect_mat(pm, reflect_mat, src_m, tmp_ml)
+    call fmm_m2l_use_ztrans_mat(pm, pl, ztrans_mat, tmp_ml, tmp_ml2)
+    call fmm_sph_use_reflect_mat2(pl, reflect_mat, tmp_ml2, dst_l)
+end subroutine fmm_m2l_use_mat
 
 ! L2L translation by rotation around OZ and OY (p^3 operations)
 ! Based on fmm_m2m_fast
@@ -3022,8 +3401,9 @@ subroutine fmm_l2l_fast(c, src_r, dst_r, p, vscales, src_l, dst_l)
 end subroutine fmm_l2l_fast
 
 ! L2L translation by reflection (p^3 operations)
-! Computes and stores reflection matrices. This procedure helps debugging
-! fmm_sph_get_reflect_mat and fmm_sph_use_reflect_mat
+! Computes and uses reflection and OZ-translation matrices. This procedure
+! helps debugging fmm_sph_get_reflect_mat, fmm_sph_use_reflect_mat,
+! fmm_l2l_get_ztrans_mat and fmm_l2l_use_ztrans_mat
 subroutine fmm_l2l_test_mat(c, src_r, dst_r, p, vscales, src_l, dst_l)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
@@ -3034,27 +3414,33 @@ subroutine fmm_l2l_test_mat(c, src_r, dst_r, p, vscales, src_l, dst_l)
 !   src_l: expansion in old harmonics
 !   dst_l: expansion in new harmonics
     real(kind=8), intent(in) :: c(3), src_r, dst_r
-    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
-    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1)), vscales((p+1)*(p+1))
     integer, intent(in) :: p
     real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
-    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn
-    real(kind=8) :: tmp_l((p+1)*(p+1)), r
+    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, tmp_l((p+1)*(p+1)), r
     real(kind=8) :: tmp_l2((p+1)*(p+1))
-    real(kind=8) :: mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
     ! If no need for transformation, just do translation along z
     if (stheta .eq. 0) then
-        call fmm_l2l_ztranslate(c(3), src_r, dst_r, p, vscales, src_l, dst_l)
+        ! If centers are the same just do scaling
+        if(c(3) .eq. 0) then
+            call fmm_l2l_scale(src_r, dst_r, p, src_l, dst_l)
+        ! Otherwise compute ztrans matrix and use it
+        else
+            call fmm_l2l_get_ztrans_mat(c(3), src_r, dst_r, p, vscales, &
+                & ztrans_mat)
+            call fmm_l2l_use_ztrans_mat2(p, ztrans_mat, src_l, dst_l)
+        end if
         return
     end if
     r = sqrt(stheta + c(3)*c(3))
-    r = sqrt(c(1)*c(1) + c(2)*c(2) + c(3)*c(3))
     c1(1) = c(2) / r
     c1(2) = c(3) / r
     c1(3) = c(1) / r
-    if (c1(2) .ge. 0) then
+    if (c(3) .ge. 0) then
         nsgn = -1
     else
         nsgn = 1
@@ -3069,13 +3455,114 @@ subroutine fmm_l2l_test_mat(c, src_r, dst_r, p, vscales, src_l, dst_l)
             r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
         end do
     end do
-    call fmm_sph_get_reflect_mat(p, r1, mat)
-    call fmm_sph_use_reflect_mat(p, mat, src_l, tmp_l)
-    tmp_l2 = 0
-    call fmm_l2l_ztranslate(nsgn*r, src_r, dst_r, p, vscales, tmp_l, tmp_l2)
-    call fmm_sph_use_reflect_mat(p, mat, tmp_l2, tmp_l)
-    dst_l = dst_l + tmp_l
+    call fmm_sph_get_reflect_mat(p, r1, reflect_mat)
+    call fmm_sph_use_reflect_mat(p, reflect_mat, src_l, tmp_l)
+    call fmm_l2l_get_ztrans_mat(nsgn*r, src_r, dst_r, p, vscales, &
+        & ztrans_mat)
+    call fmm_l2l_use_ztrans_mat(p, ztrans_mat, tmp_l, tmp_l2)
+    call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_l2, dst_l)
 end subroutine fmm_l2l_test_mat
+
+! Compute and store reflection and OZ-translation matrices.
+! This function does nothing if c is a zero-vector, if c(1)=c(2)=0, then this
+! function computes only ztrans_mat. Zero cases must be treated with simple
+! scaling by fmm_l2l_scale and c(1)=c(2)=0 must be treated by applying only
+! translation over OZ axis with ztrans_mat matrix.
+subroutine fmm_l2l_get_mat(c, src_r, dst_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   vscales: normalization constants for Y_lm
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
+    real(kind=8), intent(out) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(out) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, tmp_m((p+1)*(p+1)), r
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same do nothing
+        if(c(3) .eq. 0) then
+        ! Otherwise compute ztrans matrix
+        else
+            call fmm_l2l_get_ztrans_mat(c(3), src_r, dst_r, p, vscales, &
+                & ztrans_mat)
+        end if
+        return
+    end if
+    ! Compute reflection of old coordinates into new ones to generate
+    ! reflection of spherical harmonics
+    r = sqrt(stheta + c(3)*c(3))
+    c1(1) = c(2) / r
+    c1(2) = c(3) / r
+    c1(3) = c(1) / r
+    if (c(3) .ge. 0) then
+        nsgn = -1
+    else
+        nsgn = 1
+    end if
+    c1(2) = c1(2) - nsgn
+    norm = sqrt(c1(1)*c1(1) + c1(2)*c1(2) + c1(3)*c1(3))
+    c1 = c1 / norm
+    r1 = 0
+    do m = 1, 3
+        r1(m, m) = 1
+        do n = 1, 3
+            r1(n, m) = r1(n, m) - 2*c1(n)*c1(m)
+        end do
+    end do
+    ! Compute reflection and translation
+    call fmm_sph_get_reflect_mat(p, r1, reflect_mat)
+    call fmm_l2l_get_ztrans_mat(nsgn*r, src_r, dst_r, p, vscales, ztrans_mat)
+end subroutine fmm_l2l_get_mat
+
+! L2L translation by precomputed reflection and OZ tranlation (p^3 operations)
+! This function applies precomputed reflection and translation to make FMM
+! matvecs much faster.
+subroutine fmm_l2l_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
+        & src_l, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: stheta, nsgn, tmp_l((p+1)*(p+1))
+    real(kind=8) :: tmp_l2((p+1)*(p+1))
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same just scale
+        if(c(3) .eq. 0) then
+            call fmm_l2l_scale(src_r, dst_r, p, src_l, dst_l)
+        ! Otherwise use ztrans matrix
+        else
+            call fmm_l2l_use_ztrans_mat2(p, ztrans_mat, src_l, dst_l)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_use_reflect_mat(p, reflect_mat, src_l, tmp_l)
+    call fmm_l2l_use_ztrans_mat(p, ztrans_mat, tmp_l, tmp_l2)
+    call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_l2, dst_l)
+end subroutine fmm_l2l_use_mat
 
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
@@ -3597,9 +4084,7 @@ subroutine tree_m2m_fast(nsph, n, p, vscales, coef_sph, ind, cluster, &
     end do
 end subroutine tree_m2m_fast
 
-! Compute reflection matrices for fast M2M and L2L
-! If trees for sources and destinations are the same, then reflection matrices
-! are the same for both M2M and L2L. Need to check if this is true.
+! Compute reflection matrices for fast M2M
 subroutine tree_m2m_get_mat(n, children, cnode, rnode, p, vscales, &
         & reflect_mat, ztrans_mat)
 ! Parameters:
@@ -3637,7 +4122,7 @@ subroutine tree_m2m_get_mat(n, children, cnode, rnode, p, vscales, &
     end do
 end subroutine tree_m2m_get_mat
 
-! Transfer multipole coefficients using precomputed reflection matrices
+! Transfer multipole coefficients using precomputed matrices
 subroutine tree_m2m_use_mat(nsph, n, p, coef_sph, ind, cluster, children, &
         & cnode, rnode, reflect_mat, ztrans_mat, coef_node)
 ! Parameters:
@@ -3955,6 +4440,54 @@ subroutine tree_l2l_fast(nsph, n, p, vscales, coef_node, ind, cluster, &
     end do
 end subroutine tree_l2l_fast
 
+! Transfer local coefficients using precomputed matrices
+subroutine tree_l2l_use_mat(nsph, n, p, coef_node, ind, cluster, children, &
+        & cnode, rnode, reflect_mat, ztrans_mat, coef_sph)
+! Parameters:
+!   nsph: Number of all spheres
+!   n : Number of nodes in a tree
+!   p: maximum degree of multipole basis functions
+!   coef_node: local coefficients of bounding spheres of nodes
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
+!   coef_sph: local coefficients of output spheres
+    integer, intent(in) :: nsph, n, p, ind(nsph), cluster(2, n)
+    real(kind=8), intent(in) :: reflect_mat((n-1)*(p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(in) :: ztrans_mat((n-1)*(p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), n)
+    integer, intent(in) :: children(2, n)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    real(kind=8), intent(out) :: coef_sph((p+1)*(p+1), nsph)
+    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    real(kind=8) :: c1(3), c(3), r1, r
+    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
+    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
+    do i = 1, n
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            ! Output weights in case of a leaf node
+            coef_sph(:, ind(cluster(1, i))) = coef_node(:, i)
+        else
+            ! In case of non-leaf compute weights by L2L
+            c = cnode(:, i)
+            r = rnode(i)
+            do k = j(1), j(2)
+                c1 = cnode(:, k)
+                r1 = rnode(k)
+                call fmm_l2l_use_mat(c-c1, r, r1, p, &
+                    & reflect_mat((k-2)*reflect_mat_size+1), &
+                    & ztrans_mat((k-2)*ztrans_mat_size+1), coef_node(:, i), &
+                    & coef_node(:, k))
+            end do
+        end if
+    end do
+end subroutine tree_l2l_use_mat
+
 ! Apply L2P from local spherical harmonics to grid points and add near M2P
 subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_m, coef_sph_l, nclusters, nnnear, &
@@ -4133,8 +4666,10 @@ subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
         & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node_m)
     call tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         & pl, vscales, coef_node_m, coef_node_l)
-    call tree_l2l_fast(nsph, nclusters, pl, vscales, coef_node_l, ind, &
-        & cluster, children, cnode, rnode, coef_out)
+    !call tree_l2l_fast(nsph, nclusters, pl, vscales, coef_node_l, ind, &
+    !    & cluster, children, cnode, rnode, coef_out)
+    call tree_l2l_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
+        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node_m)
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
         & snear, near, cluster, ind, ui)
