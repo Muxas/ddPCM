@@ -3269,7 +3269,8 @@ subroutine fmm_m2l_get_mat(c, src_r, dst_r, pm, pl, vscales, reflect_mat, &
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
     real(kind=8), intent(out) :: reflect_mat((max(pm,pl)+1) &
         & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(out) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
+    real(kind=8), intent(out) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
     real(kind=8) :: stheta, c1(3), r1(3, 3), norm, nsgn, r
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
@@ -3330,7 +3331,8 @@ subroutine fmm_m2l_use_mat(c, src_r, dst_r, pm, pl, reflect_mat, ztrans_mat, &
     integer, intent(in) :: pm, pl
     real(kind=8), intent(in) :: reflect_mat((max(pm,pl)+1) &
         & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(in) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
+    real(kind=8), intent(in) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
     real(kind=8), intent(in) :: src_m((pm+1)*(pm+1))
     real(kind=8), intent(inout) :: dst_l((pl+1)*(pl+1))
     real(kind=8) :: stheta, nsgn, tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1))
@@ -4294,14 +4296,16 @@ subroutine tree_m2l_baseline(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         & pl, vscales, coef_m, coef_l)
 ! Parameters:
 !   nclusters: Number of all clusters
-!   p: maximum degree of multipole basis functions
-!   vscales: normalization constants for Y_lm
-!   coef_sph: multipole coefficients of input spheres
-!   ind: permutation of all spheres (to localize sequential spheres)
-!   children: children of each cluster. 0 means no children
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
-!   coef_node: multipole coefficients of bounding spheres of nodes
+!   nnfar: total number of admissible far-field pairs
+!   sfar: offset for each node to get list of its far-field pairs
+!   far: array that stores lists of far-field pairs
+!   pm: maximum degree of multipole basis functions
+!   pl: maximum degree of local basis functions
+!   vscales: normalization constants for Y_lm
+!   coef_m: input values of multipole expansions
+!   coef_l: output values of local expansions
     integer, intent(in) :: nclusters, nnfar, sfar(nclusters+1), far(nnfar)
     integer, intent(in) :: pm, pl
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
@@ -4328,14 +4332,16 @@ subroutine tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         & pl, vscales, coef_m, coef_l)
 ! Parameters:
 !   nclusters: Number of all clusters
-!   p: maximum degree of multipole basis functions
-!   vscales: normalization constants for Y_lm
-!   coef_sph: multipole coefficients of input spheres
-!   ind: permutation of all spheres (to localize sequential spheres)
-!   children: children of each cluster. 0 means no children
 !   cnode: center of bounding sphere of each cluster (node) of tree
 !   rnode: radius of bounding sphere of each cluster (node) of tree
-!   coef_node: multipole coefficients of bounding spheres of nodes
+!   nnfar: total number of admissible far-field pairs
+!   sfar: offset for each node to get list of its far-field pairs
+!   far: array that stores lists of far-field pairs
+!   pm: maximum degree of multipole basis functions
+!   pl: maximum degree of local basis functions
+!   vscales: normalization constants for Y_lm
+!   coef_m: input values of multipole expansions
+!   coef_l: output values of local expansions
     integer, intent(in) :: nclusters, nnfar, sfar(nclusters+1), far(nnfar)
     integer, intent(in) :: pm, pl
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
@@ -4356,6 +4362,85 @@ subroutine tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
         end do
     end do
 end subroutine tree_m2l_fast
+
+! Compute reflection matrices for fast M2L
+subroutine tree_m2l_get_mat(n, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & vscales, reflect_mat, ztrans_mat)
+! Parameters:
+!   n: Number of all clusters
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   nnfar: total number of admissible far-field pairs
+!   sfar: offset for each node to get list of its far-field pairs
+!   far: array that stores lists of far-field pairs
+!   pm: maximum degree of multipole basis functions
+!   pl: maximum degree of local basis functions
+!   vscales: normalization constants for Y_lm
+!   reflect_mat: reflection to OZ matrices
+!   ztrans_mat: OZ translation matrices
+    integer, intent(in) :: n, nnfar, sfar(n+1), far(nnfar)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(out) :: reflect_mat(nnfar * (max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(out) :: ztrans_mat(nnfar * (min(pm,pl)+1) &
+        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8) :: c(3)
+    integer :: i, j, k, reflect_mat_size, ztrans_mat_size
+    reflect_mat_size = (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3
+    ztrans_mat_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6
+    ! Cycle over all nodes, except root one
+    do i = 1, n
+        do j = sfar(i), sfar(i+1)-1
+            k = far(j)
+            c = cnode(:, i) - cnode(:, k)
+            call fmm_m2l_get_mat(c, rnode(i), rnode(k), pm, pl, vscales, &
+                & reflect_mat((j-1)*reflect_mat_size+1), &
+                & ztrans_mat((j-1)*ztrans_mat_size+1))
+        end do
+    end do
+end subroutine tree_m2l_get_mat
+
+! Transfer multipole coefficients into local using precomputed matrices
+subroutine tree_m2l_use_mat(n, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & reflect_mat, ztrans_mat, coef_m, coef_l)
+! Parameters:
+!   n: Number of all clusters
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   nnfar: total number of admissible far-field pairs
+!   sfar: offset for each node to get list of its far-field pairs
+!   far: array that stores lists of far-field pairs
+!   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
+!   coef_m: input values of multipole expansions
+!   coef_l: output values of local expansions
+    integer, intent(in) :: n, nnfar, sfar(n+1), far(nnfar), pm, pl
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    real(kind=8), intent(in) :: reflect_mat(nnfar * (max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(in) :: ztrans_mat(nnfar * (min(pm,pl)+1) &
+        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(in) :: coef_m((pm+1)*(pm+1), n)
+    real(kind=8), intent(out) :: coef_l((pl+1)*(pl+1), n)
+    integer :: i, j, k, reflect_mat_size, ztrans_mat_size
+    real(kind=8) :: c(3)
+    reflect_mat_size = (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3
+    ztrans_mat_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6
+    do i = 1, n
+        do j = sfar(i), sfar(i+1)-1
+            k = far(j)
+            c = cnode(:, i) - cnode(:, k)
+            call fmm_m2l_use_mat(c, rnode(i), rnode(k), pm, pl, &
+                & reflect_mat((j-1)*reflect_mat_size+1), &
+                & ztrans_mat((j-1)*ztrans_mat_size+1), coef_m(:, i), &
+                & coef_l(:, k))
+        end do
+    end do
+end subroutine tree_m2l_use_mat
 
 ! Transfer local coefficients for each node of tree
 subroutine tree_l2l_baseline(nsph, p, vscales, coef_node, ind, cluster, &
@@ -4439,6 +4524,44 @@ subroutine tree_l2l_fast(nsph, n, p, vscales, coef_node, ind, cluster, &
         end if
     end do
 end subroutine tree_l2l_fast
+
+! Compute reflection matrices for fast L2L
+subroutine tree_l2l_get_mat(n, children, cnode, rnode, p, vscales, &
+        & reflect_mat, ztrans_mat)
+! Parameters:
+!   n: Number of nodes of the input tree
+!   children: children of each node
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   p: maximum degree of multipole basis functions
+!   reflect_mat: reflection to OZ matrices
+!   ztrans_mat: OZ translation matrices
+    integer, intent(in) :: n
+    integer, intent(in) :: children(2, n)
+    real(kind=8), intent(in) :: cnode(3, n), rnode(n)
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: vscales((p+1)*(p+1))
+    real(kind=8), intent(out) :: reflect_mat((n-1)*(p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(out) :: ztrans_mat((n-1)*(p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: c(3)
+    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
+    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
+    ! Cycle over all nodes, except root one
+    do i = 1, n
+        j = children(:, i)
+        ! In case of leaf node do nothing
+        if (j(1) .eq. 0) then
+            cycle
+        end if
+        do k = j(1), j(2)
+            c = cnode(:, i) - cnode(:, k)
+            call fmm_l2l_get_mat(c, rnode(i), rnode(k), p, vscales, &
+                & reflect_mat((k-2)*reflect_mat_size+1), &
+                & ztrans_mat((k-2)*ztrans_mat_size+1))
+        end do
+    end do
+end subroutine tree_l2l_get_mat
 
 ! Transfer local coefficients using precomputed matrices
 subroutine tree_l2l_use_mat(nsph, n, p, coef_node, ind, cluster, children, &
