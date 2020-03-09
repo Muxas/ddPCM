@@ -5,9 +5,9 @@
 #FFLAGS = -O3 -xHost -qopenmp
 RunF77 = gfortran
 #FFLAGS = -O3 -march=native -llapack -lblas
-FFLAGS = -O1 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
+FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
 	 ${MKLROOT}/lib/libmkl_sequential.a ${MKLROOT}/lib/libmkl_core.a \
-	 -lpthread -lm -ldl -ftree-vectorize -finline-functions -fcheck=all
+	 -lpthread -lm -ldl -ftree-vectorize -finline-functions #-fcheck=all
 #RunF77 = pgfortran
 #FFLAGS = -O3 -mp
 
