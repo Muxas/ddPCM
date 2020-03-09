@@ -18,6 +18,12 @@ call check_m2m_improved(p3)
 call check_l2l_improved(p1)
 call check_l2l_improved(p2)
 call check_l2l_improved(p3)
+call check_m2l_improved(p1, p2)
+call check_m2l_improved(p2, p1)
+call check_m2l_improved(p1, p3)
+call check_m2l_improved(p3, p1)
+call check_m2l_improved(p2, p3)
+call check_m2l_improved(p3, p2)
 
 end program test_pcm_fmm
 
@@ -243,7 +249,8 @@ subroutine check_m2m_improved(p)
         & dnrm2(nbasis, v-sph4_m, 1) / dnrm2(nbasis, sph4_m, 1)
     ! Check fmm_m2m_reflection3
     write(*, *)
-    write(*, "(A,I0)") "Check fmm_m2m_reflection3 vs fmm_m2m_baseline for p=", p
+    write(*, "(A,A,I0)") "Check fmm_m2m_reflection3 vs fmm_m2m_baseline ", &
+        & "for p=", p
     write(*, "(A)") "======================================================="
     v = 0
     call fmm_m2m_reflection3(sph1-sph2, sph1_r, sph2_r, p, vscales, sph1_m, &
@@ -300,7 +307,8 @@ subroutine check_m2m_improved(p)
         & dnrm2(nbasis, v-sph4_m, 1) / dnrm2(nbasis, sph4_m, 1)
     ! Check fmm_m2m_get_mat + fmm_m2m_use_mat
     write(*, *)
-    write(*, "(A,I0)") "Check fmm_m2m_get_mat+fmm_m2m_use_mat vs fmm_m2m_baseline for p=", p
+    write(*, "(A,A,I0)") "Check fmm_m2m_get_mat+fmm_m2m_use_mat vs ", &
+        & "fmm_m2m_baseline for p=", p
     write(*, "(A)") "======================================================="
     v = 0
     call fmm_m2m_get_mat(sph1-sph2, sph1_r, sph2_r, p, vscales, reflect_mat, &
@@ -393,7 +401,6 @@ subroutine check_l2l_improved(p)
     integer :: nbasis, i
     real(kind=8) :: vscales((p+1)*(p+1)), w(ngrid), grid(3, ngrid)
     real(kind=8) :: vgrid((p+1)*(p+1), ngrid)
-    real(kind=8) :: src(3)=(/0.5, 0.4, 0.3/)
     real(kind=8) :: sph1(3)=(/0.0, 0.0, 0.0/), sph1_r=1
     real(kind=8) :: sph2(3)=(/1.0, 4.0, -10.0/), sph2_r
     real(kind=8) :: sph3(3)=(/0.0, 0.0, 4.0/), sph3_r
@@ -417,7 +424,7 @@ subroutine check_l2l_improved(p)
     sph3_r = sph1_r + dnrm2(3, sph3-sph1, 1)
     ! Init values of spherical harmonics
     sph1_l = 1
-    ! Get coefficients by baseline M2M
+    ! Get coefficients by baseline L2L
     sph2_l = 0
     call fmm_l2l_baseline(sph1-sph2, sph1_r, sph2_r, p, vscales, sph1_l, &
         & sph2_l)
@@ -467,7 +474,8 @@ subroutine check_l2l_improved(p)
         & dnrm2(nbasis, v-sph4_l, 1) / dnrm2(nbasis, sph4_l, 1)
     ! Check fmm_l2l_get_mat + fmm_l2l_use_mat
     write(*, *)
-    write(*, "(A,I0)") "Check fmm_l2l_get_mat+fmm_l2l_use_mat vs fmm_l2l_baseline for p=", p
+    write(*, "(A,A,I0)") "Check fmm_l2l_get_mat+fmm_l2l_use_mat vs ", &
+        & "fmm_l2l_baseline for p=", p
     write(*, "(A)") "======================================================="
     v = 0
     call fmm_l2l_get_mat(sph1-sph2, sph1_r, sph2_r, p, vscales, reflect_mat, &
@@ -535,4 +543,138 @@ subroutine check_l2l_improved(p)
     write(*, "(A,ES9.2,A)") " fmm_l2l_use_mat:", (finish-start)/1000, &
         & " seconds"
 end subroutine check_l2l_improved
+
+subroutine check_m2l_improved(pm, pl)
+    use pcm_fmm
+    implicit none
+    integer, intent(in) :: pm, pl
+    integer, parameter :: ngrid=1
+    integer :: nbasism, nbasisl, i
+    real(kind=8) :: vscales((pm+pl+1)*(pm+pl+1)), w(ngrid), grid(3, ngrid)
+    real(kind=8) :: vgrid((pl+1)*(pl+1), ngrid)
+    ! sph1 contains multipole expansion
+    real(kind=8) :: sph1(3)=(/0.0, 0.0, 0.0/), sph1_r=2.0
+    ! sph2 and sph3 contain local expansion
+    real(kind=8) :: sph2(3)=(/-1.0, -1.0, -2.0/), sph2_r=3
+    real(kind=8) :: sph3(3)=(/0.0, 0.0, -2.2/), sph3_r=1.6
+    real(kind=8), external :: dnrm2
+    real(kind=8) :: sph1_m((pm+1)*(pm+1))
+    real(kind=8) :: sph2_l((pl+1)*(pl+1))
+    real(kind=8) :: sph3_l((pl+1)*(pl+1))
+    real(kind=8) :: v((pl+1)*(pl+1))
+    real(kind=8) :: reflect_mat((max(pm,pl)+1) * (2*max(pm,pl)+1) &
+        & * (2*max(pm,pl)+3) / 3)
+    real(kind=8) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8) :: start, finish
+    ! Preliminaries
+    nbasism = (pm+1) * (pm+1)
+    nbasisl = (pl+1) * (pl+1)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics and number of Lebedev grid points
+    call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
+    ! Init values of spherical harmonics
+    sph1_m = 1
+    ! Get coefficients by baseline M2L
+    sph2_l = 0
+    call fmm_m2l_baseline(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, sph1_m, &
+        & sph2_l)
+    sph3_l = 0
+    call fmm_m2l_baseline(sph1-sph3, sph1_r, sph3_r, pm, pl, vscales, sph1_m, &
+        & sph3_l)
+    ! Check fmm_m2l_fast
+    write(*, *)
+    write(*, "(A,I0,A,I0)") "Check fmm_m2l_fast vs fmm_m2l_baseline for pm=", &
+        & pm, " and pl=", pl
+    write(*, "(A)") "======================================================="
+    v = 0
+    call fmm_m2l_fast(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, sph1_m, &
+        & v)
+    write(*,*) "|| M(1)2L(2) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph2_l, 1) / dnrm2(nbasisl, sph2_l, 1)
+    v = 0
+    call fmm_m2l_fast(sph1-sph3, sph1_r, sph3_r, pm, pl, vscales, sph1_m, &
+        & v)
+    write(*,*) "|| M(1)2L(3) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph3_l, 1) / dnrm2(nbasisl, sph3_l, 1)
+    ! Check fmm_m2l_test_mat
+    write(*, *)
+    write(*, "(A,A,I0,A,I0)") "Check fmm_m2l_test_mat vs fmm_m2l_baseline ", &
+        & "for pm=", pm, " and pl=", pl
+    write(*, "(A)") "======================================================="
+    v = 0
+    call fmm_m2l_test_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, sph1_m, &
+        & v)
+    write(*,*) "|| M(1)2L(2) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph2_l, 1) / dnrm2(nbasisl, sph2_l, 1)
+    v = 0
+    call fmm_m2l_test_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, vscales, sph1_m, &
+        & v)
+    write(*,*) "|| M(1)2L(3) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph3_l, 1) / dnrm2(nbasisl, sph3_l, 1)
+    ! Check fmm_m2l_get_mat + fmm_m2l_use_mat
+    write(*, *)
+    write(*, "(A,A,I0,A,I0)") "Check fmm_m2l_get_mat+fmm_m2l_use_mat vs ", &
+        & "fmm_m2l_baseline for pm=", pm, " and pl=", pl
+    write(*, "(A)") "======================================================="
+    v = 0
+    call fmm_m2l_get_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+        & reflect_mat, ztrans_mat)
+    call fmm_m2l_use_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, reflect_mat, &
+        & ztrans_mat, sph1_m, v)
+    write(*,*) "|| M(1)2L(2) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph2_l, 1) / dnrm2(nbasisl, sph2_l, 1)
+    v = 0
+    call fmm_m2l_get_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, vscales, &
+        & reflect_mat, ztrans_mat)
+    call fmm_m2l_use_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, reflect_mat, &
+        & ztrans_mat, sph1_m, v)
+    write(*,*) "|| M(1)2L(3) - baseline ||  /  || baseline || =", &
+        & dnrm2(nbasisl, v-sph3_l, 1) / dnrm2(nbasisl, sph3_l, 1)
+    ! Now check performance
+    write(*, *)
+    write(*, "(A,I0,A,I0)") "Check performance of M2L for pm=", pm, &
+        & " and pl=", pl
+    write(*, "(A)") "======================================================="
+    call cpu_time(start)
+    do i = 1, 1000
+        call fmm_m2l_baseline(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+            & sph1_m, sph2_l)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " fmm_m2l_baseline:", (finish-start)/1000, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 1000
+        call fmm_m2l_fast(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+            & sph1_m, sph2_l)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " fmm_m2l_fast:", (finish-start)/1000, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 1000
+        call fmm_m2l_test_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+            & sph1_m, sph2_l)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " fmm_m2l_test_mat:", (finish-start)/1000, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 1000
+        call fmm_m2l_get_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+            & reflect_mat, ztrans_mat)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " fmm_m2l_get_mat:", (finish-start)/1000, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 1000
+        call fmm_m2l_use_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, reflect_mat, &
+            & ztrans_mat, sph1_m, v)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " fmm_m2l_use_mat:", (finish-start)/1000, &
+        & " seconds"
+end subroutine check_m2l_improved
 

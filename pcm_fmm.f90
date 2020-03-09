@@ -3210,7 +3210,8 @@ subroutine fmm_m2l_test_mat(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     real(kind=8) :: tmp_ml2((max(pm,pl)+1)*(max(pm,pl)+1))
     real(kind=8) :: reflect_mat((max(pm,pl)+1) * (2*max(pm,pl)+1) &
         & * (2*max(pm,pl)+3) / 3)
-    real(kind=8) :: ztrans_mat((pl+1) * (pl+2) * (3*pm+3-pl) / 6)
+    real(kind=8) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
     integer :: n, m
     stheta = c(1)*c(1) + c(2)*c(2)
     ! If no need for transformation, just do translation along z
