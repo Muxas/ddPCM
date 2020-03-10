@@ -4003,6 +4003,7 @@ subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
 end subroutine tree_get_farnear
 
 ! Transfer multipole coefficients for each node of tree
+! This works only for non-improved, default binary tree
 subroutine tree_m2m_baseline(nsph, p, vscales, coef_sph, ind, cluster, &
         & children, cnode, rnode, coef_node)
 ! Parameters:

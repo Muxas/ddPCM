@@ -1,29 +1,21 @@
 program test_pcm_fmm
 !use ddcosmo
 implicit none
-integer :: p1=6, p2=10, p3=15, ngrid=6
+integer :: p1=6, p2=10, ngrid1=6, ngrid2=110, nsph1=1000
 
 call check_p2m_m2p_m2m_baseline(p1)
 call check_p2m_m2p_m2m_baseline(p2)
-call check_p2m_m2p_m2m_baseline(p3)
+call check_m2l_l2p_l2l_baseline(p1, p1)
 call check_m2l_l2p_l2l_baseline(p1, p2)
 call check_m2l_l2p_l2l_baseline(p2, p1)
-call check_m2l_l2p_l2l_baseline(p1, p3)
-call check_m2l_l2p_l2l_baseline(p3, p1)
-call check_m2l_l2p_l2l_baseline(p2, p3)
-call check_m2l_l2p_l2l_baseline(p3, p2)
 call check_m2m_improved(p1)
 call check_m2m_improved(p2)
-call check_m2m_improved(p3)
 call check_l2l_improved(p1)
 call check_l2l_improved(p2)
-call check_l2l_improved(p3)
+call check_m2l_improved(p1, p1)
 call check_m2l_improved(p1, p2)
 call check_m2l_improved(p2, p1)
-call check_m2l_improved(p1, p3)
-call check_m2l_improved(p3, p1)
-call check_m2l_improved(p2, p3)
-call check_m2l_improved(p3, p2)
+call check_tree_m2m_l2l(nsph1, ngrid1, p1)
 
 end program test_pcm_fmm
 
@@ -678,3 +670,188 @@ subroutine check_m2l_improved(pm, pl)
         & " seconds"
 end subroutine check_m2l_improved
 
+subroutine check_tree_m2m_l2l(nsph, ngrid, p)
+    use pcm_fmm
+    implicit none
+    integer, intent(in) :: nsph, ngrid, p
+    real(kind=8) :: csph(3, nsph), rsph(nsph), ui(ngrid, nsph)
+    real(kind=8) :: coef_sph((p+1)*(p+1), nsph)
+    real(kind=8) :: coef_sph_mat((p+1)*(p+1), nsph)
+    real(kind=8) :: vscales((p+1)*(p+1)), w(ngrid), grid(3, ngrid)
+    real(kind=8) :: vgrid((p+1)*(p+1), ngrid)
+    integer :: iseed(4)=(/0, 0, 0, 1/), ind(nsph), i, nclusters, height
+    integer :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
+    integer :: parent(2*nsph-1)
+    real(kind=8) :: cnode(3, 2*nsph-1), rnode(2*nsph-1), start, finish
+    integer :: snode(nsph), nnnear, nnfar
+    integer, allocatable :: cluster2(:, :), children2(:, :), parent2(:)
+    real(kind=8), allocatable :: cnode2(:, :), rnode2(:)
+    integer, allocatable :: nfar(:), nnear(:)
+    integer, allocatable :: far(:), near(:)
+    integer, allocatable :: sfar(:), snear(:)
+    integer :: lwork, iwork, jwork
+    integer, allocatable :: work(:, :)
+    real(kind=8), allocatable :: reflect_mat(:)
+    real(kind=8), allocatable :: ztrans_mat(:)
+    real(kind=8), allocatable :: coef_node(:, :), coef_node_mat(:, :)
+    external :: dlarnv
+    real(kind=8), external :: dnrm2
+    ! Preliminaries
+    call dlarnv(3, iseed, nsph*3, csph)
+    rsph = 0.1
+    coef_sph = 1
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics and number of Lebedev grid points
+    call init_globals(0, p, vscales, ngrid, w, grid, vgrid)
+    ! Build a tree
+    do i = 1, nsph
+        ind(i) = i
+    end do
+    call btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
+        cnode, rnode, snode)
+    nclusters = 2*nsph-1
+    ! Get its height
+    call tree_get_height(nclusters, parent, height)
+    ! Compute size of improved tree (to allocate space)
+    call tree_improve_get_size(2*nsph-1, children, height, nclusters)
+    ! Allocate memory for improved tree
+    allocate(cluster2(2, nclusters), children2(2, nclusters), &
+        & parent2(nclusters))
+    allocate(cnode2(3, nclusters), rnode2(nclusters))
+    allocate(coef_node((p+1)*(p+1), nclusters))
+    allocate(coef_node_mat((p+1)*(p+1), nclusters))
+    ! Build improved tree
+    call tree_improve(2*nsph-1, nclusters, height, cluster, children, parent, &
+        cnode, rnode, cluster2, children2, parent2, cnode2, rnode2)
+    ! Following commented block is needed only for M2L
+    ! Allocate space to find all admissible pairs
+    !allocate(nfar(nclusters), nnear(nclusters))
+    ! Try to find all admissibly far and near pairs of tree nodes
+    !lwork = nclusters*200 ! Some magic constant which might be changed
+    !allocate(work(3, lwork))
+    !iwork = 0 ! init with zero for first call to tree_get_farnear_work
+    !call tree_get_farnear_work(nclusters, children2, cnode2, rnode2, lwork, &
+    !    iwork, jwork, work, nnfar, nfar, nnnear, nnear)
+    ! Increase size of work array if needed and run again. Function
+    ! tree_get_farnear_work uses previously computed work array, so it will not
+    ! do the same work several times.
+    !if (iwork .ne. jwork+1) then
+    !    write(*,*) 'Please increase lwork'
+    !    stop
+    !end if
+    ! Allocate arrays for admissible far and near pairs
+    !allocate(far(nnfar), near(nnnear), sfar(nclusters+1), snear(nclusters+1))
+    ! Get list of admissible pairs from temporary work array
+    ! This is needed only by M2L
+    !call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
+    !    far, nnnear, nnear, snear, near)
+    ! Print some info about tree
+    ! Allocate reflection and ztranslation matrices
+    allocate(reflect_mat((nclusters-1) * (p+1) * (2*p+1) * (2*p+3) / 3))
+    allocate(ztrans_mat((nclusters-1) * (p+1) * (p+2) * (2*p+3) / 6))
+    ! Compute M2M for entire tree by fast code
+    coef_sph = 1
+    call tree_m2m_fast(nsph, nclusters, p, vscales, coef_sph, ind, cluster2, &
+        & children2, cnode2, rnode2, coef_node)
+    ! Compute M2M for entire tree by get_mat+use_mat code
+    call tree_m2m_get_mat(nclusters, children2, cnode2, rnode2, p, vscales, &
+        & reflect_mat, ztrans_mat)
+    call tree_m2m_use_mat(nsph, nclusters, p, coef_sph, ind, cluster2, &
+        & children2, cnode2, rnode2, reflect_mat, ztrans_mat, coef_node_mat)
+    write(*, *)
+    write(*, "(A,A,I0)") "Check tree_m2m_get_mat+tree_m2m_use_mat vs ", &
+        & "tree_m2m_fast for p=", p
+    write(*, "(A)") "==================================="
+    write(*, "(A,ES24.16E3)") "relative error is", dnrm2(nclusters*(p+1)*(p+1), &
+        & coef_node_mat-coef_node, 1) / dnrm2(nclusters*(p+1)*(p+1), &
+        & coef_node, 1)
+    ! Check performance of M2M
+    write(*, *)
+    write(*, "(A,I0)") "Check performance of tree M2M for p=", p
+    write(*, "(A)") "======================================="
+    write(*, "(A,I0,A,I0,A)") "Tree has ", nclusters, " nodes and ", height, &
+        & " levels"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_m2m_fast(nsph, nclusters, p, vscales, coef_sph, ind, &
+            & cluster2, children2, cnode2, rnode2, coef_node)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_m2m_fast:", (finish-start)/100, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_m2m_get_mat(nclusters, children2, cnode2, rnode2, p, &
+            & vscales, reflect_mat, ztrans_mat)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_m2m_get_mat:", (finish-start)/100, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_m2m_use_mat(nsph, nclusters, p, coef_sph, ind, cluster2, &
+            & children2, cnode2, rnode2, reflect_mat, ztrans_mat, &
+            & coef_node_mat)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_m2m_use_mat:", (finish-start)/100, &
+        & " seconds"
+    ! Compute L2L for entire tree by fast code
+    coef_node = 1
+    call tree_l2l_fast(nsph, nclusters, p, vscales, coef_node, ind, cluster2, &
+        & children2, cnode2, rnode2, coef_sph)
+    ! Compute M2M for entire tree by get_mat+use_mat code
+    coef_node_mat = 1
+    call tree_l2l_get_mat(nclusters, children2, cnode2, rnode2, p, vscales, &
+        & reflect_mat, ztrans_mat)
+    call tree_l2l_use_mat(nsph, nclusters, p, coef_node_mat, ind, cluster2, &
+        & children2, cnode2, rnode2, reflect_mat, ztrans_mat, coef_sph_mat)
+    write(*, *)
+    write(*, "(A,A,I0)") "Check tree_l2l_get_mat+tree_l2l_use_mat vs ", &
+        & "tree_l2l_fast for p=", p
+    write(*, "(A)") "==================================="
+    write(*, "(A,ES24.16E3)") "relative error is", dnrm2(nclusters*(p+1)*(p+1), &
+        & coef_node_mat-coef_node, 1) / dnrm2(nclusters*(p+1)*(p+1), &
+        & coef_node, 1)
+    ! Check performance of L2L
+    write(*, *)
+    write(*, "(A,I0)") "Check performance of tree L2L for p=", p
+    write(*, "(A)") "======================================="
+    write(*, "(A,I0,A,I0,A)") "Tree has ", nclusters, " nodes and ", height, &
+        & " levels"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_l2l_fast(nsph, nclusters, p, vscales, coef_node, ind, &
+            & cluster2, children2, cnode2, rnode2, coef_sph)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_l2l_fast:", (finish-start)/100, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_l2l_get_mat(nclusters, children2, cnode2, rnode2, p, &
+            & vscales, reflect_mat, ztrans_mat)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_l2l_get_mat:", (finish-start)/100, &
+        & " seconds"
+    call cpu_time(start)
+    do i = 1, 100
+        call tree_l2l_use_mat(nsph, nclusters, p, coef_node_mat, ind, &
+            & cluster2, children2, cnode2, rnode2, reflect_mat, ztrans_mat, &
+            & coef_sph_mat)
+    end do
+    call cpu_time(finish)
+    write(*, "(A,ES9.2,A)") " tree_l2l_use_mat:", (finish-start)/100, &
+        & " seconds"
+    ! Deallocate all temporaries
+    deallocate(ztrans_mat)
+    deallocate(reflect_mat)
+    !deallocate(far, near, sfar, snear)
+    !deallocate(work)
+    !deallocate(nfar, nnear)
+    deallocate(coef_node_mat)
+    deallocate(coef_node)
+    deallocate(cnode2, rnode2)
+    deallocate(cluster2, children2, parent2)
+end subroutine check_tree_m2m_l2l
