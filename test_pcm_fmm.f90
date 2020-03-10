@@ -3,20 +3,20 @@ program test_pcm_fmm
 implicit none
 integer :: p1=6, p2=10, ngrid1=6, ngrid2=110, nsph1=1000
 
-!call check_p2m_m2p_m2m_baseline(p1)
-!call check_p2m_m2p_m2m_baseline(p2)
-!call check_m2l_l2p_l2l_baseline(p1, p1)
-!call check_m2l_l2p_l2l_baseline(p1, p2)
-!call check_m2l_l2p_l2l_baseline(p2, p1)
-!call check_m2m_improved(p1)
-!call check_m2m_improved(p2)
-!call check_l2l_improved(p1)
-!call check_l2l_improved(p2)
-!call check_m2l_improved(p1, p1)
-!call check_m2l_improved(p1, p2)
-!call check_m2l_improved(p2, p1)
-!call check_tree_m2m_l2l(nsph1, p1)
-!call check_tree_m2m_l2l(nsph1, p2)
+call check_p2m_m2p_m2m_baseline(p1)
+call check_p2m_m2p_m2m_baseline(p2)
+call check_m2l_l2p_l2l_baseline(p1, p1)
+call check_m2l_l2p_l2l_baseline(p1, p2)
+call check_m2l_l2p_l2l_baseline(p2, p1)
+call check_m2m_improved(p1)
+call check_m2m_improved(p2)
+call check_l2l_improved(p1)
+call check_l2l_improved(p2)
+call check_m2l_improved(p1, p1)
+call check_m2l_improved(p1, p2)
+call check_m2l_improved(p2, p1)
+call check_tree_m2m_l2l(nsph1, p1)
+call check_tree_m2m_l2l(nsph1, p2)
 call check_tree_m2l(nsph1, p1, p1)
 call check_tree_m2l(nsph1, p1, p2)
 call check_tree_m2l(nsph1, p2, p1)
@@ -684,7 +684,7 @@ subroutine check_tree_m2m_l2l(nsph, p)
     real(kind=8) :: coef_sph_mat((p+1)*(p+1), nsph)
     real(kind=8) :: vscales((p+1)*(p+1)), w(ngrid), grid(3, ngrid)
     real(kind=8) :: vgrid((p+1)*(p+1), ngrid)
-    integer :: iseed(4)=(/0, 0, 0, 1/), ind(nsph), i, nclusters, height
+    integer :: iseed(4), ind(nsph), i, nclusters, height
     integer :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
     integer :: parent(2*nsph-1)
     real(kind=8) :: cnode(3, 2*nsph-1), rnode(2*nsph-1), start, finish
@@ -702,6 +702,7 @@ subroutine check_tree_m2m_l2l(nsph, p)
     external :: dlarnv
     real(kind=8), external :: dnrm2
     ! Preliminaries
+    iseed = (/0, 0, 0, 1/)
     call dlarnv(3, iseed, nsph*3, csph)
     rsph = 0.1
     coef_sph = 1
@@ -869,7 +870,7 @@ subroutine check_tree_m2l(nsph, pm, pl)
     real(kind=8) :: csph(3, nsph), rsph(nsph), ui(ngrid, nsph)
     real(kind=8) :: vscales((pm+pl+1)*(pm+pl+1)), w(ngrid), grid(3, ngrid)
     real(kind=8) :: vgrid((pl+1)*(pl+1), ngrid)
-    integer :: iseed(4)=(/0, 0, 0, 1/), ind(nsph), i, nclusters, height
+    integer :: iseed(4), ind(nsph), i, nclusters, height
     integer :: cluster(2, 2*nsph-1), children(2, 2*nsph-1)
     integer :: parent(2*nsph-1)
     real(kind=8) :: cnode(3, 2*nsph-1), rnode(2*nsph-1), start, finish
@@ -888,6 +889,7 @@ subroutine check_tree_m2l(nsph, pm, pl)
     external :: dlarnv
     real(kind=8), external :: dnrm2
     ! Preliminaries
+    iseed = (/0, 0, 0, 1/)
     call dlarnv(3, iseed, nsph*3, csph)
     rsph = 0.1
     ! Get constants, corresponding to given maximum degree of spherical
