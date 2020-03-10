@@ -4397,8 +4397,8 @@ subroutine tree_m2l_get_mat(n, cnode, rnode, nnfar, sfar, far, pm, pl, &
     do i = 1, n
         do j = sfar(i), sfar(i+1)-1
             k = far(j)
-            c = cnode(:, i) - cnode(:, k)
-            call fmm_m2l_get_mat(c, rnode(i), rnode(k), pm, pl, vscales, &
+            c = cnode(:, k) - cnode(:, i)
+            call fmm_m2l_get_mat(c, rnode(k), rnode(i), pm, pl, vscales, &
                 & reflect_mat((j-1)*reflect_mat_size+1), &
                 & ztrans_mat((j-1)*ztrans_mat_size+1))
         end do
@@ -4433,13 +4433,14 @@ subroutine tree_m2l_use_mat(n, cnode, rnode, nnfar, sfar, far, pm, pl, &
     ztrans_mat_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
         & * (3*max(pm,pl)+3-min(pm,pl)) / 6
     do i = 1, n
+        coef_l(:, i) = 0
         do j = sfar(i), sfar(i+1)-1
             k = far(j)
-            c = cnode(:, i) - cnode(:, k)
-            call fmm_m2l_use_mat(c, rnode(i), rnode(k), pm, pl, &
+            c = cnode(:, k) - cnode(:, i)
+            call fmm_m2l_use_mat(c, rnode(k), rnode(i), pm, pl, &
                 & reflect_mat((j-1)*reflect_mat_size+1), &
-                & ztrans_mat((j-1)*ztrans_mat_size+1), coef_m(:, i), &
-                & coef_l(:, k))
+                & ztrans_mat((j-1)*ztrans_mat_size+1), coef_m(:, k), &
+                & coef_l(:, i))
         end do
     end do
 end subroutine tree_m2l_use_mat
