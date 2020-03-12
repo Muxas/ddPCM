@@ -1,6 +1,8 @@
 module pcm_fmm
 implicit none
 real(kind=8) :: sqrt_2=0, sqrt_four_pi=0
+real(kind=8) :: total_time_matvec=0
+integer :: total_count_matvec=0
 contains
 
 ! Init global constants
@@ -4635,7 +4637,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         coef_sph_l(i*i+1:(i+1)*(i+1), :) = coef_sph_l(i*i+1:(i+1)*(i+1), :) / &
             & vscales(i*i+i+1)**2
     end do
-    ! Apply L2P
+    ! Apply far-field L2P (from each sphere to its own grid points)
     do isph = 1, nsph
         x(:, isph) = 0
         do i = 1, (pl+1)*(pl+1)
@@ -4643,6 +4645,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         end do
         x(:, isph) = x(:, isph) / rsph(isph)
     end do
+    ! Apply near-field M2P (from input spheres to output grid points)
     do inode = 1, nclusters
         do inear = snear(inode), snear(inode+1)-1
             jnode = near(inear)
@@ -4875,6 +4878,9 @@ subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8), intent(in) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) &
         & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
     integer :: i, j, indi, indj
+    integer :: counter=1
+    real(kind=8) :: start, finish, time
+    call cpu_time(start)
     do i = 0, pm
         indi = i*i + i + 1
         do j = -i, i
@@ -4893,7 +4899,15 @@ subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
         & snear, near, cluster, ind, ui)
+    call cpu_time(finish)
+    total_time_matvec = total_time_matvec + finish - start
+    total_count_matvec = total_count_matvec + 1
 end subroutine pcm_matvec_grid_fmm_use_mat
+
+subroutine pcm_matvec_print_stats
+    write(*, "(A,I0,A,ES9.3E2,A)") "FMM matvecs: ", total_count_matvec, &
+        & " matvecs in ", total_time_matvec, " seconds"
+end subroutine pcm_matvec_print_stats
 
 ! Apply matvec for ddPCM spherical harmonics by tree-code
 ! Per-sphere tree-code, which used not only M2P, but M2L and L2P also

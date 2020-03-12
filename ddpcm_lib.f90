@@ -236,6 +236,10 @@ contains
       & ok,rx_fmm,apply_rx_prec,hnorm)
   call cpu_time(finish_time)
   write(6,*) 'ddpcm_fmm solve time: ', finish_time-start_time
+
+  ! Print matvec statistics
+  call pcm_matvec_print_stats
+
   !call prtsph('phie',nsph,0,phieps)
 
   ! solve the ddcosmo linear system
