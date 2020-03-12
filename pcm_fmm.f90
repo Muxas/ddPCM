@@ -4619,8 +4619,8 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_m, coef_sph_l, nclusters, nnnear, &
         & snear, near, cluster, ind, ui)
     integer, intent(in) :: nsph, ngrid, pm, pl, nclusters, nnnear
-    integer, intent(in) :: snear(2*nsph), near(nnnear)
-    integer, intent(in) :: cluster(2, 2*nsph-1), ind(nsph)
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
+    integer, intent(in) :: cluster(2, nclusters), ind(nsph)
     real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
     real(kind=8), intent(in) :: vgrid((pl+1)*(pl+1), ngrid), ui(ngrid, nsph)
     real(kind=8), intent(in) :: coef_sph_m((pm+1)*(pm+1), nsph), w(ngrid)
@@ -4774,10 +4774,14 @@ subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
-    real(kind=8) :: reflect_mat((nclusters-1) * &
+    real(kind=8) :: m2m_l2l_reflect_mat((nclusters-1) * &
         & (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8) :: ztrans_mat((nclusters-1) * &
+    real(kind=8) :: m2m_l2l_ztrans_mat((nclusters-1) * &
         & (max(pm,pl)+1) * (max(pm,pl)+2) * (max(pm,pl)+3) / 6)
+    real(kind=8) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
+        & * (2*max(pm,pl)+3) / 3)
+    real(kind=8) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
     integer :: i, j, indi, indj
     do i = 0, pm
         indi = i*i + i + 1
@@ -4787,19 +4791,109 @@ subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
         end do
     end do
     call tree_m2m_get_mat(nclusters, children, cnode, rnode, pm, vscales, &
-        & reflect_mat, ztrans_mat)
+        & m2m_l2l_reflect_mat, m2m_l2l_ztrans_mat)
     call tree_m2m_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
-        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node_m)
-    call tree_m2l_fast(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
-        & pl, vscales, coef_node_m, coef_node_l)
-    !call tree_l2l_fast(nsph, nclusters, pl, vscales, coef_node_l, ind, &
-    !    & cluster, children, cnode, rnode, coef_out)
-    call tree_l2l_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
-        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node_m)
+        & children, cnode, rnode, m2m_l2l_reflect_mat, m2m_l2l_ztrans_mat, &
+        & coef_node_m)
+    call tree_m2l_get_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & vscales, m2l_reflect_mat, m2l_ztrans_mat)
+    call tree_m2l_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & m2l_reflect_mat, m2l_ztrans_mat, coef_node_m, coef_node_l)
+    call tree_l2l_get_mat(nclusters, children, cnode, rnode, pl, vscales, &
+        & m2m_l2l_reflect_mat, m2m_l2l_ztrans_mat)
+    call tree_l2l_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
+        & children, cnode, rnode, m2m_l2l_reflect_mat, m2m_l2l_ztrans_mat, &
+        & coef_out)
     call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
         & snear, near, cluster, ind, ui)
 end subroutine pcm_matvec_grid_fmm_test_mat
+
+! Computes all M2M, M2L and L2L reflection and OZ translation matrices for FMM
+subroutine pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat)
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
+    integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
+    integer, intent(in) :: sfar(nclusters+1), far(nnfar), nnnear
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
+    real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    real(kind=8), intent(out) :: m2m_reflect_mat((nclusters-1) * (pm+1) &
+        & * (2*pm+1) * (2*pm+3) / 3)
+    real(kind=8), intent(out) :: m2m_ztrans_mat((nclusters-1) * (pm+1) &
+        & * (pm+2) * (pm+3) / 6)
+    real(kind=8), intent(out) :: l2l_reflect_mat((nclusters-1) * (pl+1) &
+        & * (2*pl+1) * (2*pl+3) / 3)
+    real(kind=8), intent(out) :: l2l_ztrans_mat((nclusters-1) * (pl+1) &
+        & * (pl+2) * (pl+3) / 6)
+    real(kind=8), intent(out) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(out) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) &
+        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    call tree_m2m_get_mat(nclusters, children, cnode, rnode, pm, vscales, &
+        & m2m_reflect_mat, m2m_ztrans_mat)
+    call tree_m2l_get_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & vscales, m2l_reflect_mat, m2l_ztrans_mat)
+    call tree_l2l_get_mat(nclusters, children, cnode, rnode, pl, vscales, &
+        & l2l_reflect_mat, l2l_ztrans_mat)
+end subroutine pcm_matvec_grid_fmm_get_mat
+
+! Matvec for ddPCM spherical harmonics by FMM by presaved matrices
+subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat, coef_sph, coef_out)
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
+    integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
+    integer, intent(in) :: sfar(nclusters+1), far(nnfar), nnnear
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
+    real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
+    real(kind=8), intent(out) :: coef_out((pl+1)*(pl+1), nsph)
+    real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
+    real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
+    real(kind=8), intent(in) :: m2m_reflect_mat((nclusters-1) * (pm+1) &
+        & * (2*pm+1) * (2*pm+3) / 3)
+    real(kind=8), intent(in) :: m2m_ztrans_mat((nclusters-1) * (pm+1) &
+        & * (pm+2) * (pm+3) / 6)
+    real(kind=8), intent(in) :: l2l_reflect_mat((nclusters-1) * (pl+1) &
+        & * (2*pl+1) * (2*pl+3) / 3)
+    real(kind=8), intent(in) :: l2l_ztrans_mat((nclusters-1) * (pl+1) &
+        & * (pl+2) * (pl+3) / 6)
+    real(kind=8), intent(in) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(in) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) &
+        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    integer :: i, j, indi, indj
+    do i = 0, pm
+        indi = i*i + i + 1
+        do j = -i, i
+            indj = indi + j
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+        end do
+    end do
+    call tree_m2m_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
+        & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
+        & coef_node_m)
+    call tree_m2l_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & m2l_reflect_mat, m2l_ztrans_mat, coef_node_m, coef_node_l)
+    call tree_l2l_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
+        & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
+        & coef_out)
+    call tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, coef_sph_scaled, coef_out, nclusters, nnnear, &
+        & snear, near, cluster, ind, ui)
+end subroutine pcm_matvec_grid_fmm_use_mat
 
 ! Apply matvec for ddPCM spherical harmonics by tree-code
 ! Per-sphere tree-code, which used not only M2P, but M2L and L2P also

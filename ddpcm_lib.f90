@@ -56,10 +56,10 @@ integer, allocatable :: sfar(:), snear(:)
 ! Temporary variables to get list of all admissible pairs
 integer :: lwork, iwork, jwork
 integer, allocatable :: work(:, :)
-! Reflection matrices for M2M and L2L operations
-real(kind=8), allocatable :: m2m_reflect_mat(:)
-! Reflection matrices for M2L operations
-!real(kind=8), allocatable :: m2l_reflect_mat(:)
+! Reflection matrices for M2M, M2L and L2L operations
+real(kind=8), allocatable :: m2m_reflect_mat(:), m2m_ztrans_mat(:)
+real(kind=8), allocatable :: l2l_reflect_mat(:), l2l_ztrans_mat(:)
+real(kind=8), allocatable :: m2l_reflect_mat(:), m2l_ztrans_mat(:)
 contains
 
   subroutine ddpcm(phi, psi, esolv)
@@ -183,12 +183,21 @@ contains
   ! Get list of admissible pairs from temporary work array
   call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
       far, nnnear, nnear, snear, near)
-  ! Allocate M2M reflection matrices
-  allocate(m2m_reflect_mat((nclusters-1) * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
+  ! Allocate reflection and OZ translation matrices
+  allocate(m2m_reflect_mat((nclusters-1) * (pm+1) * (2*pm+1) * (2*pm+3) / 3))
+  allocate(m2m_ztrans_mat((nclusters-1) * (pm+1) * (pm+2) * (pm+3) / 6))
+  allocate(l2l_reflect_mat((nclusters-1) * (pl+1) * (2*pl+1) * (2*pl+3) / 3))
+  allocate(l2l_ztrans_mat((nclusters-1) * (pl+1) * (pl+2) * (pl+3) / 6))
+  allocate(m2l_reflect_mat(nnfar * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
       & * (2*max(pm,pl)+3) / 3))
-  ! Precompute reflection matrices for M2M
-  !call tree_get_m2m_reflect_mat(nclusters, parent2, cnode2, rnode2, pm, &
-  !    & m2m_reflect_mat)
+  allocate(m2l_ztrans_mat(nnfar * (min(pm,pl)+1) * (min(pm,pl)+2) &
+      & * (3*max(pm,pl)+3-min(pm,pl)) / 6))
+  ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
+  call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, &
+      & rnode2, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+      & l2l_ztrans_mat)
 
   ! Continue with ddpcm
   allocate(rx_prc(nbasis,nbasis,nsph))
@@ -249,6 +258,11 @@ contains
   deallocate(work)
   deallocate(far, sfar, near, snear)
   deallocate(m2m_reflect_mat)
+  deallocate(m2m_ztrans_mat)
+  deallocate(l2l_reflect_mat)
+  deallocate(l2l_ztrans_mat)
+  deallocate(m2l_reflect_mat)
+  deallocate(m2l_ztrans_mat)
   return
   end subroutine ddpcm_fmm
 
@@ -506,9 +520,11 @@ contains
   !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
   !    pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
   !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  call pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
       pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
-      nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
+      nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, m2m_ztrans_mat, &
+      m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, l2l_ztrans_mat, &
+      fmm_x, fmm_y)
   ! Apply diagonal contribution if needed
   if(dodiag) then
     fourpi = four * pi
