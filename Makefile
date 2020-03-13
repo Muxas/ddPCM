@@ -16,7 +16,7 @@ OBJS   = ${MODS} mkrhs.o llgnew.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o
 #
 all:    main.exe main_fmm.exe
-	
+
 main.exe: $(MODS) $(OBJS)
 	$(RunF77) $(FFLAGS) main.f90 -o main.exe $(OBJS)
 

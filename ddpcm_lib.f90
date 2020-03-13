@@ -42,9 +42,6 @@ integer, allocatable :: snode(:)
 integer :: nclusters
 ! Height of a tree
 integer :: height
-! The same for improved tree
-integer, allocatable :: cluster2(:, :), children2(:, :), parent2(:)
-real*8, allocatable :: cnode2(:, :), rnode2(:)
 ! Total number of far and near admissible pairs
 integer :: nnfar, nnnear
 ! Number of admissible pairs for each node
@@ -56,10 +53,16 @@ integer, allocatable :: sfar(:), snear(:)
 ! Temporary variables to get list of all admissible pairs
 integer :: lwork, iwork, jwork
 integer, allocatable :: work(:, :)
+! External grid points
+integer :: ngrid_ext, ngrid_ext_near
+integer, allocatable :: ngrid_ext_sph(:), grid_ext_ia(:), grid_ext_ja(:)
 ! Reflection matrices for M2M, M2L and L2L operations
 real(kind=8), allocatable :: m2m_reflect_mat(:), m2m_ztrans_mat(:)
 real(kind=8), allocatable :: l2l_reflect_mat(:), l2l_ztrans_mat(:)
 real(kind=8), allocatable :: m2l_reflect_mat(:), m2l_ztrans_mat(:)
+! Far-field L2P and near-field M2P
+real(kind=8), allocatable :: l2p_mat(:, :), m2p_mat(:, :)
+
 contains
 
   subroutine ddpcm(phi, psi, esolv)
@@ -149,33 +152,23 @@ contains
   end do
   ! Init constants vscales
   call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
-  ! Build initial binary tree
+  ! Build binary tree
   call btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
         cnode, rnode, snode)
   nclusters = 2*nsph-1
-  ! Get its height
-  call tree_get_height(nclusters, parent, height)
-  ! Compute size of improved tree (to allocate space)
-  call tree_improve_get_size(2*nsph-1, children, height, nclusters)
-  ! Allocate memory for improved tree
-  allocate(cluster2(2, nclusters), children2(2, nclusters), parent2(nclusters))
-  allocate(cnode2(3, nclusters), rnode2(nclusters))
-  ! Build improved tree
-  call tree_improve(2*nsph-1, nclusters, height, cluster, children, parent, &
-        cnode, rnode, cluster2, children2, parent2, cnode2, rnode2)
   ! Allocate space to find all admissible pairs
   allocate(nfar(nclusters), nnear(nclusters))
   ! Try to find all admissibly far and near pairs of tree nodes
   lwork = nclusters*200 ! Some magic constant which might be changed
   allocate(work(3, lwork))
   iwork = 0 ! init with zero for first call to tree_get_farnear_work
-  call tree_get_farnear_work(nclusters, children2, cnode2, rnode2, lwork, &
+  call tree_get_farnear_work(nclusters, children, cnode, rnode, lwork, &
         iwork, jwork, work, nnfar, nfar, nnnear, nnear)
   ! Increase size of work array if needed and run again. Function
   ! tree_get_farnear_work uses previously computed work array, so it will not
   ! do the same work several times.
   if (iwork .ne. jwork+1) then
-    write(*,*) 'Please increase lwork on line 174 of ddpcm_lib.f90 in the code'
+    write(*,*) 'Please increase lwork on line 171 of ddpcm_lib.f90 in the code'
     stop
   end if
   ! Allocate arrays for admissible far and near pairs
@@ -183,7 +176,20 @@ contains
   ! Get list of admissible pairs from temporary work array
   call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
       far, nnnear, nnear, snear, near)
-  ! Allocate reflection and OZ translation matrices
+  ! Get external grid points
+  allocate(ngrid_ext_sph(nsph))
+  call get_ngrid_ext(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph)
+  allocate(grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext))
+  call get_grid_ext_ind(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph, &
+      & grid_ext_ia, grid_ext_ja)
+  ! Allocate far-field L2P matrices
+  allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext))
+  ! Get near-field M2P data
+  call get_ngrid_ext_near(nsph, ngrid_ext_sph, nclusters, nnear, snode, &
+      & ngrid_ext_near)
+  ! Allocate near-field M2P matrices
+  allocate(m2p_mat((pm+1)*(pm+1), ngrid_ext_near))
+  ! Allocate reflection and OZ translation matrices for M2M, M2L and L2L
   allocate(m2m_reflect_mat((nclusters-1) * (pm+1) * (2*pm+1) * (2*pm+3) / 3))
   allocate(m2m_ztrans_mat((nclusters-1) * (pm+1) * (pm+2) * (pm+3) / 6))
   allocate(l2l_reflect_mat((nclusters-1) * (pl+1) * (2*pl+1) * (2*pl+3) / 3))
@@ -194,10 +200,11 @@ contains
       & * (3*max(pm,pl)+3-min(pm,pl)) / 6))
   ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
   call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-      & ui, pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, &
-      & rnode2, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
       & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
-      & l2l_ztrans_mat)
+      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+      & l2p_mat, ngrid_ext_near, m2p_mat)
 
   ! Continue with ddpcm
   allocate(rx_prc(nbasis,nbasis,nsph))
@@ -256,11 +263,13 @@ contains
   deallocate(ind, snode)
   deallocate(cluster, children, parent, cnode, rnode)
   deallocate(vscales, vgrid)
-  deallocate(cluster2, children2, parent2)
-  deallocate(cnode2, rnode2)
   deallocate(nfar, nnear)
   deallocate(work)
   deallocate(far, sfar, near, snear)
+  deallocate(ngrid_ext_sph)
+  deallocate(grid_ext_ia, grid_ext_ja)
+  deallocate(l2p_mat)
+  deallocate(m2p_mat)
   deallocate(m2m_reflect_mat)
   deallocate(m2m_ztrans_mat)
   deallocate(l2l_reflect_mat)
@@ -522,13 +531,14 @@ contains
   fmm_x(nbasis+1:, :) = zero
   ! Do actual FMM matvec
   !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
-  !    pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
+  !    pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
   !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
-      pm, pl, vscales, ind, nclusters, cluster2, children2, cnode2, rnode2, &
-      nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, m2m_ztrans_mat, &
-      m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, l2l_ztrans_mat, &
-      fmm_x, fmm_y)
+  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+      & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
   ! Apply diagonal contribution if needed
   if(dodiag) then
     fourpi = four * pi
