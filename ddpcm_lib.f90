@@ -57,9 +57,9 @@ integer, allocatable :: work(:, :)
 integer :: ngrid_ext, ngrid_ext_near
 integer, allocatable :: ngrid_ext_sph(:), grid_ext_ia(:), grid_ext_ja(:)
 ! Reflection matrices for M2M, M2L and L2L operations
-real(kind=8), allocatable :: m2m_reflect_mat(:), m2m_ztrans_mat(:)
-real(kind=8), allocatable :: l2l_reflect_mat(:), l2l_ztrans_mat(:)
-real(kind=8), allocatable :: m2l_reflect_mat(:), m2l_ztrans_mat(:)
+real(kind=8), allocatable :: m2m_reflect_mat(:, :), m2m_ztrans_mat(:, :)
+real(kind=8), allocatable :: l2l_reflect_mat(:, :), l2l_ztrans_mat(:, :)
+real(kind=8), allocatable :: m2l_reflect_mat(:, :), m2l_ztrans_mat(:, :)
 ! Far-field L2P and near-field M2P
 real(kind=8), allocatable :: l2p_mat(:, :), m2p_mat(:, :)
 
@@ -159,7 +159,7 @@ contains
   ! Allocate space to find all admissible pairs
   allocate(nfar(nclusters), nnear(nclusters))
   ! Try to find all admissibly far and near pairs of tree nodes
-  lwork = nclusters*200 ! Some magic constant which might be changed
+  lwork = nclusters*400 ! Some magic constant which might be changed
   allocate(work(3, lwork))
   iwork = 0 ! init with zero for first call to tree_get_farnear_work
   call tree_get_farnear_work(nclusters, children, cnode, rnode, lwork, &
@@ -168,7 +168,7 @@ contains
   ! tree_get_farnear_work uses previously computed work array, so it will not
   ! do the same work several times.
   if (iwork .ne. jwork+1) then
-    write(*,*) 'Please increase lwork on line 171 of ddpcm_lib.f90 in the code'
+    write(*,*) 'Please increase lwork on line 162 of ddpcm_lib.f90 in the code'
     stop
   end if
   ! Allocate arrays for admissible far and near pairs
@@ -190,14 +190,14 @@ contains
   ! Allocate near-field M2P matrices
   allocate(m2p_mat((pm+1)*(pm+1), ngrid_ext_near))
   ! Allocate reflection and OZ translation matrices for M2M, M2L and L2L
-  allocate(m2m_reflect_mat((nclusters-1) * (pm+1) * (2*pm+1) * (2*pm+3) / 3))
-  allocate(m2m_ztrans_mat((nclusters-1) * (pm+1) * (pm+2) * (pm+3) / 6))
-  allocate(l2l_reflect_mat((nclusters-1) * (pl+1) * (2*pl+1) * (2*pl+3) / 3))
-  allocate(l2l_ztrans_mat((nclusters-1) * (pl+1) * (pl+2) * (pl+3) / 6))
-  allocate(m2l_reflect_mat(nnfar * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
-      & * (2*max(pm,pl)+3) / 3))
-  allocate(m2l_ztrans_mat(nnfar * (min(pm,pl)+1) * (min(pm,pl)+2) &
-      & * (3*max(pm,pl)+3-min(pm,pl)) / 6))
+  allocate(m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, nclusters-1))
+  allocate(m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, nclusters-1))
+  allocate(l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, nclusters-1))
+  allocate(l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, nclusters-1))
+  allocate(m2l_reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+      & *(2*max(pm,pl)+3)/3, nnfar))
+  allocate(m2l_ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+      & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar))
   ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
   call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
       & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
@@ -245,7 +245,7 @@ contains
   write(6,*) 'ddpcm_fmm solve time: ', finish_time-start_time
 
   ! Print matvec statistics
-  call pcm_matvec_print_stats
+  !call pcm_matvec_print_stats
 
   !call prtsph('phie',nsph,0,phieps)
 

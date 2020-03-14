@@ -4095,14 +4095,11 @@ subroutine tree_m2m_get_mat(nclusters, children, cnode, rnode, p, vscales, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: p
     real(kind=8), intent(in) :: vscales((p+1)*(p+1))
-    real(kind=8), intent(out) :: reflect_mat((nclusters-1) * (p+1) * (2*p+1) &
-        & * (2*p+3) / 3)
-    real(kind=8), intent(out) :: ztrans_mat((nclusters-1) * (p+1) * (p+2) &
-        & * (p+3) / 6)
+    real(kind=8), intent(out) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
     real(kind=8) :: c(3)
-    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
-    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
-    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
+    integer :: i, j(2), k
     ! Cycle over all nodes, except root one
     do i = nclusters, 1, -1
         j = children(:, i)
@@ -4113,8 +4110,7 @@ subroutine tree_m2m_get_mat(nclusters, children, cnode, rnode, p, vscales, &
         do k = j(1), j(2)
             c = cnode(:, k) - cnode(:, i)
             call fmm_m2m_get_mat(c, rnode(k), rnode(i), p, vscales, &
-                & reflect_mat((k-2)*reflect_mat_size+1), &
-                & ztrans_mat((k-2)*ztrans_mat_size+1))
+                & reflect_mat(:, k-1), ztrans_mat(:, k-1))
         end do
     end do
 end subroutine tree_m2m_get_mat
@@ -4136,18 +4132,15 @@ subroutine tree_m2m_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
 !   ztrans_mat: OZ translation matrices for all node-parent transformations
 !   coef_node: multipole coefficients of bounding spheres of nodes
     integer, intent(in) :: nsph, nclusters, p, ind(nsph), cluster(2, nclusters)
-    real(kind=8), intent(in) :: reflect_mat((nclusters-1) * (p+1) * (2*p+1) &
-        & * (2*p+3) / 3)
-    real(kind=8), intent(in) :: ztrans_mat((nclusters-1) * (p+1) * (p+2) &
-        & * (p+3) / 6)
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
     real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
     integer, intent(in) :: children(2, nclusters)
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     real(kind=8), intent(out) :: coef_node((p+1)*(p+1), nclusters)
-    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    integer :: i, j(2), k
     real(kind=8) :: c1(3), c(3), r1, r
-    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
-    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
     do i = nclusters, 1, -1
         j = children(:, i)
         if (j(1) .eq. 0) then
@@ -4162,10 +4155,8 @@ subroutine tree_m2m_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
             do k = j(1), j(2)
                 c1 = cnode(:, k)
                 r1 = rnode(k)
-                call fmm_m2m_use_mat(c1-c, r1, r, p, &
-                    & reflect_mat((k-2)*reflect_mat_size+1), &
-                    & ztrans_mat((k-2)*ztrans_mat_size+1), coef_node(:, k), &
-                    & coef_node(:, i))
+                call fmm_m2m_use_mat(c1-c, r1, r, p, reflect_mat(:, k-1), &
+                    & ztrans_mat(:, k-1), coef_node(:, k), coef_node(:, i))
             end do
         end if
     end do
@@ -4380,23 +4371,19 @@ subroutine tree_m2l_get_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: pm, pl
     real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
-    real(kind=8), intent(out) :: reflect_mat(nnfar * (max(pm,pl)+1) &
-        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(out) :: ztrans_mat(nnfar * (min(pm,pl)+1) &
-        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(out) :: reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+        & *(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(out) :: ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+        & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8) :: c(3)
-    integer :: i, j, k, reflect_mat_size, ztrans_mat_size
-    reflect_mat_size = (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3
-    ztrans_mat_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
-        & * (3*max(pm,pl)+3-min(pm,pl)) / 6
+    integer :: i, j, k
     ! Cycle over all nodes, except root one
     do i = 1, nclusters
         do j = sfar(i), sfar(i+1)-1
             k = far(j)
             c = cnode(:, k) - cnode(:, i)
             call fmm_m2l_get_mat(c, rnode(k), rnode(i), pm, pl, vscales, &
-                & reflect_mat((j-1)*reflect_mat_size+1), &
-                & ztrans_mat((j-1)*ztrans_mat_size+1))
+                & reflect_mat(:, j), ztrans_mat(:, j))
         end do
     end do
 end subroutine tree_m2l_get_mat
@@ -4418,25 +4405,21 @@ subroutine tree_m2l_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
     integer, intent(in) :: nclusters, nnfar, sfar(nclusters+1), far(nnfar)
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: pm, pl
-    real(kind=8), intent(in) :: reflect_mat(nnfar * (max(pm,pl)+1) &
-        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(in) :: ztrans_mat(nnfar * (min(pm,pl)+1) &
-        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(in) :: reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+        & *(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(in) :: ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+        & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8), intent(in) :: coef_m((pm+1)*(pm+1), nclusters)
     real(kind=8), intent(out) :: coef_l((pl+1)*(pl+1), nclusters)
-    integer :: i, j, k, reflect_mat_size, ztrans_mat_size
+    integer :: i, j, k
     real(kind=8) :: c(3)
-    reflect_mat_size = (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3
-    ztrans_mat_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
-        & * (3*max(pm,pl)+3-min(pm,pl)) / 6
     do i = 1, nclusters
         coef_l(:, i) = 0
         do j = sfar(i), sfar(i+1)-1
             k = far(j)
             c = cnode(:, k) - cnode(:, i)
             call fmm_m2l_use_mat(c, rnode(k), rnode(i), pm, pl, &
-                & reflect_mat((j-1)*reflect_mat_size+1), &
-                & ztrans_mat((j-1)*ztrans_mat_size+1), coef_m(:, k), &
+                & reflect_mat(:, j), ztrans_mat(:, j), coef_m(:, k), &
                 & coef_l(:, i))
         end do
     end do
@@ -4542,14 +4525,11 @@ subroutine tree_l2l_get_mat(nclusters, children, cnode, rnode, p, vscales, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: p
     real(kind=8), intent(in) :: vscales((p+1)*(p+1))
-    real(kind=8), intent(out) :: reflect_mat((nclusters-1) * (p+1) * (2*p+1) &
-        & * (2*p+3) / 3)
-    real(kind=8), intent(out) :: ztrans_mat((nclusters-1) * (p+1) * (p+2) &
-        & * (p+3) / 6)
+    real(kind=8), intent(out) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
     real(kind=8) :: c(3)
-    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
-    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
-    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
+    integer :: i, j(2), k
     ! Cycle over all nodes, except root one
     do i = 1, nclusters
         j = children(:, i)
@@ -4560,8 +4540,7 @@ subroutine tree_l2l_get_mat(nclusters, children, cnode, rnode, p, vscales, &
         do k = j(1), j(2)
             c = cnode(:, i) - cnode(:, k)
             call fmm_l2l_get_mat(c, rnode(i), rnode(k), p, vscales, &
-                & reflect_mat((k-2)*reflect_mat_size+1), &
-                & ztrans_mat((k-2)*ztrans_mat_size+1))
+                & reflect_mat(:, k-1), ztrans_mat(:, k-1))
         end do
     end do
 end subroutine tree_l2l_get_mat
@@ -4583,18 +4562,15 @@ subroutine tree_l2l_use_mat(nsph, nclusters, p, coef_node, ind, cluster, &
 !   ztrans_mat: OZ translation matrices for all node-parent transformations
 !   coef_sph: local coefficients of output spheres
     integer, intent(in) :: nsph, nclusters, p, ind(nsph), cluster(2, nclusters)
-    real(kind=8), intent(in) :: reflect_mat((nclusters-1) * (p+1) * (2*p+1) &
-        & * (2*p+3) / 3)
-    real(kind=8), intent(in) :: ztrans_mat((nclusters-1) * (p+1) * (p+2) &
-        & * (p+3) / 6)
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
     real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), nclusters)
     integer, intent(in) :: children(2, nclusters)
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     real(kind=8), intent(out) :: coef_sph((p+1)*(p+1), nsph)
-    integer :: i, j(2), k, reflect_mat_size, ztrans_mat_size
+    integer :: i, j(2), k
     real(kind=8) :: c1(3), c(3), r1, r
-    reflect_mat_size = (p+1) * (2*p+1) * (2*p+3) / 3
-    ztrans_mat_size = (p+1) * (p+2) * (p+3) / 6
     do i = 1, nclusters
         j = children(:, i)
         if (j(1) .eq. 0) then
@@ -4608,10 +4584,8 @@ subroutine tree_l2l_use_mat(nsph, nclusters, p, coef_node, ind, cluster, &
             do k = j(1), j(2)
                 c1 = cnode(:, k)
                 r1 = rnode(k)
-                call fmm_l2l_use_mat(c-c1, r, r1, p, &
-                    & reflect_mat((k-2)*reflect_mat_size+1), &
-                    & ztrans_mat((k-2)*ztrans_mat_size+1), coef_node(:, i), &
-                    & coef_node(:, k))
+                call fmm_l2l_use_mat(c-c1, r, r1, p, reflect_mat(:, k-1), &
+                    & ztrans_mat(:, k-1), coef_node(:, i), coef_node(:, k))
             end do
         end if
     end do
@@ -4965,14 +4939,14 @@ subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
-    real(kind=8) :: m2m_l2l_reflect_mat((nclusters-1) * &
-        & (max(pm,pl)+1) * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8) :: m2m_l2l_ztrans_mat((nclusters-1) * &
-        & (max(pm,pl)+1) * (max(pm,pl)+2) * (max(pm,pl)+3) / 6)
-    real(kind=8) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) * (2*max(pm,pl)+1) &
-        & * (2*max(pm,pl)+3) / 3)
-    real(kind=8) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) * (min(pm,pl)+2) &
-        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8) :: m2m_l2l_reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+        & *(2*max(pm,pl)+3)/3, nclusters-1)
+    real(kind=8) :: m2m_l2l_ztrans_mat((max(pm,pl)+1)*(max(pm,pl)+2) &
+        & *(max(pm,pl)+3)/6, nclusters-1)
+    real(kind=8) :: m2l_reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+        & *(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8) :: m2l_ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+        & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     integer :: i, j, indi, indj
     do i = 0, pm
         indi = i*i + i + 1
@@ -5018,18 +4992,18 @@ subroutine pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: ngrid_ext, ngrid_ext_sph(nsph), grid_ext_ia(nsph+1)
     integer, intent(in) :: grid_ext_ja(ngrid_ext), ngrid_ext_near
-    real(kind=8), intent(out) :: m2m_reflect_mat((nclusters-1) * (pm+1) &
-        & * (2*pm+1) * (2*pm+3) / 3)
-    real(kind=8), intent(out) :: m2m_ztrans_mat((nclusters-1) * (pm+1) &
-        & * (pm+2) * (pm+3) / 6)
-    real(kind=8), intent(out) :: l2l_reflect_mat((nclusters-1) * (pl+1) &
-        & * (2*pl+1) * (2*pl+3) / 3)
-    real(kind=8), intent(out) :: l2l_ztrans_mat((nclusters-1) * (pl+1) &
-        & * (pl+2) * (pl+3) / 6)
-    real(kind=8), intent(out) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) &
-        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(out) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) &
-        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(out) :: m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(out) :: m2l_reflect_mat((max(pm,pl)+1) &
+        & *(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(out) :: m2l_ztrans_mat((min(pm,pl)+1) &
+        & *(min(pm,pl)+2)*(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8), intent(out) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
     real(kind=8), intent(out) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
     call tree_m2m_get_mat(nclusters, children, cnode, rnode, pm, vscales, &
@@ -5068,18 +5042,18 @@ subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
-    real(kind=8), intent(in) :: m2m_reflect_mat((nclusters-1) * (pm+1) &
-        & * (2*pm+1) * (2*pm+3) / 3)
-    real(kind=8), intent(in) :: m2m_ztrans_mat((nclusters-1) * (pm+1) &
-        & * (pm+2) * (pm+3) / 6)
-    real(kind=8), intent(in) :: l2l_reflect_mat((nclusters-1) * (pl+1) &
-        & * (2*pl+1) * (2*pl+3) / 3)
-    real(kind=8), intent(in) :: l2l_ztrans_mat((nclusters-1) * (pl+1) &
-        & * (pl+2) * (pl+3) / 6)
-    real(kind=8), intent(in) :: m2l_reflect_mat(nnfar * (max(pm,pl)+1) &
-        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
-    real(kind=8), intent(in) :: m2l_ztrans_mat(nnfar * (min(pm,pl)+1) &
-        & * (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(in) :: m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: m2l_reflect_mat((max(pm,pl)+1) &
+        & *(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(in) :: m2l_ztrans_mat((min(pm,pl)+1) &
+        & *(min(pm,pl)+2)*(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
     real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
     integer :: i, j, indi, indj
