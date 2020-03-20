@@ -102,6 +102,7 @@ contains
   ! rinf rhs
   dodiag = .true.
   call rinfx(nbasis*nsph,xs,rhs)
+  phieps = xs
   !call prtsph('rhs',nsph,0,rhs)
 
   ! solve the ddpcm linear system
@@ -112,6 +113,7 @@ contains
       & ok,rx,apply_rx_prec,hnorm)
   call cpu_time(finish_time)
   write(6,*) 'ddpcm solve time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddpcm solve iterations: ", n_iter
   !call prtsph('phie',nsph,0,phieps)
 
   ! solve the ddcosmo linear system
@@ -233,16 +235,18 @@ contains
   ! rinf rhs
   dodiag = .true.
   call rinfx_fmm(nbasis*nsph,xs,rhs)
+  phieps = xs
   !call prtsph('rhs',nsph,0,rhs)
 
   ! solve the ddpcm linear system
-  n_iter = 200
+  n_iter = 100000
   dodiag = .false.
   call cpu_time(start_time)
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,rhs,phieps,n_iter, &
       & ok,rx_fmm,apply_rx_prec,hnorm)
   call cpu_time(finish_time)
   write(6,*) 'ddpcm_fmm solve time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddpcm_fmm solve iterations: ", n_iter
 
   ! Print matvec statistics
   !call pcm_matvec_print_stats
@@ -250,10 +254,14 @@ contains
   !call prtsph('phie',nsph,0,phieps)
 
   ! solve the ddcosmo linear system
-  n_iter = 200
+  n_iter = 100000
   dodiag = .false.
+  call cpu_time(start_time)
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
+  call cpu_time(finish_time)
+  write(6,*) 'cosmo solve time: ', finish_time-start_time
+  write(*,"(A,I0)") " cosmo solve iterations: ", n_iter
   !call prtsph('x',nsph,0,xs)
 
   ! compute the energy

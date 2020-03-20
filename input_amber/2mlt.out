@@ -1,3 +1,4 @@
- ddpcm solve time:    91.301458000000011     
- ddpcm esolv:    -2.8471306777597447     
- ddpcm time:    96.795391000000009     
+ ddpcm solve time:    176.30575200000001     
+ ddpcm solve iterations: 30
+ ddpcm esolv:    -2.8471307063425679     
+ ddpcm time:    188.83877799999999     

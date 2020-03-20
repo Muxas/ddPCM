@@ -1,0 +1,6 @@
+ ddpcm_fmm solve time:    922.00816600000007     
+ ddpcm_fmm solve iterations: 231
+ cosmo solve time:    65.894166999999925     
+ cosmo solve iterations: 43
+ ddpcm_fmm esolv:    -8.7854276439645371     
+ ddpcm_fmm time:    1013.5128320000001     

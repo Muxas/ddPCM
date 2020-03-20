@@ -1,3 +1,4 @@
- ddpcm_fmm solve time:    1.7512249999999998     
- ddpcm_fmm esolv:   -0.36585006319902141     
- ddpcm_fmm time:    2.2472799999999999     
+ ddpcm_fmm solve time:   0.58322799999999997     
+ ddpcm_fmm solve iterations: 14
+ ddpcm_fmm esolv:   -0.36585006545879734     
+ ddpcm_fmm time:    1.7329539999999999     
