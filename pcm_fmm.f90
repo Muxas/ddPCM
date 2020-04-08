@@ -4841,6 +4841,8 @@ subroutine tree_l2p_m2p_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
     do isph = 1, nsph
         coef_sph_l(:, isph) = 0
         call int_grid(pl, ngrid, w, vgrid, x(:, isph), coef_sph_l(:, isph))
+        ! SCALE BY RADIUS SQUARED
+        !coef_sph_l(:, isph) = coef_sph_l(:, isph)
     end do
 end subroutine tree_l2p_m2p_use_mat
 

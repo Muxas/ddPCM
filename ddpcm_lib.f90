@@ -135,10 +135,13 @@ contains
   implicit none
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
   real*8, intent(inout) :: esolv
-  real*8 :: tol
-  integer :: isph, n_iter
+  real*8 :: tol, resid, res0, rel_tol, fac
+  integer, parameter :: mgmres=10, jgmres=10
+  real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
+  integer :: isph, n_iter, lwork_gmres, l, ll, m
   logical :: ok
-  external :: lx, ldm1x, hnorm
+  external :: lx, ldm1x, gmresr
+  real*8, external :: hnorm, dnrm2
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.
@@ -234,7 +237,21 @@ contains
 
   ! rinf rhs
   dodiag = .true.
-  call rinfx_fmm(nbasis*nsph,xs,rhs)
+  call rinfx_fmm(nbasis*nsph, xs, rhs)
+  !call apply_rx_prec(nbasis*nsph, rhs, phieps)
+  rel_tol = tol * hnorm(nsph*nbasis, rhs)
+  !write(*,*) "hnorm:", rel_tol/tol
+  ! Scale to get L2 norm instead of H-norm
+  !do l = 0, lmax
+  !  ll = l*l + l + 1
+  !  fac = one / sqrt(one+dble(l))
+  !  do m = ll-l, ll+l
+  !    phieps(m, :) = fac * phieps(m, :)
+  !  end do
+  !end do
+  !write(*,*) "new l2norm:", dnrm2(nsph*nbasis, phieps, 1) / sqrt(dble(nsph))
+
+  !rhs = phieps
   phieps = xs
   !call prtsph('rhs',nsph,0,rhs)
 
@@ -242,8 +259,10 @@ contains
   n_iter = 100000
   dodiag = .false.
   call cpu_time(start_time)
-  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,rhs,phieps,n_iter, &
+  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,rhs,phieps,n_iter, &
       & ok,rx_fmm,apply_rx_prec,hnorm)
+  !call gmresr(.true., nsph*nbasis, jgmres, mgmres, rhs, phieps, work_gmres, &
+  !    & rel_tol, 'abs', n_iter, resid, rx_fmm_prec_gmres, ok)
   call cpu_time(finish_time)
   write(6,*) 'ddpcm_fmm solve time: ', finish_time-start_time
   write(*,"(A,I0)") " ddpcm_fmm solve iterations: ", n_iter
@@ -256,8 +275,10 @@ contains
   ! solve the ddcosmo linear system
   n_iter = 100000
   dodiag = .false.
+  xs = 0
+  rel_tol = tol * hnorm(nsph*nbasis, phieps)
   call cpu_time(start_time)
-  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
+  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
   call cpu_time(finish_time)
   write(6,*) 'cosmo solve time: ', finish_time-start_time
@@ -286,7 +307,6 @@ contains
   deallocate(m2l_ztrans_mat)
   return
   end subroutine ddpcm_fmm
-
 
   subroutine mkprec
   ! Assemble the diagonal blocks of the Reps matrix
@@ -380,6 +400,7 @@ contains
   real*8, intent(in) :: x(nbasis,nsph)
   real*8, intent(inout) :: y(nbasis,nsph)
   real*8 :: fac
+  integer :: isph
 
   call dx_fmm(n,x,y)
   y = -y
@@ -388,8 +409,41 @@ contains
     fac = two*pi*(eps + one)/(eps - one)
     y = y + fac*x
   end if
+  do isph = 1, nsph
+    !y(:, isph) = y(:, isph) * rsph(isph)**2
+  end do
   end subroutine rx_fmm
 
+  subroutine rx_fmm_prec_gmres(n, x, y)
+  ! Use FMM to compute Y = Reps X =
+  ! = (2*pi*(eps + 1)/(eps - 1) - D) X 
+  implicit none
+  integer, intent(in) :: n
+  real*8, intent(in) :: x(nbasis,nsph)
+  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8 :: fac, z(nbasis, nsph)
+  integer :: isph, l, ind, m
+
+  call dx_fmm(n,x,z)
+  z = -z
+
+  if (dodiag) then
+    fac = two*pi*(eps + one)/(eps - one)
+    z = z + fac*x
+  end if
+  do isph = 1, nsph
+    !z(:, isph) = z(:, isph) * rsph(isph)**2
+  end do
+  call apply_rx_prec(n, z, y)
+  ! Scale to get L2 norm instead of H-norm
+  do l = 0, lmax
+    ind = l*l + l + 1
+    fac = one / sqrt(one+dble(l))
+    do m = ind-l, ind+l
+      y(m, :) = fac * y(m, :)
+    end do
+  end do
+  end subroutine rx_fmm_prec_gmres
 
   subroutine rinfx(n,x,y)
   ! Computes Y = Rinf X = 
@@ -417,37 +471,18 @@ contains
   real*8, intent(in) :: x(nbasis,nsph)
   real*8, intent(inout) :: y(nbasis,nsph)
   real*8 :: fac
-  !real*8 :: z(nbasis, nsph), norm, diff
-  !integer :: i, j
+  integer :: isph
 
   call dx_fmm(n,x,y)
-  !call dx(n, x, z)
-  !norm = 0
-  !diff = 0
-  !do i = 1, nbasis
-  !  do j = 1, nsph
-  !    norm = norm + z(i, j)**2
-  !    diff = diff + (z(i, j)-y(i, j))**2
-  !  end do
-  !end do
-  !write(*,*) 'error/norm of fmm matvec=', sqrt(diff), '/', sqrt(norm)
   y = -y
-  !z = -z
 
   if (dodiag) then
     fac = two*pi
     y = y + fac*x
-    !z = z + fac*x
-    !norm = 0
-    !diff = 0
-    !do i = 1, nbasis
-    !  do j = 1, nsph
-    !    norm = norm + z(i, j)**2
-    !    diff = diff + (z(i, j)-y(i, j))**2
-    !  end do
-    !end do
-    !write(*,*) 'error/norm of fmm matvec (diag=T)=', sqrt(diff), '/', sqrt(norm)
   end if
+  do isph = 1, nsph
+    !y(:, isph) = y(:, isph) * rsph(isph)**2
+  end do
   end subroutine rinfx_fmm
 
   subroutine dx(n,x,y)
