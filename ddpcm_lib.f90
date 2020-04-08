@@ -164,7 +164,7 @@ contains
   ! Allocate space to find all admissible pairs
   allocate(nfar(nclusters), nnear(nclusters))
   ! Try to find all admissibly far and near pairs of tree nodes
-  lwork = nclusters*400 ! Some magic constant which might be changed
+  lwork = nclusters*1000 ! Some magic constant which might be changed
   allocate(work(3, lwork))
   iwork = 0 ! init with zero for first call to tree_get_farnear_work
   call tree_get_farnear_work(nclusters, children, cnode, rnode, lwork, &
