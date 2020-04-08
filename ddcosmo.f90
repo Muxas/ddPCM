@@ -84,7 +84,7 @@ implicit none
 !
 !     - numerical constants
 !
-      integer, parameter :: ndiis=25, iout=6, nngmax=100
+      integer, parameter :: ndiis=25, iout=6, nngmax=200
       real*8,  parameter :: zero=0.d0, pt5=0.5d0, one=1.d0, two=2.d0, four=4.d0
       real*8,  parameter :: se = 0.0d0
 !
