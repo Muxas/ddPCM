@@ -5,7 +5,7 @@
 #FFLAGS = -O3 -xHost -qopenmp
 RunF77 = gfortran
 #FFLAGS = -O3 -march=native -llapack -lblas
-FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
+FFLAGS = -O0 -g -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
 	 ${MKLROOT}/lib/libmkl_sequential.a ${MKLROOT}/lib/libmkl_core.a \
 	 -lpthread -lm -ldl -ftree-vectorize -finline-functions #-fcheck=all
 #MKLLIBDIR = ${MKLROOT}/lib/intel64
@@ -37,7 +37,7 @@ main_fmm.exe: $(MODS) $(OBJS) main_fmm.f90
 clean:
 	rm -fr $(OBJS) *.exe *.mod *.so
 #
-test_pcm_fmm: pcm_fmm.f90 llgnew.o test_pcm_fmm.f90
+test_pcm_fmm: pcm_fmm.f90 llgnew.o
 	f2py -m test_pcm_fmm -c pcm_fmm.f90 llgnew.o --opt="${FFLAGS}"
 #
 test:	test_pcm_fmm.f90 pcm_fmm.o llgnew.o

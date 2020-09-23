@@ -139,7 +139,8 @@ subroutine scales_real_normal(p, vscales)
 end subroutine scales_real_normal
 
 ! Compute multipole coefficients for particle of unit charge
-! Based on normalized scaled real spherical harmonics of given radius
+! Based on normalized real spherical harmonics Y_l^m, scaled by r^(l+1). It
+! means corresponding coefficients are scaled by r^(-l-1).
 ! This function is not needed for pcm, but it is useful for testing purposes
 subroutine fmm_p2m(c, r, p, vscales, m)
 ! Parameters:
@@ -173,7 +174,7 @@ subroutine fmm_p2m(c, r, p, vscales, m)
         call polleg(ctheta, stheta, p, vplm)
         ! Now build harmonics to fill multipole coefficients
         rcoef = rho / r
-        t = 1
+        t = 1 / r
         do n = 0, p
             ind = n*n + n + 1
             m(ind) = t * vscales(ind) * vplm(ind)
@@ -191,7 +192,7 @@ subroutine fmm_p2m(c, r, p, vscales, m)
 end subroutine fmm_p2m
 
 ! Compute potential, induced by multipole spherical harmonics
-! Based on normalized scaled real spherical harmonics of given radius
+! Based on normalized scaled real spherical harmonics r^(l+1) Y_l^m
 subroutine fmm_m2p(c, r, p, vscales, m, v)
 ! Parameters:
 !   c: relative distance from center of harmonics to point of potential
@@ -207,7 +208,6 @@ subroutine fmm_m2p(c, r, p, vscales, m, v)
     real(kind=8) :: rho, t, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(kind=8) :: vplm((p+1)*(p+1)), rcoef
     integer :: n, k, ind
-    t = 1 / r
     stheta = c(1)*c(1) + c(2)*c(2)
     rho = sqrt(c(3)*c(3) + stheta)
     v = 0
@@ -230,6 +230,7 @@ subroutine fmm_m2p(c, r, p, vscales, m, v)
     end if
     call polleg(ctheta, stheta, p, vplm)
     rcoef = r / rho
+    t = 1
     do n = 0, p
         t = t * rcoef
         ind = n*n + n + 1
@@ -246,7 +247,7 @@ subroutine fmm_m2p(c, r, p, vscales, m, v)
 end subroutine fmm_m2p
 
 ! Compute matrix of M2P, induced by multipole spherical harmonics
-! Based on normalized scaled real spherical harmonics of given radius
+! Based on normalized scaled real spherical harmonics r^(l+1) Y_l^m
 subroutine fmm_m2p_mat(c, r, p, vscales, ui, mat)
 ! Parameters:
 !   c: relative distance from center of harmonics to point of potential
@@ -262,7 +263,6 @@ subroutine fmm_m2p_mat(c, r, p, vscales, ui, mat)
     real(kind=8) :: rho, t, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(kind=8) :: vplm((p+1)*(p+1)), rcoef
     integer :: n, k, ind
-    t = 1 / r
     stheta = c(1)*c(1) + c(2)*c(2)
     rho = sqrt(c(3)*c(3) + stheta)
     if (rho .eq. 0) then
@@ -284,6 +284,7 @@ subroutine fmm_m2p_mat(c, r, p, vscales, ui, mat)
     end if
     call polleg(ctheta, stheta, p, vplm)
     rcoef = r / rho
+    t = 1
     do n = 0, p
         t = t * rcoef
         ind = n*n + n + 1
@@ -337,7 +338,7 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, vscales, src_m, dst_m)
         call polleg(ctheta, stheta, p, vplm)
         r1 = src_r / dst_r
         r2 = r / dst_r
-        pow_r1(1) = 1
+        pow_r1(1) = r1
         pow_r2(1) = 1
         do j = 2, p+1
             pow_r1(j) = pow_r1(j-1) * r1
@@ -396,7 +397,7 @@ subroutine fmm_m2m_baseline(c, src_r, dst_r, p, vscales, src_m, dst_m)
         end do
     else
         r1 = src_r / dst_r
-        tmpk1 = 1
+        tmpk1 = r1
         do j = 0, p
             indj = j*j + j + 1
             do k = indj-j, indj+j
@@ -701,7 +702,7 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
     if (z .ne. 0) then
         r1 = src_r / dst_r
         r2 = z / dst_r
-        pow_r1(1) = 1
+        pow_r1(1) = r1
         pow_r2(1) = 1
         do j = 2, p+1
             pow_r1(j) = pow_r1(j-1) * r1
@@ -733,7 +734,7 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, src_m, dst_m)
         end do
     else
         r1 = src_r / dst_r
-        tmp1 = 1
+        tmp1 = r1
         do j = 0, p
             indj = j*j + j + 1
             do k = indj-j, indj+j
@@ -759,7 +760,7 @@ subroutine fmm_m2m_scale(src_r, dst_r, p, src_m, dst_m)
     real(kind=8) :: r1, tmp1
     integer :: j, k, indj
     r1 = src_r / dst_r
-    tmp1 = 1
+    tmp1 = r1
     do j = 0, p
         indj = j*j + j + 1
         do k = indj-j, indj+j
@@ -790,7 +791,7 @@ subroutine fmm_m2m_get_ztrans_mat(z, src_r, dst_r, p, vscales, mat)
     end if
     r1 = src_r / dst_r
     r2 = z / dst_r
-    pow_r1(1) = 1
+    pow_r1(1) = r1
     pow_r2(1) = 1
     do j = 2, p+1
         pow_r1(j) = pow_r1(j-1) * r1
