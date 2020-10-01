@@ -21,13 +21,16 @@ MODS   = ddcosmo.o pcm_fmm.o ddpcm_lib.o
 OBJS   = ${MODS} mkrhs.o llgnew.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o gmres.o
 #
-all:    main.exe main_fmm.exe
+all:    main.exe main_fmm.exe main_fmm_adj.exe
 
 main.exe: $(MODS) $(OBJS) main.f90
 	$(RunF77) main.f90 -o main.exe $(OBJS) $(FFLAGS)
 
 main_fmm.exe: $(MODS) $(OBJS) main_fmm.f90
 	$(RunF77) main_fmm.f90 -o main_fmm.exe $(OBJS) $(FFLAGS)
+
+main_fmm_adj.exe: $(MODS) $(OBJS) main_fmm_adj.f90
+	$(RunF77) main_fmm_adj.f90 -o main_fmm_adj.exe $(OBJS) $(FFLAGS)
 #
 %.o: %.f
 	$(RunF77) -c $*.f $(FFLAGS)

@@ -313,6 +313,123 @@ contains
   return
   end subroutine ddpcm_fmm
 
+  subroutine ddpcm_fmm_adj(phi, psi, esolv)
+  ! FMM-accelerated ddpcm driver, given the potential at the exposed cavity
+  ! points and the psi vector, computes the solvation energy
+  implicit none
+  real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
+  real*8, intent(inout) :: esolv
+  real*8 :: tol, resid, res0, rel_tol, fac
+  integer, parameter :: mgmres=10, jgmres=10
+  real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
+  integer :: isph, n_iter, lwork_gmres, l, ll, m
+  logical :: ok
+  external :: lx, ldm1x, gmresr
+  real*8, external :: hnorm, dnrm2
+  real(kind=8), allocatable :: fmm_mat(:, :, :, :)
+  ! Prepare FMM tree and other things. This can be moved out from this
+  ! function to rerun ddpcm_fmm with the same molecule without recomputing
+  ! FMM-related variables.
+  nclusters = 2*nsph-1
+  allocate(ind(nsph), cluster(2, nclusters), children(2, nclusters), &
+      parent(nclusters), cnode(3, nclusters), rnode(nclusters), snode(nsph))
+  pm = lmax ! This must be updated to achieve required accuracy of FMM
+  pl = lmax ! This must be updated to achieve required accuracy of FMM
+  allocate(vscales((pm+pl+1)*(pm+pl+1)), vgrid((pl+1)*(pl+1), ngrid))
+  ! Init order of spheres
+  do isph = 1, nsph
+    ind(isph) = isph
+  end do
+  ! Init constants vscales
+  call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
+  ! Build binary tree
+  call btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
+        cnode, rnode, snode)
+  nclusters = 2*nsph-1
+  ! Allocate space to find all admissible pairs
+  allocate(nfar(nclusters), nnear(nclusters))
+  ! Try to find all admissibly far and near pairs of tree nodes
+  lwork = nclusters*1000 ! Some magic constant which might be changed
+  allocate(work(3, lwork))
+  iwork = 0 ! init with zero for first call to tree_get_farnear_work
+  call tree_get_farnear_work(nclusters, children, cnode, rnode, lwork, &
+        iwork, jwork, work, nnfar, nfar, nnnear, nnear)
+  ! Increase size of work array if needed and run again. Function
+  ! tree_get_farnear_work uses previously computed work array, so it will not
+  ! do the same work several times.
+  if (iwork .ne. jwork+1) then
+    write(*,*) 'Please increase lwork on line 162 of ddpcm_lib.f90 in the code'
+    stop
+  end if
+  ! Allocate arrays for admissible far and near pairs
+  allocate(far(nnfar), near(nnnear), sfar(nclusters+1), snear(nclusters+1))
+  ! Get list of admissible pairs from temporary work array
+  call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
+      far, nnnear, nnear, snear, near)
+  ! Get external grid points
+  allocate(ngrid_ext_sph(nsph))
+  call get_ngrid_ext(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph)
+  allocate(grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext))
+  call get_grid_ext_ind(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph, &
+      & grid_ext_ia, grid_ext_ja)
+  ! Allocate far-field L2P matrices
+  allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext))
+  ! Get near-field M2P data
+  call get_ngrid_ext_near(nsph, ngrid_ext_sph, nclusters, nnear, snode, &
+      & ngrid_ext_near)
+  ! Allocate near-field M2P matrices
+  allocate(m2p_mat((pm+1)*(pm+1), ngrid_ext_near))
+  ! Allocate reflection and OZ translation matrices for M2M, M2L and L2L
+  allocate(m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, nclusters-1))
+  allocate(m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, nclusters-1))
+  allocate(l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, nclusters-1))
+  allocate(l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, nclusters-1))
+  allocate(m2l_reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+      & *(2*max(pm,pl)+3)/3, nnfar))
+  allocate(m2l_ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+      & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar))
+  ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
+  call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+      & l2p_mat, ngrid_ext_near, m2p_mat)
+
+  ! Allocate memory for the matrix
+  allocate(fmm_mat((pl+1)*(pl+1), nsph, (pm+1)*(pm+1), nsph))
+  call tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+        & children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+        & fmm_mat)
+
+  write(*,*) "FMM matrix generated"
+  ! Deallocate matrix
+  deallocate(fmm_mat)
+  ! Deallocate FMM-related arrays
+  deallocate(ind, snode)
+  deallocate(cluster, children, parent, cnode, rnode)
+  deallocate(vscales, vgrid)
+  deallocate(nfar, nnear)
+  deallocate(work)
+  deallocate(far, sfar, near, snear)
+  deallocate(ngrid_ext_sph)
+  deallocate(grid_ext_ia, grid_ext_ja)
+  deallocate(l2p_mat)
+  deallocate(m2p_mat)
+  deallocate(m2m_reflect_mat)
+  deallocate(m2m_ztrans_mat)
+  deallocate(l2l_reflect_mat)
+  deallocate(l2l_ztrans_mat)
+  deallocate(m2l_reflect_mat)
+  deallocate(m2l_ztrans_mat)
+  return
+  end subroutine ddpcm_fmm_adj
+
   subroutine mkprec
   ! Assemble the diagonal blocks of the Reps matrix
   ! then invert them to build the preconditioner
