@@ -4623,7 +4623,7 @@ subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
         do i = 1, (pl+1)*(pl+1)
             x(:, isph) = x(:, isph) + coef_sph_l(i, isph)*vgrid(i, :)
         end do
-        x(:, isph) = x(:, isph) / rsph(isph)
+        x(:, isph) = x(:, isph)
     end do
     call cpu_time(finish)
     !write(*, "(A,ES9.3E2,A)") "Time of interest2: ", finish-start, " seconds"
@@ -4748,8 +4748,7 @@ subroutine tree_l2p_m2p_get_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
     do isph = 1, nsph
         do igrid_ext = grid_ext_ia(isph), grid_ext_ia(isph+1)-1
             igrid_sph = grid_ext_ja(igrid_ext)
-            l2p_mat(:, igrid_ext) = vgrid(:, igrid_sph) / rsph(isph) &
-                & * ui(igrid_sph, isph)
+            l2p_mat(:, igrid_ext) = vgrid(:, igrid_sph) * ui(igrid_sph, isph)
         end do
     end do
     ! Get near-field M2P matrices (to all external grid points of given sphere
@@ -5184,7 +5183,7 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         ! Apply normalization factor to coefficients
         do j = 0, pl
             coef_l(j*j+1:(j+1)*(j+1)) = coef_l(j*j+1:(j+1)*(j+1)) / &
-                & (rsph(i) * vscales(j*j+j+1)**2)
+                &(vscales(j*j+j+1)**2)
         end do
         ! Apply L2P
         y = 0

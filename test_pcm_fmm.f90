@@ -8,7 +8,6 @@ call check_p2m_m2p_m2m_baseline(p2)
 call check_m2l_l2p_l2l_baseline(p1, p1)
 call check_m2l_l2p_l2l_baseline(p1, p2)
 call check_m2l_l2p_l2l_baseline(p2, p1)
-return
 call check_m2m_improved(p1)
 call check_m2m_improved(p2)
 call check_l2l_improved(p1)

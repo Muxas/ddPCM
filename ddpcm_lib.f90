@@ -575,15 +575,15 @@ contains
   fmm_x(1:nbasis, :) = x
   fmm_x(nbasis+1:, :) = zero
   ! Do actual FMM matvec
-  call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
-      pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
-      nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  !call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-  !    & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
-  !    & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
-  !    & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
-  !    & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-  !    & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
+  !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+  !    pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
+  !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
+  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+      & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
   ! Apply diagonal contribution if needed
   if(dodiag) then
     fourpi = four * pi
