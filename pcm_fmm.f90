@@ -186,7 +186,7 @@ subroutine fmm_p2m(c, r, p, vscales, m)
             t = t * rcoef
         end do
     else
-        m(1) = 1
+        m(1) = 1 / r
         m(2:) = 0
     end if
 end subroutine fmm_p2m
@@ -425,7 +425,7 @@ subroutine fmm_l2p(c, r, p, vscales, l, v)
     real(kind=8) :: rho, t, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(kind=8) :: vplm((p+1)*(p+1)), rcoef
     integer :: n, k, ind
-    t = 1 / r
+    t = 1
     stheta = c(1)*c(1) + c(2)*c(2)
     rho = sqrt(c(3)*c(3) + stheta)
     if (rho .eq. 0) then
@@ -509,8 +509,8 @@ subroutine fmm_m2l_baseline(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     call polleg(ctheta, stheta, pm+pl, vplm)
     r1 = src_r / r
     r2 = dst_r / r
-    pow_r1(1) = 1
-    pow_r2(1) = r2
+    pow_r1(1) = r1
+    pow_r2(1) = 1
     do j = 2, pm+1
         pow_r1(j) = pow_r1(j-1) * r1
     end do
@@ -611,8 +611,8 @@ subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
         call polleg(ctheta, stheta, p, vplm)
         r1 = r / src_r
         r2 = dst_r / r
-        pow_r1(1) = r1
-        pow_r2(1) = r2
+        pow_r1(1) = 1
+        pow_r2(1) = 1
         do j = 2, p+1
             pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
@@ -672,7 +672,7 @@ subroutine fmm_l2l_baseline(c, src_r, dst_r, p, vscales, src_l, dst_l)
         end do
     else
         r1 = dst_r / src_r
-        tmpk1 = r1
+        tmpk1 = 1
         do j = 0, p
             indj = j*j + j + 1
             do k = indj-j, indj+j
@@ -928,10 +928,10 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
     end if
     r1 = src_r / z
     r2 = dst_r / z
-    pow_r1(1) = 1
-    ! This abs(r2) makes it possible to work with negative z to avoid
+    ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
-    pow_r2(1) = abs(r2)
+    pow_r1(1) = abs(r1)
+    pow_r2(1) = 1
     do j = 2, pm+1
         pow_r1(j) = pow_r1(j-1) * r1
     end do
@@ -988,10 +988,10 @@ subroutine fmm_m2l_get_ztrans_mat(z, src_r, dst_r, pm, pl, vscales, mat)
     end if
     r1 = src_r / z
     r2 = dst_r / z
-    pow_r1(1) = 1
-    ! This abs(r2) makes it possible to work with negative z to avoid
+    ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
-    pow_r2(1) = abs(r2)
+    pow_r1(1) = abs(r1)
+    pow_r2(1) = 1
     do j = 2, pm+1
         pow_r1(j) = pow_r1(j-1) * r1
     end do
@@ -1121,8 +1121,8 @@ subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
     if (z .ne. 0) then
         r1 = z / src_r
         r2 = dst_r / z
-        pow_r1(1) = r1
-        pow_r2(1) = r2
+        pow_r1(1) = 1
+        pow_r2(1) = 1
         do j = 2, p+1
             pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
@@ -1154,7 +1154,7 @@ subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
         end do
     else
         r1 = dst_r / src_r
-        tmp1 = r1
+        tmp1 = 1
         do j = 0, p
             indj = j*j + j + 1
             do k = indj-j, indj+j
@@ -1180,7 +1180,7 @@ subroutine fmm_l2l_scale(src_r, dst_r, p, src_l, dst_l)
     real(kind=8) :: r1, tmp1
     integer :: j, k, indj
     r1 = dst_r / src_r
-    tmp1 = r1
+    tmp1 = 1
     do j = 0, p
         indj = j*j + j + 1
         do k = indj-j, indj+j
@@ -1211,8 +1211,8 @@ subroutine fmm_l2l_get_ztrans_mat(z, src_r, dst_r, p, vscales, mat)
     end if
     r1 = z / src_r
     r2 = dst_r / z
-    pow_r1(1) = r1
-    pow_r2(1) = r2
+    pow_r1(1) = 1
+    pow_r2(1) = 1
     do j = 2, p+1
         pow_r1(j) = pow_r1(j-1) * r1
         pow_r2(j) = pow_r2(j-1) * r2
@@ -4260,7 +4260,7 @@ subroutine pcm_matvec_grid_treecode(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_baseline(nsph, 2*nsph-1, p, vscales, coef_sph_scaled, ind, &
@@ -4871,7 +4871,7 @@ subroutine pcm_matvec_grid_fmm_baseline(nsph, csph, rsph, ngrid, grid, w, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_baseline(nsph, nclusters, pm, vscales, coef_sph_scaled, &
@@ -4909,7 +4909,7 @@ subroutine pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_fast(nsph, nclusters, pm, vscales, coef_sph_scaled, ind, &
@@ -4955,7 +4955,7 @@ subroutine pcm_matvec_grid_fmm_test_mat(nsph, csph, rsph, ngrid, grid, w, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_get_mat(nclusters, children, cnode, rnode, pm, vscales, &
@@ -5067,7 +5067,7 @@ subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_use_mat(nsph, nclusters, pm, coef_sph_scaled, ind, cluster, &
@@ -5130,7 +5130,7 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
-            coef_sph_scaled(indj, :) = i * coef_sph(indj, :) * rsph
+            coef_sph_scaled(indj, :) = i * coef_sph(indj, :)
         end do
     end do
     call tree_m2m_fast(nsph, 2*nsph-1, pm, vscales, coef_sph_scaled, ind, &

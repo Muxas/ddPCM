@@ -5,21 +5,22 @@ integer :: p1=6, p2=10, ngrid1=6, ngrid2=110, nsph1=1000
 
 call check_p2m_m2p_m2m_baseline(p1)
 call check_p2m_m2p_m2m_baseline(p2)
-!call check_m2l_l2p_l2l_baseline(p1, p1)
-!call check_m2l_l2p_l2l_baseline(p1, p2)
-!call check_m2l_l2p_l2l_baseline(p2, p1)
-!call check_m2m_improved(p1)
-!call check_m2m_improved(p2)
-!call check_l2l_improved(p1)
-!call check_l2l_improved(p2)
-!call check_m2l_improved(p1, p1)
-!call check_m2l_improved(p1, p2)
-!call check_m2l_improved(p2, p1)
-!call check_tree_m2m_l2l(nsph1, p1)
-!call check_tree_m2m_l2l(nsph1, p2)
-!call check_tree_m2l(nsph1, p1, p1)
-!call check_tree_m2l(nsph1, p1, p2)
-!call check_tree_m2l(nsph1, p2, p1)
+call check_m2l_l2p_l2l_baseline(p1, p1)
+call check_m2l_l2p_l2l_baseline(p1, p2)
+call check_m2l_l2p_l2l_baseline(p2, p1)
+return
+call check_m2m_improved(p1)
+call check_m2m_improved(p2)
+call check_l2l_improved(p1)
+call check_l2l_improved(p2)
+call check_m2l_improved(p1, p1)
+call check_m2l_improved(p1, p2)
+call check_m2l_improved(p2, p1)
+call check_tree_m2m_l2l(nsph1, p1)
+call check_tree_m2m_l2l(nsph1, p2)
+call check_tree_m2l(nsph1, p1, p1)
+call check_tree_m2l(nsph1, p1, p2)
+call check_tree_m2l(nsph1, p2, p1)
 
 end program test_pcm_fmm
 
@@ -120,7 +121,6 @@ subroutine check_m2l_l2p_l2l_baseline(pm, pl)
     real(kind=8) :: v, v2, v3((pl+1)*(pl+1))
     real(kind=8), external :: dnrm2
     ! Preliminaries
-    write(*,*) "Check L2P and baseline M2L"
     write(*, *)
     write(*, "(A,I0,A,I0)") "Check L2P and baseline M2L for pm=", pm, &
         & " and pl=", pl

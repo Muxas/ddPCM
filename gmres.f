@@ -326,7 +326,7 @@ c-------------------------------------------------------------
       logical oktest
       integer jjj,jj1
       integer i,i1,im,its,j,k,k1,maxits,n
-      double precision cc,coeff,coef1,dabs,ddot,dnrm2,dsqrt,eps,epsmac,
+      double precision cc(n),coeff,coef1,dabs,ddot,dnrm2,dsqrt,eps,epsmac,
      &                 gam,rhs(n),ro,uu(n),work0(n,im+1),t     
 
       double precision hh(maxd1,maxdim),hh1(maxd1,maxdim),c(maxdim),

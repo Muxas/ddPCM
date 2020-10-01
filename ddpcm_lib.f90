@@ -238,6 +238,8 @@ contains
   ! rinf rhs
   dodiag = .true.
   call rinfx_fmm(nbasis*nsph, xs, rhs)
+  !!! Following part is about changing error to the relative one.
+  !!! It is NOT commented for now to compare dense ddpcm against ddpcm_fmm
   !call apply_rx_prec(nbasis*nsph, rhs, phieps)
   rel_tol = tol * hnorm(nsph*nbasis, rhs)
   !write(*,*) "hnorm:", rel_tol/tol
@@ -259,8 +261,11 @@ contains
   n_iter = 100000
   dodiag = .false.
   call cpu_time(start_time)
+  ! Relative error here, NOT commented as of now
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,rhs,phieps,n_iter, &
       & ok,rx_fmm,apply_rx_prec,hnorm)
+  !call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,rhs,phieps,n_iter, &
+  !    & ok,rx_fmm,apply_rx_prec,hnorm)
   !call gmresr(.true., nsph*nbasis, jgmres, mgmres, rhs, phieps, work_gmres, &
   !    & rel_tol, 'abs', n_iter, resid, rx_fmm_prec_gmres, ok)
   call cpu_time(finish_time)
@@ -480,9 +485,6 @@ contains
     fac = two*pi
     y = y + fac*x
   end if
-  do isph = 1, nsph
-    !y(:, isph) = y(:, isph) * rsph(isph)**2
-  end do
   end subroutine rinfx_fmm
 
   subroutine dx(n,x,y)
@@ -573,15 +575,15 @@ contains
   fmm_x(1:nbasis, :) = x
   fmm_x(nbasis+1:, :) = zero
   ! Do actual FMM matvec
-  !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
-  !    pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
-  !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
-      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
-      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
-      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-      & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
+  call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+      pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
+      nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
+  !call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+  !    & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+  !    & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+  !    & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+  !    & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+  !    & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
   ! Apply diagonal contribution if needed
   if(dodiag) then
     fourpi = four * pi
