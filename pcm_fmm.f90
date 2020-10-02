@@ -863,6 +863,44 @@ subroutine fmm_m2m_use_ztrans_mat(p, mat, src_m, dst_m)
     end do
 end subroutine fmm_m2m_use_ztrans_mat
 
+! Use precomputed matrices to perform adjoint translation over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_m2m_scale, since case of the same center requires only scaling
+subroutine fmm_m2m_adj_use_ztrans_mat(p, mat, src_m, dst_m)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_m((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst_m((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    dst_m = 0
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, j
+            indn = n*n + n + 1
+            indjn = (j-n)**2 + (j-n) + 1
+            dst_m(indjn) = dst_m(indjn) + mat(indmat)*src_m(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = 0, j-k
+                indn = n*n + n + 1
+                indjn = (j-n)**2 + (j-n) + 1
+                dst_m(indjn+k) = dst_m(indjn+k) + mat(indmat)*src_m(indj+k)
+                dst_m(indjn-k) = dst_m(indjn-k) + mat(indmat)*src_m(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2m_adj_use_ztrans_mat
+
 ! Use precomputed translation matrices over OZ axis
 ! Check if centers of spherical harmonics are different, otherwise use function
 ! fmm_m2m_scale, since case of the same center requires only scaling.
@@ -901,6 +939,45 @@ subroutine fmm_m2m_use_ztrans_mat2(p, mat, src_m, dst_m)
         end do
     end do
 end subroutine fmm_m2m_use_ztrans_mat2
+
+! Use precomputed matrices to perform adjoint translation over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_m2m_scale, since case of the same center requires only scaling.
+! Only difference with fmm_m2m_use_ztrans_mat is that output dst_m is treated
+! as inout, not just out. This is done to improve performance.
+subroutine fmm_m2m_adj_use_ztrans_mat2(p, mat, src_m, dst_m)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_m((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, j
+            indn = n*n + n + 1
+            indjn = (j-n)**2 + (j-n) + 1
+            dst_m(indjn) = dst_m(indjn) + mat(indmat)*src_m(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = 0, j-k
+                indn = n*n + n + 1
+                indjn = (j-n)**2 + (j-n) + 1
+                dst_m(indjn+k) = dst_m(indjn+k) + mat(indmat)*src_m(indj+k)
+                dst_m(indjn-k) = dst_m(indjn-k) + mat(indmat)*src_m(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2m_adj_use_ztrans_mat2
 
 ! Optimized version of M2L, translation over OZ axis only
 subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
@@ -1064,6 +1141,42 @@ subroutine fmm_m2l_use_ztrans_mat(pm, pl, mat, src_m, dst_l)
     end do
 end subroutine fmm_m2l_use_ztrans_mat
 
+! Use precomputed matrices to perform adjoint translation over OZ axis
+subroutine fmm_m2l_adj_use_ztrans_mat(pm, pl, mat, dst_m, src_l)
+! Parameters:
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in new (multipole) harmonics
+!   dst_l: expansion in old (local) harmonics
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(out) :: dst_m((pm+1)*(pm+1))
+    real(kind=8), intent(in) :: src_l((pl+1)*(pl+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    dst_m = 0
+    do j = 0, pl
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, pm
+            indn = n*n + n + 1
+            dst_m(indn) = dst_m(indn) + mat(indmat)*src_l(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = k, pm
+                indn = n*n + n + 1
+                dst_m(indn+k) = dst_m(indn+k) + mat(indmat)*src_l(indj+k)
+                dst_m(indn-k) = dst_m(indn-k) + mat(indmat)*src_l(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_adj_use_ztrans_mat
+
 ! Use precomputed translation matrices over OZ axis
 ! Only difference with fmm_m2l_use_ztrans_mat is that output dst_l is treated
 ! as inout, not just out. This is done to improve performance.
@@ -1100,6 +1213,43 @@ subroutine fmm_m2l_use_ztrans_mat2(pm, pl, mat, src_m, dst_l)
         end do
     end do
 end subroutine fmm_m2l_use_ztrans_mat2
+
+! Use precomputed matrices to perform adjoint translation over OZ axis
+! Only difference with fmm_m2l_use_ztrans_mat is that output dst_m is treated
+! as inout, not just out. This is done to improve performance.
+subroutine fmm_m2l_adj_use_ztrans_mat2(pm, pl, mat, dst_m, src_l)
+! Parameters:
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_m: expansion in new (multipole) harmonics
+!   dst_l: expansion in old (local) harmonics
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(inout) :: dst_m((pm+1)*(pm+1))
+    real(kind=8), intent(in) :: src_l((pl+1)*(pl+1))
+    integer :: j, k, n, indj, indn, indjn, indmat
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, pm
+            indn = n*n + n + 1
+            dst_m(indn) = dst_m(indn) + mat(indmat)*src_l(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = k, pm
+                indn = n*n + n + 1
+                dst_m(indn+k) = dst_m(indn+k) + mat(indmat)*src_l(indj+k)
+                dst_m(indn-k) = dst_m(indn-k) + mat(indmat)*src_l(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_adj_use_ztrans_mat2
 
 ! Optimized version of L2L, translation over OZ axis only
 subroutine fmm_l2l_ztranslate(z, src_r, dst_r, p, vscales, src_l, dst_l)
@@ -1282,6 +1432,42 @@ subroutine fmm_l2l_use_ztrans_mat(p, mat, src_l, dst_l)
     end do
 end subroutine fmm_l2l_use_ztrans_mat
 
+! Use precomputed matrices to perform adjoint translation over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_l2l_scale, since case of the same center requires only scaling
+subroutine fmm_l2l_adj_use_ztrans_mat(p, mat, src_l, dst_l)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(out) :: dst_l((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indmat
+    indmat = 1
+    dst_l = 0
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = j, p
+            indn = n*n + n + 1
+            dst_l(indn) = dst_l(indn) + mat(indmat)*src_l(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = j, p
+                indn = n*n + n + 1
+                dst_l(indn+k) = dst_l(indn+k) + mat(indmat)*src_l(indj+k)
+                dst_l(indn-k) = dst_l(indn-k) + mat(indmat)*src_l(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_l2l_adj_use_ztrans_mat
+
 ! Use precomputed translation matrices over OZ axis
 ! Check if centers of spherical harmonics are different, otherwise use function
 ! fmm_l2l_scale, since case of the same center requires only scaling
@@ -1318,6 +1504,43 @@ subroutine fmm_l2l_use_ztrans_mat2(p, mat, src_l, dst_l)
         end do
     end do
 end subroutine fmm_l2l_use_ztrans_mat2
+
+! Use precomputed matrices to perform adjoint translation over OZ axis
+! Check if centers of spherical harmonics are different, otherwise use function
+! fmm_l2l_scale, since case of the same center requires only scaling
+! Only difference with fmm_l2l_use_ztrans_mat is that output dst_l is treated
+! as inout, not just out. This is done to improve performance.
+subroutine fmm_l2l_adj_use_ztrans_mat2(p, mat, src_l, dst_l)
+! Parameters:
+!   p: maximum degree of spherical harmonics
+!   mat: translation matrix for spherical harmonics
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    integer :: j, k, n, indj, indn, indmat
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = j, p
+            indn = n*n + n + 1
+            dst_l(indn) = dst_l(indn) + mat(indmat)*src_l(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = j, p
+                indn = n*n + n + 1
+                dst_l(indn+k) = dst_l(indn+k) + mat(indmat)*src_l(indj+k)
+                dst_l(indn-k) = dst_l(indn-k) + mat(indmat)*src_l(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_l2l_adj_use_ztrans_mat2
 
 ! Auxiliary routine to transform (rotate, reflect) spherical harmonics
 ! Factor u_lnm (lower case) from the paper:
@@ -3191,6 +3414,47 @@ subroutine fmm_m2m_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
     call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_m2, dst_m)
 end subroutine fmm_m2m_use_mat
 
+! Adjoint M2M translation by precomputed reflection and OZ tranlation
+! This function applies precomputed reflection and translation to make FMM
+! matvecs much faster (in O(p^3) operations).
+subroutine fmm_m2m_adj_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
+        & src_m, dst_m)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+!   src_m: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_m((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_m((p+1)*(p+1))
+    real(kind=8) :: stheta, nsgn, tmp_m((p+1)*(p+1))
+    real(kind=8) :: tmp_m2((p+1)*(p+1))
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same just scale
+        if(c(3) .eq. 0) then
+            call fmm_m2m_scale(src_r, dst_r, p, src_m, dst_m)
+        ! Otherwise compute ztrans matrix and use it
+        else
+            call fmm_m2m_adj_use_ztrans_mat2(p, ztrans_mat, src_m, dst_m)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_use_reflect_mat(p, reflect_mat, src_m, tmp_m)
+    call fmm_m2m_adj_use_ztrans_mat(p, ztrans_mat, tmp_m, tmp_m2)
+    call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_m2, dst_m)
+end subroutine fmm_m2m_adj_use_mat
+
 ! M2L translation by rotation around OZ and OY (p^3 operations)
 ! Based on fmm_m2m_fast
 subroutine fmm_m2l_fast(c, src_r, dst_r, pm, pl, vscales, src_m, dst_l)
@@ -3413,6 +3677,49 @@ subroutine fmm_m2l_use_mat(c, src_r, dst_r, pm, pl, reflect_mat, ztrans_mat, &
     call fmm_sph_use_reflect_mat2(pl, reflect_mat, tmp_ml2, dst_l)
 end subroutine fmm_m2l_use_mat
 
+! Adjoint M2L translation by precomputed reflection and OZ tranlation
+! This function applies precomputed reflection and translation to make FMM
+! matvecs much faster (in O(p^3) operations).
+subroutine fmm_m2l_adj_use_mat(c, src_r, dst_r, pm, pl, reflect_mat, ztrans_mat, &
+        & dst_m, src_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   pm: maximum degree of multipole spherical harmonics
+!   pl: maximum degree of local spherical harmonics
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+!   src_l: expansion in old harmonics
+!   dst_m: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: reflect_mat((max(pm,pl)+1) &
+        & * (2*max(pm,pl)+1) * (2*max(pm,pl)+3) / 3)
+    real(kind=8), intent(in) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8), intent(inout) :: dst_m((pm+1)*(pm+1))
+    real(kind=8), intent(in) :: src_l((pl+1)*(pl+1))
+    real(kind=8) :: stheta, nsgn, tmp_ml((max(pm,pl)+1)*(max(pm,pl)+1))
+    real(kind=8) :: tmp_ml2((max(pm,pl)+1)*(max(pm,pl)+1))
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same do nothing (but this must not happen)
+        if(c(3) .eq. 0) then
+        ! Otherwise use adjoint ztrans matrix
+        else
+            call fmm_m2l_adj_use_ztrans_mat2(pm, pl, ztrans_mat, dst_m, src_l)
+        end if
+        return
+    end if
+    ! Apply reflection->adjoint translation->reflection
+    call fmm_sph_use_reflect_mat(pl, reflect_mat, src_l, tmp_ml)
+    call fmm_m2l_adj_use_ztrans_mat(pm, pl, ztrans_mat, tmp_ml2, tmp_ml)
+    call fmm_sph_use_reflect_mat2(pm, reflect_mat, tmp_ml2, dst_m)
+end subroutine fmm_m2l_adj_use_mat
+
 ! L2L translation by rotation around OZ and OY (p^3 operations)
 ! Based on fmm_m2m_fast
 subroutine fmm_l2l_fast(c, src_r, dst_r, p, vscales, src_l, dst_l)
@@ -3624,6 +3931,47 @@ subroutine fmm_l2l_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
     call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_l2, dst_l)
 end subroutine fmm_l2l_use_mat
 
+! Adjoint L2L translation by precomputed reflection and OZ tranlation
+! This function applies precomputed reflection and translation to make FMM
+! matvecs much faster (in O(p^3) operations).
+subroutine fmm_l2l_adj_use_mat(c, src_r, dst_r, p, reflect_mat, ztrans_mat, &
+        & src_l, dst_l)
+! Parameters:
+!   c: radius-vector from new to old centers of harmonics
+!   src_r: radius of old harmonics
+!   dst_r: radius of new harmonics
+!   p: maximum degree of spherical harmonics
+!   reflect_mat: reflection matrix to align vector c with OZ axis
+!   ztrans_mat: translation over OZ axis after reflection
+!   src_l: expansion in old harmonics
+!   dst_l: expansion in new harmonics
+    real(kind=8), intent(in) :: c(3), src_r, dst_r
+    integer, intent(in) :: p
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8), intent(in) :: src_l((p+1)*(p+1))
+    real(kind=8), intent(inout) :: dst_l((p+1)*(p+1))
+    real(kind=8) :: stheta, nsgn, tmp_l((p+1)*(p+1))
+    real(kind=8) :: tmp_l2((p+1)*(p+1))
+    integer :: n, m
+    stheta = c(1)*c(1) + c(2)*c(2)
+    ! If no need for transformation, just do translation along z
+    if (stheta .eq. 0) then
+        ! If centers are the same just scale
+        if(c(3) .eq. 0) then
+            call fmm_l2l_scale(src_r, dst_r, p, src_l, dst_l)
+        ! Otherwise use adjoint ztrans matrix
+        else
+            call fmm_l2l_adj_use_ztrans_mat2(p, ztrans_mat, src_l, dst_l)
+        end if
+        return
+    end if
+    ! Apply reflection->adjoint translation->reflection
+    call fmm_sph_use_reflect_mat(p, reflect_mat, src_l, tmp_l)
+    call fmm_l2l_adj_use_ztrans_mat(p, ztrans_mat, tmp_l, tmp_l2)
+    call fmm_sph_use_reflect_mat2(p, reflect_mat, tmp_l2, dst_l)
+end subroutine fmm_l2l_adj_use_mat
+
 ! Integrate spherical harmonics (grid -> coefficients)
 subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
 ! Parameters:
@@ -3642,6 +3990,27 @@ subroutine int_grid(p, ngrid, w, vgrid, x, xlm)
         xlm = xlm + x(i)*w(i)*vgrid(:,i)
     end do
 end subroutine int_grid
+
+! Adjoint for int_grid subroutine
+subroutine int_grid_adj(p, ngrid, w, vgrid, xlm, xgrid)
+! Parameters:
+!   p: maximal degree of spherical harmonics
+!   ngrid: number of Lebedev quadrature points
+!   w: weights of quadrature points
+!   vgrid: values of spherical harmonics at grid points
+!   xlm: coefficients of spherical harmonics
+!   xgrid: values at grid points
+    integer, intent(in) :: p, ngrid
+    real(kind=8), intent(in) :: w(ngrid), vgrid((p+1)*(p+1), ngrid)
+    real(kind=8), intent(in) :: xlm((p+1)*(p+1))
+    real(kind=8), intent(out) :: xgrid(ngrid)
+    integer :: i
+    xgrid = 0
+    do i = 1, (p+1)*(p+1)
+        xgrid = xgrid + vgrid(i,:)*xlm(i)
+    end do
+    xgrid = xgrid * w
+end subroutine  int_grid_adj
 
 ! Divide given cluster of spheres into two subclusters by inertial bisection
 subroutine btree_node_divide(nsph, csph, n, ind, div)
@@ -4163,6 +4532,53 @@ subroutine tree_m2m_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
     end do
 end subroutine tree_m2m_use_mat
 
+! Adjoint transfer multipole coefficients using precomputed matrices
+subroutine tree_m2m_adj_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
+        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_node)
+! Parameters:
+!   nsph: Number of all spheres
+!   nclusters: Number of nodes in a tree
+!   p: maximum degree of multipole basis functions
+!   coef_sph: output multipole coefficients of spheres
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
+!   coef_node: multipole coefficients of bounding spheres of nodes
+    integer, intent(in) :: nsph, nclusters, p, ind(nsph), cluster(2, nclusters)
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
+    real(kind=8), intent(inout) :: coef_sph((p+1)*(p+1), nsph)
+    integer, intent(in) :: children(2, nclusters)
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    real(kind=8), intent(inout) :: coef_node((p+1)*(p+1), nclusters)
+    integer :: i, j(2), k
+    real(kind=8) :: c1(3), c(3), r1, r
+    do i = 1, nclusters
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            ! Output weights in case of a leaf node
+            ! Assume that each leaf node contains single sphere with harmonics
+            coef_sph(:, ind(cluster(1, i))) = coef_sph(:, ind(cluster(1, i))) + &
+                & coef_node(:, i)
+        else
+            ! In case of non-leaf compute weights by L2L
+            c = cnode(:, i)
+            r = rnode(i)
+            do k = j(1), j(2)
+                c1 = cnode(:, k)
+                r1 = rnode(k)
+                call fmm_m2m_adj_use_mat(c-c1, r, r1, p, reflect_mat(:, k-1), &
+                    & ztrans_mat(:, k-1), coef_node(:, i), coef_node(:, k))
+            end do
+        end if
+    end do
+end subroutine tree_m2m_adj_use_mat
+
 ! Apply M2P from entire tree to a given point
 subroutine tree_m2p_treecode(c, leaf, p, vscales, nclusters, children, cnode, &
         & rnode, coef_node, v)
@@ -4426,6 +4842,43 @@ subroutine tree_m2l_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
     end do
 end subroutine tree_m2l_use_mat
 
+! Adjoint transfer multipole coefficients into local using precomputed matrices
+subroutine tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
+        & pl, reflect_mat, ztrans_mat, coef_m, coef_l)
+! Parameters:
+!   nclusters: Number of all clusters
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   nnfar: total number of admissible far-field pairs
+!   sfar: offset for each node to get list of its far-field pairs
+!   far: array that stores lists of far-field pairs
+!   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
+!   coef_m: input values of multipole expansions
+!   coef_l: output values of local expansions
+    integer, intent(in) :: nclusters, nnfar, sfar(nclusters+1), far(nnfar)
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    integer, intent(in) :: pm, pl
+    real(kind=8), intent(in) :: reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
+        & *(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(in) :: ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
+        & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
+    real(kind=8), intent(out) :: coef_m((pm+1)*(pm+1), nclusters)
+    real(kind=8), intent(in) :: coef_l((pl+1)*(pl+1), nclusters)
+    integer :: i, j, k
+    real(kind=8) :: c(3)
+    coef_m = 0
+    do i = 1, nclusters
+        do j = sfar(i), sfar(i+1)-1
+            k = far(j)
+            c = cnode(:, k) - cnode(:, i)
+            call fmm_m2l_adj_use_mat(c, rnode(k), rnode(i), pm, pl, &
+                & reflect_mat(:, j), ztrans_mat(:, j), coef_m(:, k), &
+                & coef_l(:, i))
+        end do
+    end do
+end subroutine tree_m2l_adj_use_mat
+
 ! Transfer local coefficients for each node of tree
 subroutine tree_l2l_baseline(nsph, nclusters, p, vscales, coef_node, ind, &
         & cluster, children, cnode, rnode, coef_sph)
@@ -4591,6 +5044,52 @@ subroutine tree_l2l_use_mat(nsph, nclusters, p, coef_node, ind, cluster, &
         end if
     end do
 end subroutine tree_l2l_use_mat
+
+! Adjoint transfer local coefficients using precomputed matrices
+subroutine tree_l2l_adj_use_mat(nsph, nclusters, p, coef_node, ind, cluster, &
+        & children, cnode, rnode, reflect_mat, ztrans_mat, coef_sph)
+! Parameters:
+!   nsph: Number of all spheres
+!   nclusters: Number of nodes in a tree
+!   p: maximum degree of multipole basis functions
+!   coef_node: output local coefficients of bounding spheres of nodes
+!   ind: permutation of all spheres (to localize sequential spheres)
+!   cluster: first and last spheres (from ind array), belonging to each cluster
+!   children: children of each cluster. 0 means no children
+!   cnode: center of bounding sphere of each cluster (node) of tree
+!   rnode: radius of bounding sphere of each cluster (node) of tree
+!   reflect_mat: reflection matrices for all node-parent transformations
+!   ztrans_mat: OZ translation matrices for all node-parent transformations
+!   coef_sph: local coefficients of input spheres
+    integer, intent(in) :: nsph, nclusters, p, ind(nsph), cluster(2, nclusters)
+    real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: ztrans_mat((p+1)*(p+2)*(p+3)/6, nclusters-1)
+    real(kind=8), intent(out) :: coef_node((p+1)*(p+1), nclusters)
+    integer, intent(in) :: children(2, nclusters)
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    real(kind=8), intent(in) :: coef_sph((p+1)*(p+1), nsph)
+    integer :: i, j(2), k
+    real(kind=8) :: c1(3), c(3), r1, r
+    do i = nclusters, 1, -1
+        j = children(:, i)
+        if (j(1) .eq. 0) then
+            ! In case of leaf node load input weights
+            ! Assume that each leaf node contains single sphere with harmonics
+            coef_node(:, i) = coef_sph(:, ind(cluster(1, i)))
+        else
+            ! In case of non-leaf compute weights by adjoint L2L
+            c = cnode(:, i)
+            r = rnode(i)
+            do k = j(1), j(2)
+                c1 = cnode(:, k)
+                r1 = rnode(k)
+                call fmm_l2l_adj_use_mat(c1-c, r1, r, p, reflect_mat(:, k-1), &
+                    & ztrans_mat(:, k-1), coef_node(:, k), coef_node(:, i))
+            end do
+        end if
+    end do
+end subroutine tree_l2l_adj_use_mat
 
 ! Apply L2P from local spherical harmonics to grid points and add near M2P
 subroutine tree_l2p_m2p_fmm(nsph, csph, rsph, ngrid, grid, pm, pl, &
@@ -4845,10 +5344,72 @@ subroutine tree_l2p_m2p_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
     do isph = 1, nsph
         coef_sph_l(:, isph) = 0
         call int_grid(pl, ngrid, w, vgrid, x(:, isph), coef_sph_l(:, isph))
-        ! SCALE BY RADIUS SQUARED
-        !coef_sph_l(:, isph) = coef_sph_l(:, isph)
     end do
 end subroutine tree_l2p_m2p_use_mat
+
+! Adjoint for the L2P and M2P operations using stored matrices
+subroutine tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
+        & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+        & ngrid_ext_near, l2p_mat, m2p_mat, coef_sph_m, coef_sph_l)
+!   snode: which node is leaf and contains only given sphere
+    integer, intent(in) :: nsph, ngrid, pm, pl, nclusters, nnnear
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
+    integer, intent(in) :: cluster(2, nclusters), snode(nsph), ind(nsph)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: vgrid((pl+1)*(pl+1), ngrid), ui(ngrid, nsph)
+    real(kind=8), intent(in) :: w(ngrid)
+    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
+    integer, intent(in) :: ngrid_ext, ngrid_ext_near, ngrid_ext_sph(nsph+1)
+    integer, intent(in) :: grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext)
+    real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
+    real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
+    real(kind=8), intent(out) :: coef_sph_m((pm+1)*(pm+1), nsph)
+    real(kind=8), intent(inout) :: coef_sph_l((pl+1)*(pl+1), nsph)
+    integer :: isph, inode, inear, jnode, jsph, i, j, igrid_ext_sph, igrid_sph
+    integer :: igrid_ext, igrid_ext_near
+    real(kind=8) :: xgrid(ngrid), x_ext(ngrid), c(3), tmp_v, y(ngrid)
+    ! Use far-field L2P matrices and near-field M2P matrices (to all external grid
+    ! points of given sphere)
+    igrid_ext_near = 1
+    coef_sph_m = 0
+    do isph = 1, nsph
+        inode = snode(isph)
+        ! Get values at grid points
+        call int_grid_adj(pl, ngrid, w, vgrid, coef_sph_l(:, isph), xgrid)
+        ! Copy values from external grid points in a compact form
+        ! Apply characteristic function ui
+        do igrid_ext_sph = 1, ngrid_ext_sph(isph)
+            igrid_sph = grid_ext_ja(grid_ext_ia(isph) + igrid_ext_sph - 1)
+            x_ext(igrid_ext_sph) = xgrid(igrid_sph) * ui(igrid_sph, isph)
+        end do
+        ! Use far-field L2P matrices (from each sphere to its own grid points)
+        call dgemv('N', (pl+1)*(pl+1), ngrid_ext_sph(isph), 1.0d0, &
+            & l2p_mat(1, grid_ext_ia(isph)), (pl+1)*(pl+1), &
+            & x_ext, 1, 0.0d0, coef_sph_l(1, isph), 1)
+        ! Apply normalization factor to coefficients
+        do i = 0, pl
+            coef_sph_l(i*i+1:(i+1)*(i+1), isph) = &
+                & coef_sph_l(i*i+1:(i+1)*(i+1), isph) / vscales(i*i+i+1)**2
+        end do
+        ! Use near-field M2P matrices
+        do inear = snear(inode), snear(inode+1)-1
+            jnode = near(inear)
+            ! Assume near-field interaction is only possible between leaves
+            jsph = ind(cluster(1, jnode))
+            ! Self-interaction does not mean anything in this problem
+            if (isph .eq. jsph) then
+                cycle
+            end if
+            ! Actual adjoint operator from external grid points of isph sphere
+            ! to spherical harmonics of jsph sphere
+            call dgemv('N', (pm+1)*(pm+1), ngrid_ext_sph(isph), 1.0d0, &
+                & m2p_mat(1, igrid_ext_near), (pm+1)*(pm+1), &
+                & x_ext, 1, 1.0d0, coef_sph_m(1, jsph), 1)
+            igrid_ext_near = igrid_ext_near + ngrid_ext_sph(isph)
+        end do
+    end do
+end subroutine tree_l2p_m2p_adj_use_mat
 
 ! Apply matvec for ddPCM spherical harmonics by FMM
 ! Baseline in terms of p^4 operations
@@ -5090,6 +5651,73 @@ subroutine pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     total_count_matvec = total_count_matvec + 1
 end subroutine pcm_matvec_grid_fmm_use_mat
 
+! Adjoint matvec for ddPCM spherical harmonics by FMM by presaved matrices
+subroutine pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+        & children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+        & coef_sph, coef_out)
+    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
+    integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
+    integer, intent(in) :: sfar(nclusters+1), far(nnfar), nnnear, snode(nsph)
+    integer, intent(in) :: snear(nclusters+1), near(nnnear)
+    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
+    real(kind=8), intent(in) :: w(ngrid), vgrid((pl+1)*(pl+1), ngrid)
+    real(kind=8), intent(in) :: ui(ngrid, nsph), vscales((pm+pl+1)*(pm+pl+1))
+    real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
+    integer, intent(in) :: ngrid_ext, ngrid_ext_sph(nsph), grid_ext_ia(nsph+1)
+    integer, intent(in) :: grid_ext_ja(ngrid_ext), ngrid_ext_near
+    real(kind=8), intent(in) :: coef_sph((pl+1)*(pl+1), nsph)
+    real(kind=8), intent(out) :: coef_out((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_sph_scaled((pl+1)*(pl+1), nsph)
+    real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
+    real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
+    real(kind=8), intent(in) :: m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, &
+        & nclusters-1)
+    real(kind=8), intent(in) :: m2l_reflect_mat((max(pm,pl)+1) &
+        & *(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3, nnfar)
+    real(kind=8), intent(in) :: m2l_ztrans_mat((min(pm,pl)+1) &
+        & *(min(pm,pl)+2)*(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
+    real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
+    real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
+    integer :: i, j, indi, indj
+    integer :: counter=1
+    real(kind=8) :: start, finish, time
+    call cpu_time(start)
+    coef_sph_scaled = coef_sph
+    call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
+        & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+        & ngrid_ext_near, l2p_mat, m2p_mat, coef_out, coef_sph_scaled)
+    call tree_l2l_adj_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
+        & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
+        & coef_sph_scaled)
+    call tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & m2l_reflect_mat, m2l_ztrans_mat, coef_node_m, coef_node_l)
+    call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_out, ind, cluster, &
+        & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
+        & coef_node_m)
+    do i = 0, pm
+        indi = i*i + i + 1
+        do j = -i, i
+            indj = indi + j
+            coef_out(indj, :) = i * coef_out(indj, :)
+        end do
+    end do
+    call cpu_time(finish)
+    total_time_matvec = total_time_matvec + finish - start
+    total_count_matvec = total_count_matvec + 1
+end subroutine pcm_matvec_adj_grid_fmm_use_mat
+
 ! Generate matrix of PCM equations (with FMM code)
 subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
         & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
@@ -5111,7 +5739,7 @@ subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
     integer, intent(in) :: grid_ext_ja(ngrid_ext), ngrid_ext_near
     real(kind=8) :: coef_sph((pm+1)*(pm+1), nsph)
     real(kind=8), intent(out) :: mat_out((pl+1)*(pl+1), nsph, (pm+1)*(pm+1), nsph)
-    real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_sph_scaled((pl+1)*(pl+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
     real(kind=8), intent(in) :: m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, &
@@ -5133,16 +5761,18 @@ subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: start, finish, time
     do i = 1, (pm+1)*(pm+1)
         do j = 1, nsph
-        coef_sph = 0
-        coef_sph(i, j) = 1
-        call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
-                & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
-                & children, &
-                & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
-                & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
-                & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
-                & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
-                & coef_sph, mat_out(:, :, i, j))
+            coef_sph_scaled = 0
+            coef_sph_scaled(i, j) = 1
+            coef_sph = 0
+            call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+                    & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+                    & children, &
+                    & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+                    & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+                    & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+                    & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+                    & coef_sph_scaled, coef_sph)
+                mat_out(:, :, i, j) = coef_sph
         end do
     end do
 end subroutine tree_matrix_fmm
@@ -5256,89 +5886,6 @@ subroutine pcm_matvec_grid_treecode2(nsph, csph, rsph, ngrid, grid, w, vgrid, &
         call int_grid(pl, ngrid, w, vgrid, x, coef_out(:, i))
     end do
 end subroutine pcm_matvec_grid_treecode2
-
-! Adjoint for int_grid subroutine
-subroutine int_grid_adj(p, ngrid, w, vgrid, xlm, xgrid)
-! Parameters:
-!   p: maximal degree of spherical harmonics
-!   ngrid: number of Lebedev quadrature points
-!   w: weights of quadrature points
-!   vgrid: values of spherical harmonics at grid points
-!   xlm: coefficients of spherical harmonics
-!   xgrid: values at grid points
-    integer, intent(in) :: p, ngrid
-    real(kind=8), intent(in) :: w(ngrid), vgrid((p+1)*(p+1), ngrid)
-    real(kind=8), intent(in) :: xlm((p+1)*(p+1))
-    real(kind=8), intent(out) :: xgrid(ngrid)
-    integer :: i
-    xgrid = 0
-    do i = 1, (p+1)*(p+1)
-        xgrid = xgrid + vgrid(i,:)*xlm(i)
-    end do
-    xgrid = xgrid * w
-end subroutine  int_grid_adj
-
-! Adjoint for the M2P operation (using stored matrices)
-subroutine tree_l2p_m2p_use_mat_adj(nsph, csph, rsph, ngrid, grid, pm, pl, &
-        & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
-        & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-        & ngrid_ext_near, l2p_mat, m2p_mat, xgrid, coef_sph_m, coef_sph_l)
-!   snode: which node is leaf and contains only given sphere
-    integer, intent(in) :: nsph, ngrid, pm, pl, nclusters, nnnear
-    integer, intent(in) :: snear(nclusters+1), near(nnnear)
-    integer, intent(in) :: cluster(2, nclusters), snode(nsph), ind(nsph)
-    real(kind=8), intent(in) :: csph(3, nsph), rsph(nsph), grid(3, ngrid)
-    real(kind=8), intent(in) :: vgrid((pl+1)*(pl+1), ngrid), ui(ngrid, nsph)
-    real(kind=8), intent(in) :: w(ngrid)
-    real(kind=8), intent(in) :: vscales((pm+pl+1)*(pm+pl+1))
-    integer, intent(in) :: ngrid_ext, ngrid_ext_near, ngrid_ext_sph(nsph+1)
-    integer, intent(in) :: grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext)
-    real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
-    real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
-    real(kind=8), intent(in) :: xgrid(ngrid, nsph)
-    real(kind=8), intent(out) :: coef_sph_m((pm+1)*(pm+1), nsph)
-    real(kind=8), intent(out) :: coef_sph_l((pl+1)*(pl+1), nsph)
-    integer :: isph, inode, inear, jnode, jsph, i, j, igrid_ext_sph, igrid_sph
-    integer :: igrid_ext, igrid_ext_near
-    real(kind=8) :: x_ext(ngrid), c(3), tmp_v, y(ngrid)
-    ! Use far-field L2P matrices and near-field M2P matrices (to all external grid
-    ! points of given sphere)
-    igrid_ext_near = 1
-    do isph = 1, nsph
-        inode = snode(isph)
-        ! Copy values from external grid points in a compact form
-        ! Apply characteristic function ui
-        do igrid_ext_sph = 1, ngrid_ext_sph(isph)
-            igrid_sph = grid_ext_ja(grid_ext_ia(isph) + igrid_ext_sph - 1)
-            x_ext(igrid_ext_sph) = xgrid(igrid_sph, isph) * ui(igrid_sph, isph)
-        end do
-        ! Use far-field L2P matrices (from each sphere to its own grid points)
-        call dgemv('N', (pl+1)*(pl+1), ngrid_ext_sph(isph), 1.0d0, &
-            & l2p_mat(1, grid_ext_ia(isph)), (pl+1)*(pl+1), &
-            & x_ext, 1, 0.0d0, coef_sph_l(1, isph), 1)
-        ! Apply normalization factor to coefficients
-        do i = 0, pl
-            coef_sph_l(i*i+1:(i+1)*(i+1), isph) = &
-                & coef_sph_l(i*i+1:(i+1)*(i+1), isph) / vscales(i*i+i+1)**2
-        end do
-        ! Use near-field M2P matrices
-        do inear = snear(inode), snear(inode+1)-1
-            jnode = near(inear)
-            ! Assume near-field interaction is only possible between leaves
-            jsph = ind(cluster(1, jnode))
-            ! Self-interaction does not mean anything in this problem
-            if (isph .eq. jsph) then
-                cycle
-            end if
-            ! Actual adjoint operator from external grid points of isph sphere
-            ! to spherical harmonics of jsph sphere
-            call dgemv('N', (pm+1)*(pm+1), ngrid_ext_sph(isph), 1.0d0, &
-                & m2p_mat(1, igrid_ext_near), (pm+1)*(pm+1), &
-                & x_ext, 1, 1.0d0, coef_sph_m(1, jsph), 1)
-            igrid_ext_near = igrid_ext_near + ngrid_ext_sph(isph)
-        end do
-    end do
-end subroutine tree_l2p_m2p_use_mat_adj
 
 end module pcm_fmm
 

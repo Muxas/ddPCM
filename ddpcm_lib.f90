@@ -327,6 +327,7 @@ contains
   external :: lx, ldm1x, gmresr
   real*8, external :: hnorm, dnrm2
   real(kind=8), allocatable :: fmm_mat(:, :, :, :)
+  real(kind=8), allocatable :: coef_sph(:, :), coef_out(:, :)
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.
@@ -398,6 +399,7 @@ contains
 
   ! Allocate memory for the matrix
   allocate(fmm_mat((pl+1)*(pl+1), nsph, (pm+1)*(pm+1), nsph))
+  fmm_mat = 0
   call tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
         & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
         & children, &
@@ -406,8 +408,25 @@ contains
         & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
         & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
         & fmm_mat)
-
   write(*,*) "FMM matrix generated"
+
+  ! Perform adjoint matvec
+  allocate(coef_sph((pl+1)*(pl+1), nsph), coef_out((pm+1)*(pm+1), nsph))
+  coef_sph = 0
+  coef_sph(1, 1) = 1
+  coef_out = 0
+  call pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+        & children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+        & coef_sph, coef_out)
+  write(*,*) "Compare adjoint: ", dnrm2((pm+1)*(pm+1)*nsph, &
+      & coef_out-fmm_mat(1, 1, :, :), 1), dnrm2((pm+1)*(pm+1)*nsph, &
+      & fmm_mat(1, 1, :, :), 1)
+  deallocate(coef_sph, coef_out)
   ! Deallocate matrix
   deallocate(fmm_mat)
   ! Deallocate FMM-related arrays
