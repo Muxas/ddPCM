@@ -328,6 +328,8 @@ contains
   real*8, external :: hnorm, dnrm2
   real(kind=8), allocatable :: fmm_mat(:, :, :, :)
   real(kind=8), allocatable :: coef_sph(:, :), coef_out(:, :)
+  real(kind=8) :: total_norm, total_err
+  integer :: i, j
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.
@@ -409,23 +411,31 @@ contains
         & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
         & fmm_mat)
   write(*,*) "FMM matrix generated"
+  total_norm = dnrm2((pm+1)*(pm+1)*nsph*(pl+1)*(pl+1)*nsph, fmm_mat, 1)
 
   ! Perform adjoint matvec
   allocate(coef_sph((pl+1)*(pl+1), nsph), coef_out((pm+1)*(pm+1), nsph))
-  coef_sph = 0
-  coef_sph(1, 1) = 1
-  coef_out = 0
-  call pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
-        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
-        & children, &
-        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
-        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
-        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
-        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
-        & coef_sph, coef_out)
-  write(*,*) "Compare adjoint: ", dnrm2((pm+1)*(pm+1)*nsph, &
-      & coef_out-fmm_mat(1, 1, :, :), 1), dnrm2((pm+1)*(pm+1)*nsph, &
-      & fmm_mat(1, 1, :, :), 1)
+  do i = 1, (pl+1)*(pl+1)
+    do j = 1, nsph
+      coef_sph = 0
+      coef_sph(i, j) = 1
+      coef_out = 0
+      call pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+            & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+            & children, &
+            & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+            & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+            & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+            & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+            & coef_sph, coef_out)
+      write(*,*) "Error in adjoint matrix i=", i, " j=", j, " is ", &
+        & dnrm2((pm+1)*(pm+1)*nsph, fmm_mat(i, j, :, :)-coef_out, 1), &
+        & dnrm2((pm+1)*(pm+1)*nsph, fmm_mat(i, j, :, :), 1)
+      fmm_mat(i, j, :, :) = fmm_mat(i, j, :, :) - coef_out
+    end do
+  end do
+  total_err = dnrm2((pm+1)*(pm+1)*nsph*(pl+1)*(pl+1)*nsph, fmm_mat, 1)
+  write(*,*) "Error in adjoint matrix: ", total_err, total_norm
   deallocate(coef_sph, coef_out)
   ! Deallocate matrix
   deallocate(fmm_mat)
