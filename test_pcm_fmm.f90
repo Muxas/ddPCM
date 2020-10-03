@@ -3,6 +3,14 @@ program test_pcm_fmm
 implicit none
 integer :: p1=6, p2=10, ngrid1=6, ngrid2=110, nsph1=1000
 
+call check_m2m_adj(p1)
+call check_m2m_adj(p2)
+call check_l2l_adj(p1)
+call check_l2l_adj(p2)
+call check_m2l_adj(p1, p1)
+call check_m2l_adj(p1, p2)
+call check_m2l_adj(p2, p1)
+return
 call check_p2m_m2p_m2m_baseline(p1)
 call check_p2m_m2p_m2m_baseline(p2)
 call check_m2l_l2p_l2l_baseline(p1, p1)
@@ -182,6 +190,7 @@ subroutine check_m2l_l2p_l2l_baseline(pm, pl)
         & abs((v2-v)/v)
 end subroutine check_m2l_l2p_l2l_baseline
 
+! Check improved M2M for spherical harmonics
 subroutine check_m2m_improved(p)
     use pcm_fmm
     implicit none
@@ -388,6 +397,126 @@ subroutine check_m2m_improved(p)
         & " seconds"
 end subroutine check_m2m_improved
 
+! Check adjoint M2M for spherical harmonics
+subroutine check_m2m_adj(p)
+    use pcm_fmm
+    implicit none
+    integer, intent(in) :: p
+    integer, parameter :: ngrid=1
+    integer :: nbasis, i
+    real(kind=8) :: vscales((p+1)*(p+1)), w(ngrid), grid(3, ngrid)
+    real(kind=8) :: vgrid((p+1)*(p+1), ngrid)
+    real(kind=8) :: sph1(3)=(/0.0, 0.0, 0.0/), sph1_r=1
+    real(kind=8) :: sph2(3)=(/1.0, 4.0, -10.0/), sph2_r
+    real(kind=8) :: sph3(3)=(/0.0, 0.0, 4.0/), sph3_r
+    real(kind=8) :: sph4(3)=(/0.0, 0.0, 0.0/), sph4_r=2
+    real(kind=8), external :: dnrm2
+    real(kind=8) :: sph_m((p+1)*(p+1))
+    real(kind=8) :: sph_m2((p+1)*(p+1))
+    real(kind=8) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: mat((p+1)*(p+1), (p+1)*(p+1))
+    real(kind=8) :: start, finish
+    logical :: passed
+    real(kind=8), parameter :: tol=1e-14
+    ! Preliminaries
+    write(*, *)
+    write(*, "(A,I0)") "Check adjoint M2M p=", p
+    write(*, "(A)") "================================"
+    nbasis = (p+1) * (p+1)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics and number of Lebedev grid points
+    call init_globals(0, p, vscales, ngrid, w, grid, vgrid)
+    ! Compute radiuses
+    sph2_r = sph1_r + dnrm2(3, sph2-sph1, 1)
+    sph3_r = sph1_r + dnrm2(3, sph3-sph1, 1)
+    ! Perform check for sph2
+    passed = .true.
+    call fmm_m2m_get_mat(sph1-sph2, sph1_r, sph2_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_use_mat(sph1-sph2, sph1_r, sph2_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        mat(:, i) = sph_m2
+    end do
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_adj_use_mat(sph1-sph2, sph1_r, sph2_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        sph_m2 = sph_m2 - mat(i, :)
+        if(dnrm2(nbasis, sph_m2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint M2M failed in sph2 with i=", i
+            write(*,*) dnrm2(nbasis, sph_m2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint M2M in sph2 is OK"
+    end if
+    ! Perform check for sph3
+    passed = .true.
+    call fmm_m2m_get_mat(sph1-sph3, sph1_r, sph3_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_use_mat(sph1-sph3, sph1_r, sph3_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        mat(:, i) = sph_m2
+    end do
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_adj_use_mat(sph1-sph3, sph1_r, sph3_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        sph_m2 = sph_m2 - mat(i, :)
+        if(dnrm2(nbasis, sph_m2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint M2M failed in sph3 with i=", i
+            write(*,*) dnrm2(nbasis, sph_m2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint M2M in sph3 is OK"
+    end if
+    ! Perform check for sph4
+    passed = .true.
+    call fmm_m2m_get_mat(sph1-sph4, sph1_r, sph4_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_use_mat(sph1-sph4, sph1_r, sph4_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        mat(:, i) = sph_m2
+    end do
+    do i = 1, nbasis
+        sph_m = 0
+        sph_m(i) = 1
+        sph_m2 = 0
+        call fmm_m2m_adj_use_mat(sph1-sph4, sph1_r, sph4_r, p, reflect_mat, &
+            & ztrans_mat, sph_m, sph_m2)
+        sph_m2 = sph_m2 - mat(i, :)
+        if(dnrm2(nbasis, sph_m2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint M2M failed in sph4 with i=", i
+            write(*,*) dnrm2(nbasis, sph_m2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint M2M in sph4 is OK"
+    end if
+end subroutine check_m2m_adj
+
+! Check improved L2L for spherical harmonics
 subroutine check_l2l_improved(p)
     use pcm_fmm
     implicit none
@@ -539,6 +668,126 @@ subroutine check_l2l_improved(p)
         & " seconds"
 end subroutine check_l2l_improved
 
+! Check adjoint L2L for spherical harmonics
+subroutine check_l2l_adj(p)
+    use pcm_fmm
+    implicit none
+    integer, intent(in) :: p
+    integer, parameter :: ngrid=1
+    integer :: nbasis, i
+    real(kind=8) :: vscales((p+1)*(p+1)), w(ngrid), grid(3, ngrid)
+    real(kind=8) :: vgrid((p+1)*(p+1), ngrid)
+    real(kind=8) :: sph1(3)=(/0.0, 0.0, 0.0/), sph1_r=1
+    real(kind=8) :: sph2(3)=(/1.0, 4.0, -10.0/), sph2_r
+    real(kind=8) :: sph3(3)=(/0.0, 0.0, 4.0/), sph3_r
+    real(kind=8) :: sph4(3)=(/0.0, 0.0, 0.0/), sph4_r=2
+    real(kind=8), external :: dnrm2
+    real(kind=8) :: sph_l((p+1)*(p+1))
+    real(kind=8) :: sph_l2((p+1)*(p+1))
+    real(kind=8) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(kind=8) :: ztrans_mat((p+1)*(p+2)*(p+3)/6)
+    real(kind=8) :: mat((p+1)*(p+1), (p+1)*(p+1))
+    real(kind=8) :: start, finish
+    logical :: passed
+    real(kind=8), parameter :: tol=1e-14
+    ! Preliminaries
+    write(*, *)
+    write(*, "(A,I0)") "Check adjoint L2L p=", p
+    write(*, "(A)") "================================"
+    nbasis = (p+1) * (p+1)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics and number of Lebedev grid points
+    call init_globals(0, p, vscales, ngrid, w, grid, vgrid)
+    ! Compute radiuses
+    sph2_r = sph1_r + dnrm2(3, sph2-sph1, 1)
+    sph3_r = sph1_r + dnrm2(3, sph3-sph1, 1)
+    ! Perform check for sph2
+    passed = .true.
+    call fmm_l2l_get_mat(sph1-sph2, sph1_r, sph2_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_use_mat(sph1-sph2, sph1_r, sph2_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        mat(:, i) = sph_l2
+    end do
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_adj_use_mat(sph1-sph2, sph1_r, sph2_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        sph_l2 = sph_l2 - mat(i, :)
+        if(dnrm2(nbasis, sph_l2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint L2L failed in sph2 with i=", i
+            write(*,*) dnrm2(nbasis, sph_l2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint L2L in sph2 is OK"
+    end if
+    ! Perform check for sph3
+    passed = .true.
+    call fmm_l2l_get_mat(sph1-sph3, sph1_r, sph3_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_use_mat(sph1-sph3, sph1_r, sph3_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        mat(:, i) = sph_l2
+    end do
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_adj_use_mat(sph1-sph3, sph1_r, sph3_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        sph_l2 = sph_l2 - mat(i, :)
+        if(dnrm2(nbasis, sph_l2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint L2L failed in sph3 with i=", i
+            write(*,*) dnrm2(nbasis, sph_l2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint L2L in sph3 is OK"
+    end if
+    ! Perform check for sph4
+    passed = .true.
+    call fmm_l2l_get_mat(sph1-sph4, sph1_r, sph4_r, p, vscales, reflect_mat, &
+        & ztrans_mat)
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_use_mat(sph1-sph4, sph1_r, sph4_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        mat(:, i) = sph_l2
+    end do
+    do i = 1, nbasis
+        sph_l = 0
+        sph_l(i) = 1
+        sph_l2 = 0
+        call fmm_l2l_adj_use_mat(sph1-sph4, sph1_r, sph4_r, p, reflect_mat, &
+            & ztrans_mat, sph_l, sph_l2)
+        sph_l2 = sph_l2 - mat(i, :)
+        if(dnrm2(nbasis, sph_l2, 1) .gt. tol*dnrm2(nbasis, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint L2L failed in sph4 with i=", i
+            write(*,*) dnrm2(nbasis, sph_l2, 1)/dnrm2(nbasis, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint L2L in sph4 is OK"
+    end if
+end subroutine check_l2l_adj
+
+! Check improved M2L for spherical harmonics
 subroutine check_m2l_improved(pm, pl)
     use pcm_fmm
     implicit none
@@ -672,6 +921,99 @@ subroutine check_m2l_improved(pm, pl)
     write(*, "(A,ES9.2,A)") " fmm_m2l_use_mat:", (finish-start)/1000, &
         & " seconds"
 end subroutine check_m2l_improved
+
+! Check adjoint M2L for spherical harmonics
+subroutine check_m2l_adj(pm, pl)
+    use pcm_fmm
+    implicit none
+    integer, intent(in) :: pm, pl
+    integer, parameter :: ngrid=1
+    integer :: nbasism, nbasisl, i
+    real(kind=8) :: vscales((pm+pl+1)*(pm+pl+1)), w(ngrid), grid(3, ngrid)
+    real(kind=8) :: vgrid((pl+1)*(pl+1), ngrid)
+    ! sph1 contains multipole expansion
+    real(kind=8) :: sph1(3)=(/0.0, 0.0, 0.0/), sph1_r=2.0
+    ! sph2 and sph3 contain local expansion
+    real(kind=8) :: sph2(3)=(/-1.0, -1.0, -2.0/), sph2_r=3
+    real(kind=8) :: sph3(3)=(/0.0, 0.0, -2.2/), sph3_r=1.6
+    real(kind=8), external :: dnrm2
+    real(kind=8) :: sph_m((pm+1)*(pm+1))
+    real(kind=8) :: sph_l((pl+1)*(pl+1))
+    real(kind=8) :: vl((pl+1)*(pl+1))
+    real(kind=8) :: reflect_mat((max(pm,pl)+1) * (2*max(pm,pl)+1) &
+        & * (2*max(pm,pl)+3) / 3)
+    real(kind=8) :: ztrans_mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    real(kind=8) :: mat((pl+1)*(pl+1), (pm+1)*(pm+1))
+    real(kind=8) :: start, finish
+    logical :: passed
+    real(kind=8), parameter :: tol=1e-14
+    ! Preliminaries
+    write(*, *)
+    write(*, "(A,I0,A,I0)") "Check adjoint M2L pm=", pm, " and pl=", pl
+    write(*, "(A)") "================================"
+    nbasism = (pm+1) * (pm+1)
+    nbasisl = (pl+1) * (pl+1)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics and number of Lebedev grid points
+    call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
+    ! Perform check for sph2
+    passed = .true.
+    call fmm_m2l_get_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, vscales, &
+        & reflect_mat, ztrans_mat)
+    do i = 1, nbasism
+        sph_m = 0
+        sph_m(i) = 1
+        sph_l = 0
+        call fmm_m2l_use_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, reflect_mat, &
+            & ztrans_mat, sph_m, sph_l)
+        mat(:, i) = sph_l
+    end do
+    do i = 1, nbasisl
+        sph_l = 0
+        sph_l(i) = 1
+        sph_m = 0
+        call fmm_m2l_adj_use_mat(sph1-sph2, sph1_r, sph2_r, pm, pl, &
+            & reflect_mat, ztrans_mat, sph_l, sph_m)
+        sph_m = sph_m - mat(i, :)
+        if(dnrm2(nbasism, sph_m, 1) .gt. tol*dnrm2(nbasism, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint M2L failed in sph2 with i=", i
+            write(*,*) dnrm2(nbasism, sph_m, 1)/dnrm2(nbasism, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint M2L in sph2 is OK"
+    end if
+    ! Perform check for sph3
+    passed = .true.
+    call fmm_m2l_get_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, vscales, &
+        & reflect_mat, ztrans_mat)
+    do i = 1, nbasism
+        sph_m = 0
+        sph_m(i) = 1
+        sph_l = 0
+        call fmm_m2l_use_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, reflect_mat, &
+            & ztrans_mat, sph_m, sph_l)
+        mat(:, i) = sph_l
+    end do
+    do i = 1, nbasisl
+        sph_l = 0
+        sph_l(i) = 1
+        sph_m = 0
+        call fmm_m2l_adj_use_mat(sph1-sph3, sph1_r, sph3_r, pm, pl, &
+            & reflect_mat, ztrans_mat, sph_l, sph_m)
+        sph_m = sph_m - mat(i, :)
+        if(dnrm2(nbasism, sph_m, 1) .gt. tol*dnrm2(nbasism, mat(i, :), 1)) then
+            write(*, "(A,I0)") "Adjoint M2L failed in sph3 with i=", i
+            write(*,*) dnrm2(nbasism, sph_m, 1)/dnrm2(nbasism, mat(i, :), 1)
+            passed = .false.
+        end if
+    end do
+    if(passed) then
+        write(*, "(A,I0)") "Adjoint M2L in sph3 is OK"
+    end if
+end subroutine check_m2l_adj
 
 subroutine check_tree_m2m_l2l(nsph, p)
     use pcm_fmm

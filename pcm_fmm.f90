@@ -3681,7 +3681,7 @@ end subroutine fmm_m2l_use_mat
 ! This function applies precomputed reflection and translation to make FMM
 ! matvecs much faster (in O(p^3) operations).
 subroutine fmm_m2l_adj_use_mat(c, src_r, dst_r, pm, pl, reflect_mat, ztrans_mat, &
-        & dst_m, src_l)
+        & src_l, dst_m)
 ! Parameters:
 !   c: radius-vector from new to old centers of harmonics
 !   src_r: radius of old harmonics
@@ -4547,7 +4547,7 @@ subroutine tree_m2m_adj_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
 !   rnode: radius of bounding sphere of each cluster (node) of tree
 !   reflect_mat: reflection matrices for all node-parent transformations
 !   ztrans_mat: OZ translation matrices for all node-parent transformations
-!   coef_node: multipole coefficients of bounding spheres of nodes
+!   coef_node: input multipole coefficients of bounding spheres of nodes
     integer, intent(in) :: nsph, nclusters, p, ind(nsph), cluster(2, nclusters)
     real(kind=8), intent(in) :: reflect_mat((p+1)*(2*p+1)*(2*p+3)/3, &
         & nclusters-1)
@@ -4566,7 +4566,7 @@ subroutine tree_m2m_adj_use_mat(nsph, nclusters, p, coef_sph, ind, cluster, &
             coef_sph(:, ind(cluster(1, i))) = coef_sph(:, ind(cluster(1, i))) + &
                 & coef_node(:, i)
         else
-            ! In case of non-leaf compute weights by L2L
+            ! In case of non-leaf compute weights by adjoint M2M
             c = cnode(:, i)
             r = rnode(i)
             do k = j(1), j(2)
@@ -4873,8 +4873,8 @@ subroutine tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, &
             k = far(j)
             c = cnode(:, k) - cnode(:, i)
             call fmm_m2l_adj_use_mat(c, rnode(k), rnode(i), pm, pl, &
-                & reflect_mat(:, j), ztrans_mat(:, j), coef_m(:, k), &
-                & coef_l(:, i))
+                & reflect_mat(:, j), ztrans_mat(:, j), coef_l(:, i), &
+                & coef_m(:, k))
         end do
     end do
 end subroutine tree_m2l_adj_use_mat
