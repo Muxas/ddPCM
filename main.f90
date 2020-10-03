@@ -1,6 +1,6 @@
 program main
 use ddcosmo
-use ddpcm_lib, only: ddpcm, ddpcm_fmm
+use ddpcm_lib, only: ddpcm
 ! 
 !      888      888  .d8888b.   .d88888b.   .d8888b.  888b     d888  .d88888b.  
 !      888      888 d88P  Y88b d88P" "Y88b d88P  Y88b 8888b   d8888 d88P" "Y88b 
@@ -96,7 +96,7 @@ use ddpcm_lib, only: ddpcm, ddpcm_fmm
 implicit none
 !
 integer :: i, ii, isph, ig, n
-real*8  :: tobohr, esolv, xx(1)
+real*8  :: tobohr, esolv, xx(1), time, omp_get_wtime
 real*8, parameter :: toang=0.52917721092d0, tokcal=627.509469d0
 !
 ! quantities to be allocated by the user.
@@ -117,10 +117,6 @@ real*8, allocatable :: sigma(:,:), s(:,:)
 ! - forces:
 !
 real*8, allocatable :: fx(:,:), zeta(:), ef(:,:)
-!
-! - performance measurement
-!
-real*8 :: start_time, finish_time
 !
 ! - for qm solutes, fock matrix contribution.
 !
@@ -189,14 +185,14 @@ call mkrhs(n,charge,x,y,z,ncav,ccav,phi,nbasis,psi)
 allocate (sigma(nbasis,n))
 !
 ! call cosmo(.false., .true., phi, xx, psi, sigma, esolv)
-call cpu_time(start_time)
-call ddpcm(phi,psi,esolv)
-call cpu_time(finish_time)
+time = omp_get_wtime()
+call ddpcm(phi,psi,.true.,esolv)
 write(6,*) 'ddpcm esolv:  ', esolv
-write(6,*) 'ddpcm time: ', finish_time-start_time
-return
+write(6,*) 'ddpcm time:   ', omp_get_wtime() - time
+time = omp_get_wtime()
 call cosmo(.false.,.true.,phi, xx, psi, sigma, esolv)
 write(6,*) 'ddcosmo esolv:', esolv
+write(6,*) 'ddcosmo time:   ', omp_get_wtime() - time
 !
 if (iprint.ge.3) call prtsph('solution to the ddCOSMO equation',nsph,0,sigma)
 !

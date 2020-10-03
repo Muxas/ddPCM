@@ -2,7 +2,7 @@
 #   Makefile for ddCOSMO
 #
 #RunF77 = ifort
-#FFLAGS = -O3 -xHost -qopenmp
+#FFLAGS = -O3 -xHost -qopenmp -mkl
 RunF77 = gfortran
 #FFLAGS = -O3 -march=native -llapack -lblas
 FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
