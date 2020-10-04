@@ -116,16 +116,19 @@ contains
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,rhs,phieps,n_iter, &
       & ok,rx,apply_rx_prec,hnorm)
   call cpu_time(finish_time)
-  write(6,*) 'ddpcm solve time: ', finish_time-start_time
-  write(*,"(A,I0)") " ddpcm solve iterations: ", n_iter
+  write(6,*) 'ddpcm step time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddpcm step iterations: ", n_iter
   !call prtsph('phie',nsph,0,phieps)
 
   ! solve the ddcosmo linear system
   n_iter = 200
   dodiag = .false.
+  call cpu_time(start_time)
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
-  write(6,*) 'ddcosmo step iterations:', n_iter
+  call cpu_time(finish_time)
+  write(6,*) 'ddcosmo step time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddcosmo step iterations: ", n_iter
   !call prtsph('x',nsph,0,xs)
 
   ! compute the energy
@@ -136,37 +139,46 @@ contains
     ! solve ddcosmo adjoint system
     n_iter = 200
     dodiag = .false.
+    call cpu_time(start_time)
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,psi,s,n_iter, &
       & ok,lstarx,ldm1x,hnorm)
-    call prtsph('S',nsph,0,s)
+    call cpu_time(finish_time)
+    write(6,*) 'adjoint ddcosmo step time: ', finish_time-start_time
+    write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
+    !call prtsph('S',nsph,0,s)
 
     ! solve ddpcm adjoint system
     n_iter = 200
     dodiag = .false.
+    call cpu_time(start_time)
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,s,y,n_iter, &
       & ok,rstarx,apply_rstarx_prec,hnorm)
-    call prtsph('Y',nsph,0,y)
+    call cpu_time(finish_time)
+    write(6,*) 'adjoint ddcosmo step time: ', finish_time-start_time
+    write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
+    !call prtsph('Y',nsph,0,y)
 
     ! recover effect of Rinf^*
     fac = two*pi*(one - (eps + one)/(eps - one))
     y = s + fac*y
-    call prtsph('adjoint ddpcm solution',nsph,0,y)
+    !call prtsph('adjoint ddpcm solution',nsph,0,y)
   end if
   return
   end subroutine ddpcm
 
-  subroutine ddpcm_fmm(phi, psi, esolv)
+  subroutine ddpcm_fmm(phi, psi, do_adjoint, esolv)
   ! FMM-accelerated ddpcm driver, given the potential at the exposed cavity
   ! points and the psi vector, computes the solvation energy
   implicit none
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
   real*8, intent(inout) :: esolv
+  logical, intent(in) :: do_adjoint
   real*8 :: tol, resid, res0, rel_tol, fac
   integer, parameter :: mgmres=10, jgmres=10
   real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
   integer :: isph, n_iter, lwork_gmres, l, ll, m
   logical :: ok
-  external :: lx, ldm1x, gmresr
+  external :: lx, ldm1x, gmresr, lstarx
   real*8, external :: hnorm, dnrm2
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
@@ -241,6 +253,7 @@ contains
   allocate(rx_prc(nbasis,nbasis,nsph))
   allocate(rhs(nbasis,nsph),phieps(nbasis,nsph),xs(nbasis,nsph))
   allocate(g(ngrid,nsph))
+  allocate(s(nbasis,nsph),y(nbasis,nsph))
   tol = 10.0d0**(-iconv)
 
   ! build the preconditioner
@@ -295,8 +308,8 @@ contains
   !call gmresr(.true., nsph*nbasis, jgmres, mgmres, rhs, phieps, work_gmres, &
   !    & rel_tol, 'abs', n_iter, resid, rx_fmm_prec_gmres, ok)
   call cpu_time(finish_time)
-  write(6,*) 'ddpcm_fmm solve time: ', finish_time-start_time
-  write(*,"(A,I0)") " ddpcm_fmm solve iterations: ", n_iter
+  write(6,*) 'ddpcm step time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddpcm step iterations: ", n_iter
 
   ! Print matvec statistics
   !call pcm_matvec_print_stats
@@ -312,12 +325,42 @@ contains
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
   call cpu_time(finish_time)
-  write(6,*) 'cosmo solve time: ', finish_time-start_time
-  write(*,"(A,I0)") " cosmo solve iterations: ", n_iter
+  write(6,*) 'ddcosmo step time: ', finish_time-start_time
+  write(*,"(A,I0)") " ddcosmo step iterations: ", n_iter
   !call prtsph('x',nsph,0,xs)
 
   ! compute the energy
   esolv = pt5*sprod(nsph*nbasis,xs,psi)
+
+  ! Solve adjoint systems
+  if (do_adjoint) then
+    ! solve ddcosmo adjoint system
+    n_iter = 200
+    dodiag = .false.
+    call cpu_time(start_time)
+    call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,psi,s,n_iter, &
+      & ok,lstarx,ldm1x,hnorm)
+    call cpu_time(finish_time)
+    write(6,*) 'adjoint ddcosmo step time: ', finish_time-start_time
+    write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
+    !call prtsph('S',nsph,0,s)
+
+    ! solve ddpcm adjoint system
+    n_iter = 200
+    dodiag = .false.
+    call cpu_time(start_time)
+    call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,s,y,n_iter, &
+      & ok,rstarx_fmm,apply_rstarx_prec,hnorm)
+    call cpu_time(finish_time)
+    write(6,*) 'adjoint ddpcm step time: ', finish_time-start_time
+    write(*,"(A,I0)") " adjoint ddpcm step iterations: ", n_iter
+    !call prtsph('Y',nsph,0,y)
+
+    ! recover effect of Rinf^*
+    fac = two*pi*(one - (eps + one)/(eps - one))
+    y = s + fac*y
+    !call prtsph('adjoint ddpcm solution',nsph,0,y)
+  end if
 
   ! Deallocate FMM-related arrays
   deallocate(ind, snode)
@@ -821,6 +864,24 @@ contains
   end if
   end subroutine rstarx
 
+  subroutine rstarx_fmm(n,x,y)
+  ! Computes Y = Reps X =
+  ! = (2*pi*(eps + 1)/(eps - 1) - D^*) X 
+  implicit none
+  integer, intent(in) :: n
+  real*8, intent(in) :: x(nbasis,nsph)
+  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8 :: fac
+
+  call dstarx_fmm(n,x,y)
+  y = -y
+
+  if (dodiag) then
+    fac = two*pi*(eps + one)/(eps - one)
+    y = y + fac*x
+  end if
+  end subroutine rstarx_fmm
+
   subroutine dstarx(n,x,y)
   ! Computes Y = D^* X
   implicit none
@@ -886,6 +947,45 @@ contains
     stop
   end if
   end subroutine dstarx
+
+  subroutine dstarx_fmm(n,x,y)
+  ! Computes Y = D^* X with help of FMM
+  implicit none
+  integer, intent(in) :: n
+  real*8, intent(in) :: x(nbasis,nsph)
+  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8 :: fmm_x((pl+1)*(pl+1), nsph) ! Input for adjoint FMM
+  real*8 :: fmm_y((pm+1)*(pm+1), nsph) ! Output of adjoint FMM
+  integer :: isph, igrid, lind
+  real*8 :: f, vts(ngrid), fourpi
+  fmm_x(1:nbasis, :) = x
+  fmm_x(nbasis+1:, :) = zero
+  ! Do actual adjoint FMM matvec
+  call pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+      & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
+  ! Apply diagonal contribution if needed
+  if(dodiag) then
+    fourpi = four * pi
+    do isph = 1, nsph
+      do igrid = 1, ngrid
+        f = pt5*w(igrid)*ui(igrid,isph)*dot_product(basis(:,igrid),x(:,isph))
+        do lind = 1, nbasis
+          y(lind,isph) = y(lind,isph) - f*basis(lind,igrid)/facl(lind)
+        end do
+      end do
+    end do
+    ! Cut fmm_y to fit into output y
+    y = y + fmm_y(1:nbasis, :)
+  else
+    ! Cut fmm_y to fit into output y
+    y = fmm_y(1:nbasis, :)
+  end if
+  !write(*,*) 'I did actual FMM matvec'
+  end subroutine dstarx_fmm
 
   subroutine apply_rstarx_prec(n,x,y)
   ! apply the block diagonal preconditioner

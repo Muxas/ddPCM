@@ -7,7 +7,7 @@ RunF77 = gfortran
 #FFLAGS = -O3 -march=native -llapack -lblas
 FFLAGS = -O3 -march=native ${MKLROOT}/lib/libmkl_intel_lp64.a \
 	 ${MKLROOT}/lib/libmkl_sequential.a ${MKLROOT}/lib/libmkl_core.a \
-	 -lpthread -lm -ldl -ftree-vectorize -finline-functions #-fcheck=all
+	 -lpthread -lm -ldl -ftree-vectorize -finline-functions -fopenmp #-fcheck=all
 #MKLLIBDIR = ${MKLROOT}/lib/intel64
 #FFLAGS = -O3 -m64 -I${MKLROOT}/include \
          -Wl,--start-group \
@@ -21,16 +21,13 @@ MODS   = ddcosmo.o pcm_fmm.o ddpcm_lib.o
 OBJS   = ${MODS} mkrhs.o llgnew.o forces_dd.o efld.o\
 	matvec.o cosmo.o jacobi_diis.o gmres.o
 #
-all:    main.exe main_fmm.exe main_fmm_adj.exe
+all:    main.exe main_fmm.exe
 
 main.exe: $(MODS) $(OBJS) main.f90
 	$(RunF77) main.f90 -o main.exe $(OBJS) $(FFLAGS)
 
 main_fmm.exe: $(MODS) $(OBJS) main_fmm.f90
 	$(RunF77) main_fmm.f90 -o main_fmm.exe $(OBJS) $(FFLAGS)
-
-main_fmm_adj.exe: $(MODS) $(OBJS) main_fmm_adj.f90
-	$(RunF77) main_fmm_adj.f90 -o main_fmm_adj.exe $(OBJS) $(FFLAGS)
 #
 %.o: %.f
 	$(RunF77) -c $*.f $(FFLAGS)
@@ -46,6 +43,9 @@ f2py: pcm_fmm.f90 llgnew.o
 test_pcm_fmm:	test_pcm_fmm.f90 pcm_fmm.o llgnew.o
 	$(RunF77) $(FFLAGS) test_pcm_fmm.f90 -o test_pcm_fmm.exe pcm_fmm.o\
 	    llgnew.o
+
+test_fmm_adj: $(MODS) $(OBJS) test_fmm_adj.f90
+	$(RunF77) test_fmm_adj.f90 -o test_fmm_adj.exe $(OBJS) $(FFLAGS)
 #
-.PHONY:	all clean f2py test_pcm_fmm
+.PHONY:	all clean f2py test_pcm_fmm test_fmm_adj
 

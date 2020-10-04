@@ -189,6 +189,7 @@ time = omp_get_wtime()
 call ddpcm(phi,psi,.true.,esolv)
 write(6,*) 'ddpcm esolv:  ', esolv
 write(6,*) 'ddpcm time:   ', omp_get_wtime() - time
+return
 time = omp_get_wtime()
 call cosmo(.false.,.true.,phi, xx, psi, sigma, esolv)
 write(6,*) 'ddcosmo esolv:', esolv
