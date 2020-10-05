@@ -5693,6 +5693,7 @@ subroutine pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: start, finish, time
     call cpu_time(start)
     coef_sph_scaled = coef_sph
+    coef_out = 0
     call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
         & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
@@ -5736,9 +5737,9 @@ subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: ngrid_ext, ngrid_ext_sph(nsph), grid_ext_ia(nsph+1)
     integer, intent(in) :: grid_ext_ja(ngrid_ext), ngrid_ext_near
-    real(kind=8) :: coef_sph((pm+1)*(pm+1), nsph)
+    real(kind=8) :: coef_sph_m((pm+1)*(pm+1), nsph)
     real(kind=8), intent(out) :: mat_out((pl+1)*(pl+1), nsph, (pm+1)*(pm+1), nsph)
-    real(kind=8) :: coef_sph_scaled((pl+1)*(pl+1), nsph)
+    real(kind=8) :: coef_sph_l((pl+1)*(pl+1), nsph)
     real(kind=8) :: coef_node_m((pm+1)*(pm+1), nclusters)
     real(kind=8) :: coef_node_l((pl+1)*(pl+1), nclusters)
     real(kind=8), intent(in) :: m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, &
@@ -5760,9 +5761,9 @@ subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: start, finish, time
     do i = 1, (pm+1)*(pm+1)
         do j = 1, nsph
-            coef_sph_scaled = 0
-            coef_sph_scaled(i, j) = 1
-            coef_sph = 0
+            coef_sph_m(:, :) = 0
+            coef_sph_m(i, j) = 1
+            coef_sph_l(:, :) = 0
             call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                     & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
                     & children, &
@@ -5770,8 +5771,8 @@ subroutine tree_matrix_fmm(nsph, csph, rsph, ngrid, grid, w, &
                     & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
                     & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
                     & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
-                    & coef_sph_scaled, coef_sph)
-                mat_out(:, :, i, j) = coef_sph
+                    & coef_sph_m, coef_sph_l)
+             mat_out(:, :, i, j) = coef_sph_l
         end do
     end do
 end subroutine tree_matrix_fmm
