@@ -405,8 +405,8 @@ contains
   nclusters = 2*nsph-1
   allocate(ind(nsph), cluster(2, nclusters), children(2, nclusters), &
       parent(nclusters), cnode(3, nclusters), rnode(nclusters), snode(nsph))
-  pm = 1 ! This must be updated to achieve required accuracy of FMM
-  pl = 1 ! This must be updated to achieve required accuracy of FMM
+  pm = lmax ! This must be updated to achieve required accuracy of FMM
+  pl = lmax ! This must be updated to achieve required accuracy of FMM
   allocate(vscales((pm+pl+1)*(pm+pl+1)), vgrid((pl+1)*(pl+1), ngrid))
   ! Init order of spheres
   do isph = 1, nsph
@@ -469,31 +469,6 @@ contains
       & l2p_mat, ngrid_ext_near, m2p_mat)
 
 
-  allocate(coef_sph((pl+1)*(pl+1), nsph), coef_out((pm+1)*(pm+1), nsph))
-  coef_sph = 0
-  coef_sph(1, 1) = 1
-  call pcm_matvec_adj_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
-        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
-        & children, &
-        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
-        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
-        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
-        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
-        & coef_sph, coef_out)
-  write(*,*) "adjoint", coef_out(1, 1)
-  coef_out = 0
-  coef_out(1, 1) = 1
-  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
-        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
-        & children, &
-        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
-        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
-        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
-        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
-        & coef_out, coef_sph)
-  write(*,*) "direct", coef_sph(1, 1)
-
-  !return
   ! Allocate memory for the matrix
   allocate(fmm_mat((pl+1)*(pl+1), nsph, (pm+1)*(pm+1), nsph))
   fmm_mat = 0
@@ -509,6 +484,7 @@ contains
   total_norm = dnrm2((pm+1)*(pm+1)*nsph*(pl+1)*(pl+1)*nsph, fmm_mat, 1)
 
   ! Perform adjoint matvec
+  allocate(coef_sph((pl+1)*(pl+1), nsph), coef_out((pm+1)*(pm+1), nsph))
   do i = 1, (pl+1)*(pl+1)
     do j = 1, nsph
       coef_sph = 0
@@ -522,17 +498,14 @@ contains
             & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
             & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
             & coef_sph, coef_out)
-      write(*,*) "Error in adjoint matrix i=", i, " j=", j, " is ", &
-        & dnrm2((pm+1)*(pm+1)*nsph, fmm_mat(i, j, :, :)-coef_out, 1), &
-        & dnrm2((pm+1)*(pm+1)*nsph, fmm_mat(i, j, :, :), 1)
       fmm_mat(i, j, :, :) = fmm_mat(i, j, :, :) - coef_out
     end do
   end do
   total_err = dnrm2((pm+1)*(pm+1)*nsph*(pl+1)*(pl+1)*nsph, fmm_mat, 1)
   write(*,*) "Error in adjoint matrix: ", total_err, total_norm
-  deallocate(coef_sph, coef_out)
   ! Deallocate matrix
   deallocate(fmm_mat)
+  deallocate(coef_sph, coef_out)
   ! Deallocate FMM-related arrays
   deallocate(ind, snode)
   deallocate(cluster, children, parent, cnode, rnode)

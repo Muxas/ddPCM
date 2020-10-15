@@ -5382,10 +5382,17 @@ subroutine tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
             igrid_sph = grid_ext_ja(grid_ext_ia(isph) + igrid_ext_sph - 1)
             x_ext(igrid_ext_sph) = xgrid(igrid_sph)
         end do
-        ! Use far-field L2P matrices (from each sphere to its own grid points)
-        call dgemv('N', (pl+1)*(pl+1), ngrid_ext_sph(isph), 1.0d0, &
-            & l2p_mat(1, grid_ext_ia(isph)), (pl+1)*(pl+1), &
-            & x_ext, 1, 0.0d0, coef_sph_l(1, isph), 1)
+        if(ngrid_ext_sph(isph) .eq. 0) then
+            ! Make old coef zero because following dgemv does not set it to
+            ! zero for some reason if number of columns is 0 in the next dgemv
+            coef_sph_l(:, isph) = 0
+        else
+            ! Use far-field L2P matrices (from each sphere to its own grid
+            ! points)
+            call dgemv('N', (pl+1)*(pl+1), ngrid_ext_sph(isph), 1.0d0, &
+                & l2p_mat(1, grid_ext_ia(isph)), (pl+1)*(pl+1), &
+                & x_ext, 1, 0.0d0, coef_sph_l(1, isph), 1)
+        end if
         ! Apply normalization factor to coefficients
         do i = 0, pl
             coef_sph_l(i*i+1:(i+1)*(i+1), isph) = &

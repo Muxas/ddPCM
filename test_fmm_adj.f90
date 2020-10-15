@@ -168,6 +168,7 @@ close (100)
 !
 call ddinit(n,x,y,z,rvdw)
 !
+!
 allocate (phi(ncav),psi(nbasis,n))
 !
 ! --------------------------   modify here  --------------------------  
