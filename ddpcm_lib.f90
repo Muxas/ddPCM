@@ -109,10 +109,10 @@ contains
   tol = 10.0d0**(-iconv)
 
   ! build rhs
-  g = zero
-  xs = zero
+  ! output `g` is cleaned here
   call wghpot(phi,g)
   do isph = 1, nsph
+  ! output `rhs` is cleaned here
     call intrhs(isph,g(:,isph),rhs(:,isph))
   end do
 
@@ -138,7 +138,7 @@ contains
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
   call cpu_time(finish_time)
-  if (irpint.ge.1) write(6,*) 'ddcosmo step time: ', finish_time-start_time
+  if (iprint.ge.1) write(6,*) 'ddcosmo step time: ', finish_time-start_time
   if (iprint.ge.1) write(*,"(A,I0)") " ddcosmo step iterations: ", n_iter
   if (iprint.ge.2) call prtsph('x',nsph,0,xs)
 
@@ -182,7 +182,7 @@ contains
   deallocate(phiinf,g)
   end subroutine ddpcm
 
-  subroutine ddpcm_fmm(phi, psi, do_adjoint, esolv)
+  subroutine ddpcm_fmm(do_adjoint, phi, psi, esolv)
   ! FMM-accelerated ddpcm driver, given the potential at the exposed cavity
   ! points and the psi vector, computes the solvation energy
   implicit none
@@ -193,6 +193,7 @@ contains
   integer, parameter :: mgmres=10, jgmres=10
   real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
   integer :: isph, n_iter, lwork_gmres, l, ll, m
+  real*8, allocatable :: g(:,:), phiinf(:,:)
   logical :: ok
   external :: lx, ldm1x, gmresr, lstarx
   real*8, external :: hnorm, dnrm2
@@ -266,25 +267,22 @@ contains
       & l2p_mat, ngrid_ext_near, m2p_mat)
 
   ! Continue with ddpcm
-  allocate(rx_prc(nbasis,nbasis,nsph))
-  allocate(rhs(nbasis,nsph),phieps(nbasis,nsph),xs(nbasis,nsph))
-  allocate(g(ngrid,nsph))
-  allocate(s(nbasis,nsph),y(nbasis,nsph))
+  allocate(phiinf(nbasis,nsph),g(ngrid,nsph))
+  !allocate(rx_prc(nbasis,nbasis,nsph))
+  !allocate(rhs(nbasis,nsph),phieps(nbasis,nsph),xs(nbasis,nsph))
+  !allocate(g(ngrid,nsph))
+  !allocate(s(nbasis,nsph),y(nbasis,nsph))
   tol = 10.0d0**(-iconv)
 
   ! build the preconditioner
   call mkprec
 
   ! build the RHS
-  !write(6,*) 'pot', ncav
-  !do isph = 1, ncav
-  !  write(6,*) phi(isph)
-  !end do
   g = zero
-  xs = zero
+  rhs = zero
   call wghpot(phi,g)
   do isph = 1, nsph
-    call intrhs(isph,g(:,isph),xs(:,isph))
+    call intrhs(isph,g(:,isph),rhs(:,isph))
   end do
 
   !call prtsph('phi',nsph,0,xs)
@@ -614,9 +612,10 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8 :: fac
 
+  ! output `y` is cleaned here
   call dx(n,x,y)
   y = -y
 
@@ -685,9 +684,10 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8 :: fac
 
+  ! output `y` is cleaned here
   call dx(n,x,y)
   y = -y
 
@@ -721,7 +721,7 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8, allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
   real*8 :: c(3), vij(3), sij(3)
   real*8 :: vvij, tij, fourpi, tt, f, f1

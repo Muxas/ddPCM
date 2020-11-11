@@ -791,7 +791,7 @@ subroutine intrhs( isph, x, xlm )
       implicit none
       integer, intent(in) :: isph
       real*8, dimension(ngrid),  intent(in)    :: x
-      real*8, dimension(nbasis), intent(inout) :: xlm
+      real*8, dimension(nbasis), intent(out) :: xlm
 !
       integer :: ig
 !      
