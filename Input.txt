@@ -1,4 +1,4 @@
-0                ! print flag. the larger, the more verbose the output
+1                ! print flag. the larger, the more verbose the output
 1                ! number of OpenMP cores to be used
 10               ! maximum angular momentum for the spherical harmonics expansion
 302              ! (approximate) number of grid points to be used for numerical quadratures

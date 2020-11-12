@@ -51,9 +51,6 @@ integer, allocatable :: nfar(:), nnear(:)
 integer, allocatable :: far(:), near(:)
 ! Index of first element of array of admissible far and near pairs
 integer, allocatable :: sfar(:), snear(:)
-! Temporary variables to get list of all admissible pairs
-integer :: lwork, iwork, jwork
-integer, allocatable :: work(:, :)
 ! External grid points
 integer :: ngrid_ext, ngrid_ext_near
 integer, allocatable :: ngrid_ext_sph(:), grid_ext_ia(:), grid_ext_ja(:)
@@ -75,7 +72,7 @@ contains
     & xs(nbasis,nsph),phieps(nbasis,nsph),q(nbasis,nsph),rhs(nbasis,nsph), &
     & stat=istatus)
   if (istatus.ne.0) then
-    write(6,*) 'ddpcm allocation failed'
+    write(*, "(A)") "ERROR: ddpcm_init allocation failed"
     stop
   end if
   call mkprec
@@ -87,7 +84,7 @@ contains
   integer :: istatus
   deallocate(rx_prc,s,y,xs,phieps,q,rhs,stat=istatus)
   if (istatus.ne.0) then
-    write(6,*) 'ddpcm deallocation failed'
+    write(*, "(A)") "ERROR: ddpcm_finalize deallocation failed"
     stop
   end if
   end subroutine ddpcm_finalize
@@ -97,39 +94,50 @@ contains
   ! points and the psi vector, computes the solvation energy
   implicit none
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
-  real*8, intent(inout) :: esolv
   logical, intent(in) :: do_adjoint
+  real*8, intent(out) :: esolv
+  integer :: istatus
   real*8 :: tol, fac
   integer :: isph, n_iter
   real*8, allocatable :: g(:,:), phiinf(:,:)
   logical :: ok
   external :: lx, ldm1x, lstarx, hnorm
   
-  allocate(phiinf(nbasis,nsph),g(ngrid,nsph))
+  ! Allocated arrays are initialized later in corresponding routines
+  allocate(phiinf(nbasis,nsph), g(ngrid,nsph), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm allocation failed"
+    stop
+  end if
   tol = 10.0d0**(-iconv)
 
   ! build rhs
-  ! output `g` is cleaned here
+  ! `g` is initialized here
   call wghpot(phi,g)
   do isph = 1, nsph
-  ! output `rhs` is cleaned here
+  ! `rhs` is initialized here
     call intrhs(isph,g(:,isph),rhs(:,isph))
   end do
 
   ! rinf rhs
+  ! `phiinf` is initialized here
   dodiag = .true.
   call rinfx(nbasis*nsph,rhs,phiinf)
 
   ! solve the ddpcm linear system
   n_iter = 200
   dodiag = .false.
+  ! TODO: initial guess `phieps` must be updated properly
   phieps = rhs
   call cpu_time(start_time)
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phiinf,phieps,n_iter, &
       & ok,rx,apply_rx_prec,hnorm)
   call cpu_time(finish_time)
-  if (iprint.ge.1) write(6,*) 'ddpcm step time: ', finish_time-start_time
-  if (iprint.ge.1) write(*, "(A,I0)") " ddpcm step iterations: ", n_iter
+  if (iprint.ge.1) then
+      write(*, "(A,ES11.4E2,A)") " ddpcm step time:", &
+        & finish_time-start_time, " seconds"
+      write(*, "(A,I0)") " ddpcm step iterations: ", n_iter
+  endif
 
   ! solve the ddcosmo linear system
   n_iter = 200
@@ -138,13 +146,17 @@ contains
   call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
   call cpu_time(finish_time)
-  if (iprint.ge.1) write(6,*) 'ddcosmo step time: ', finish_time-start_time
-  if (iprint.ge.1) write(*,"(A,I0)") " ddcosmo step iterations: ", n_iter
+  if (iprint.ge.1) then
+      write(*, "(A,ES11.4E2,A)") " ddcosmo step time:", &
+        & finish_time-start_time, " seconds"
+      write(*, "(A,I0)") " ddcosmo step iterations: ", n_iter
+  endif
   if (iprint.ge.2) call prtsph('x',nsph,0,xs)
 
   ! compute the energy
   esolv = pt5*sprod(nsph*nbasis,xs,psi)
 
+  ! Solve adjoint system if needed
   if (do_adjoint) then
 
     ! solve ddcosmo adjoint system
@@ -154,10 +166,11 @@ contains
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,psi,s,n_iter, &
       & ok,lstarx,ldm1x,hnorm)
     call cpu_time(finish_time)
-    if (iprint.ge.1) write(6,*) 'adjoint ddcosmo step time: ', &
-        & finish_time-start_time
-    if (iprint.ge.1) write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", &
-        & n_iter
+    if (iprint.ge.1) then
+        write(*, "(A,ES11.4E2,A)") " adjoint ddcosmo step time:", &
+            & finish_time-start_time, " seconds"
+        write(*, "(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
+    endif
     if (iprint.ge.2) call prtsph('s',nsph,0,s)
 
     ! solve ddpcm adjoint system
@@ -167,10 +180,12 @@ contains
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,s,y,n_iter, &
       & ok,rstarx,apply_rstarx_prec,hnorm)
     call cpu_time(finish_time)
-    if (iprint.ge.1) write(6,*) 'adjoint ddcosmo step time: ', &
-        & finish_time-start_time
-    if (iprint.ge.1) write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", &
-        & n_iter
+    if (iprint.ge.1) then
+        write(*,"(A,ES11.4E2,A)") " adjoint ddpcm step time:", &
+            & finish_time-start_time, " seconds"
+        write(*,"(A,I0)") " adjoint ddpcm step iterations: ", &
+            & n_iter
+    endif
     if (iprint.ge.2) call prtsph('y',nsph,0,y)
 
     ! recover effect of rinf^*
@@ -182,45 +197,84 @@ contains
   deallocate(phiinf,g)
   end subroutine ddpcm
 
-  subroutine ddpcm_fmm(do_adjoint, phi, psi, esolv)
+  subroutine ddpcm_fmm(do_adjoint, phi, psi, esolv, fmm_pm, fmm_pl, nadm)
   ! FMM-accelerated ddpcm driver, given the potential at the exposed cavity
   ! points and the psi vector, computes the solvation energy
+  !
+  ! Parameters:
+  !     do_adjoint: flag whether to solve adjoint systems
+  !     phi:
+  !     psi:
+  !     esolv: output solvation emergy
+  !     pm: degree of multipole harmonics of the FMM
+  !     pl: degree of local harmonics of the FMM
+  !     nadm: upper bound on number of admissible far-field and near-field
+  !         pairs per tree cluster. If this value is too small the procedure
+  !         will raise and error and stop execution.
   implicit none
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
   real*8, intent(inout) :: esolv
   logical, intent(in) :: do_adjoint
+  integer, intent(in) :: fmm_pm, fmm_pl
+  integer, intent(in) :: nadm
+  integer :: istatus
   real*8 :: tol, resid, res0, rel_tol, fac
-  integer, parameter :: mgmres=10, jgmres=10
-  real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
-  integer :: isph, n_iter, lwork_gmres, l, ll, m
+  integer :: isph, n_iter, l, ll, m
   real*8, allocatable :: g(:,:), phiinf(:,:)
   logical :: ok
-  external :: lx, ldm1x, gmresr, lstarx
+  external :: lx, ldm1x, lstarx
   real*8, external :: hnorm, dnrm2
+  ! Temporary variables to get list of all admissible pairs
+  integer :: lwork, iwork, jwork
+  integer, allocatable :: work(:, :)
+  ! Sizes of FMM matrices
+  integer :: m2m_reflect_size, m2m_ztrans_size
+  integer :: l2l_reflect_size, l2l_ztrans_size
+  integer :: m2l_reflect_size, m2l_ztrans_size
+  ! Set globally degrees of FMM harmonics
+  pm = fmm_pm
+  pl = fmm_pl
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.
-  nclusters = 2*nsph-1
+  nclusters = 2*nsph - 1
+  ! Magic constant that defines size of temporary buffer. Sometimes this size
+  ! is not enough and therefore there will be an error message displayed,
+  ! asking to increase this magic constant
+  lwork = nclusters * nadm
+  ! Allocate space for FMM constants
+  allocate(vscales((pm+pl+1)*(pm+pl+1)), vgrid((pl+1)*(pl+1), ngrid), &
+      & stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #1 failed"
+    stop
+  end if
+  ! Init constants
+  call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
+  ! Allocate cluster tree
   allocate(ind(nsph), cluster(2, nclusters), children(2, nclusters), &
-      parent(nclusters), cnode(3, nclusters), rnode(nclusters), snode(nsph))
-  pm = lmax ! This must be updated to achieve required accuracy of FMM
-  pl = lmax ! This must be updated to achieve required accuracy of FMM
-  allocate(vscales((pm+pl+1)*(pm+pl+1)), vgrid((pl+1)*(pl+1), ngrid))
+      & parent(nclusters), cnode(3, nclusters), rnode(nclusters), &
+      & snode(nsph), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #2 failed"
+    stop
+  end if
   ! Init order of spheres
   do isph = 1, nsph
     ind(isph) = isph
   end do
-  ! Init constants vscales
-  call init_globals(pm, pl, vscales, ngrid, w, grid, vgrid)
-  ! Build binary tree
+  ! Build binary cluster tree
   call btree_init(nsph, csph, rsph, ind, cluster, children, parent, &
         cnode, rnode, snode)
-  nclusters = 2*nsph-1
-  ! Allocate space to find all admissible pairs
-  allocate(nfar(nclusters), nnear(nclusters))
+  ! Allocate space for admissible far-field and near-field pairs
+  ! More allocations will be done later regarding this step
+  allocate(nfar(nclusters), nnear(nclusters), work(3, lwork), &
+      & sfar(nclusters+1), snear(nclusters+1), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #3 failed"
+    stop
+  end if
   ! Try to find all admissibly far and near pairs of tree nodes
-  lwork = nclusters*1000 ! Some magic constant which might be changed
-  allocate(work(3, lwork))
   iwork = 0 ! init with zero for first call to tree_get_farnear_work
   call tree_get_farnear_work(nclusters, children, cnode, rnode, lwork, &
         iwork, jwork, work, nnfar, nfar, nnnear, nnear)
@@ -228,36 +282,75 @@ contains
   ! tree_get_farnear_work uses previously computed work array, so it will not
   ! do the same work several times.
   if (iwork .ne. jwork+1) then
-    write(*,*) 'Please increase lwork on line 162 of ddpcm_lib.f90 in the code'
+    write(*, "(A)") "Size of a temporary buffer for tree construction is &
+        &too small, please increase parameter `nadm` of the ddpcm_fmm &
+        &routine"
     stop
   end if
   ! Allocate arrays for admissible far and near pairs
-  allocate(far(nnfar), near(nnnear), sfar(nclusters+1), snear(nclusters+1))
+  allocate(far(nnfar), near(nnnear), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #4 failed"
+    stop
+  end if
   ! Get list of admissible pairs from temporary work array
   call tree_get_farnear(jwork, lwork, work, nclusters, nnfar, nfar, sfar, &
       far, nnnear, nnear, snear, near)
-  ! Get external grid points
-  allocate(ngrid_ext_sph(nsph))
+  ! Allocate compact external grid storage (the first portion)
+  allocate(ngrid_ext_sph(nsph), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #5 failed"
+    stop
+  end if
+  ! Get number of external grid points
   call get_ngrid_ext(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph)
-  allocate(grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext))
+  ! Allocate compact external grid storage (the last portion)
+  allocate(grid_ext_ia(nsph+1), grid_ext_ja(ngrid_ext), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #6 failed"
+    stop
+  end if
+  ! Get external grid points in a compact way
   call get_grid_ext_ind(nsph, ngrid, ui, ngrid_ext, ngrid_ext_sph, &
       & grid_ext_ia, grid_ext_ja)
-  ! Allocate far-field L2P matrices
-  allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext))
-  ! Get near-field M2P data
+  ! Get number of near-field M2P interactions
   call get_ngrid_ext_near(nsph, ngrid_ext_sph, nclusters, nnear, snode, &
       & ngrid_ext_near)
-  ! Allocate near-field M2P matrices
-  allocate(m2p_mat((pm+1)*(pm+1), ngrid_ext_near))
-  ! Allocate reflection and OZ translation matrices for M2M, M2L and L2L
-  allocate(m2m_reflect_mat((pm+1)*(2*pm+1)*(2*pm+3)/3, nclusters-1))
-  allocate(m2m_ztrans_mat((pm+1)*(pm+2)*(pm+3)/6, nclusters-1))
-  allocate(l2l_reflect_mat((pl+1)*(2*pl+1)*(2*pl+3)/3, nclusters-1))
-  allocate(l2l_ztrans_mat((pl+1)*(pl+2)*(pl+3)/6, nclusters-1))
-  allocate(m2l_reflect_mat((max(pm,pl)+1)*(2*max(pm,pl)+1) &
-      & *(2*max(pm,pl)+3)/3, nnfar))
-  allocate(m2l_ztrans_mat((min(pm,pl)+1)*(min(pm,pl)+2) &
-      & *(3*max(pm,pl)+3-min(pm,pl))/6, nnfar))
+  ! Allocate FMM near-field M2P and far-field L2P matrices
+  allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext), &
+      & m2p_mat((pm+1)*(pm+1), ngrid_ext_near), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #7 failed"
+    stop
+  end if
+  ! Allocate FMM far-field M2M matrices
+  m2m_reflect_size = (pm+1) * (2*pm+1) * (2*pm+3) / 3
+  m2m_ztrans_size = (pm+1) * (pm+2) * (pm+3) / 6
+  allocate(m2m_reflect_mat(m2m_reflect_size, nclusters-1), &
+      & m2m_ztrans_mat(m2m_ztrans_size, nclusters-1), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #8 failed"
+    stop
+  end if
+  ! Allocate FMM far-field L2L matrices
+  l2l_reflect_size = (pl+1) * (2*pl+1) * (2*pl+3) / 3
+  l2l_ztrans_size = (pl+1) * (pl+2) * (pl+3) / 6
+  allocate(l2l_reflect_mat(l2l_reflect_size, nclusters-1), &
+      & l2l_ztrans_mat(l2l_ztrans_size, nclusters-1), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #9 failed"
+    stop
+  end if
+  ! Allocate FMM far-field M2L matrices
+  m2l_reflect_size = max(m2m_reflect_size, l2l_reflect_size)
+  m2l_ztrans_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
+      & * (3*max(pm,pl)+3-min(pm,pl)) / 6
+  allocate(m2l_reflect_mat(m2l_reflect_size, nnfar), &
+      & m2l_ztrans_mat(m2l_ztrans_size, nnfar), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #10 failed"
+    stop
+  end if
   ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
   call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
       & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
@@ -267,87 +360,63 @@ contains
       & l2p_mat, ngrid_ext_near, m2p_mat)
 
   ! Continue with ddpcm
-  allocate(phiinf(nbasis,nsph),g(ngrid,nsph))
-  !allocate(rx_prc(nbasis,nbasis,nsph))
-  !allocate(rhs(nbasis,nsph),phieps(nbasis,nsph),xs(nbasis,nsph))
-  !allocate(g(ngrid,nsph))
-  !allocate(s(nbasis,nsph),y(nbasis,nsph))
+  allocate(phiinf(nbasis,nsph), g(ngrid,nsph), stat=istatus)
+  if (istatus.ne.0) then
+    write(*, "(A)") "ERROR: ddpcm_fmm allocation #11 failed"
+    stop
+  end if
   tol = 10.0d0**(-iconv)
 
-  ! build the preconditioner
-  call mkprec
-
-  ! build the RHS
-  g = zero
-  rhs = zero
+  ! build rhs
+  ! `g` is initialized here
   call wghpot(phi,g)
   do isph = 1, nsph
+  ! `rhs` is initialized here
     call intrhs(isph,g(:,isph),rhs(:,isph))
   end do
 
-  !call prtsph('phi',nsph,0,xs)
-  !call prtsph('psi',nsph,0,psi)
-
   ! rinf rhs
+  ! `phiinf` is initialized here
   dodiag = .true.
-  call rinfx_fmm(nbasis*nsph, xs, rhs)
-  !!! Following part is about changing error to the relative one.
-  !!! It is NOT commented for now to compare dense ddpcm against ddpcm_fmm
-  !call apply_rx_prec(nbasis*nsph, rhs, phieps)
-  rel_tol = tol * hnorm(nsph*nbasis, rhs)
-  !write(*,*) "hnorm:", rel_tol/tol
-  ! Scale to get L2 norm instead of H-norm
-  !do l = 0, lmax
-  !  ll = l*l + l + 1
-  !  fac = one / sqrt(one+dble(l))
-  !  do m = ll-l, ll+l
-  !    phieps(m, :) = fac * phieps(m, :)
-  !  end do
-  !end do
-  !write(*,*) "new l2norm:", dnrm2(nsph*nbasis, phieps, 1) / sqrt(dble(nsph))
-
-  !rhs = phieps
-  phieps = xs
-  !call prtsph('rhs',nsph,0,rhs)
+  call rinfx(nbasis*nsph,rhs,phiinf)
 
   ! solve the ddpcm linear system
   n_iter = 100000
   dodiag = .false.
+  ! TODO: initial guess `phieps` must be updated properly
+  phieps = rhs
   call cpu_time(start_time)
-  ! Relative error here, NOT commented as of now
-  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,rhs,phieps,n_iter, &
+  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phiinf,phieps,n_iter, &
       & ok,rx_fmm,apply_rx_prec,hnorm)
-  !call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,rhs,phieps,n_iter, &
-  !    & ok,rx_fmm,apply_rx_prec,hnorm)
-  !call gmresr(.true., nsph*nbasis, jgmres, mgmres, rhs, phieps, work_gmres, &
-  !    & rel_tol, 'abs', n_iter, resid, rx_fmm_prec_gmres, ok)
   call cpu_time(finish_time)
-  write(6,*) 'ddpcm step time: ', finish_time-start_time
-  write(*,"(A,I0)") " ddpcm step iterations: ", n_iter
-
+  if (iprint.ge.1) then
+      write(*, "(A,ES11.4E2,A)") " ddpcm step time:", &
+        & finish_time-start_time, " seconds"
+      write(*, "(A,I0)") " ddpcm step iterations: ", n_iter
+  endif
   ! Print matvec statistics
-  !call pcm_matvec_print_stats
-
-  !call prtsph('phie',nsph,0,phieps)
+  if (iprint.ge.2) call pcm_matvec_print_stats
 
   ! solve the ddcosmo linear system
   n_iter = 100000
   dodiag = .false.
-  xs = 0
-  rel_tol = tol * hnorm(nsph*nbasis, phieps)
   call cpu_time(start_time)
-  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,rel_tol,phieps,xs,n_iter, &
+  call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,phieps,xs,n_iter, &
       & ok,lx,ldm1x,hnorm)
   call cpu_time(finish_time)
-  write(6,*) 'ddcosmo step time: ', finish_time-start_time
-  write(*,"(A,I0)") " ddcosmo step iterations: ", n_iter
-  !call prtsph('x',nsph,0,xs)
+  if (iprint.ge.1) then
+      write(*, "(A,ES11.4E2,A)") " ddcosmo step time:", &
+        & finish_time-start_time, " seconds"
+      write(*, "(A,I0)") " ddcosmo step iterations: ", n_iter
+  endif
+  if (iprint.ge.2) call prtsph('x',nsph,0,xs)
 
   ! compute the energy
   esolv = pt5*sprod(nsph*nbasis,xs,psi)
 
   ! Solve adjoint systems
   if (do_adjoint) then
+
     ! solve ddcosmo adjoint system
     n_iter = 200
     dodiag = .false.
@@ -355,9 +424,12 @@ contains
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,psi,s,n_iter, &
       & ok,lstarx,ldm1x,hnorm)
     call cpu_time(finish_time)
-    write(6,*) 'adjoint ddcosmo step time: ', finish_time-start_time
-    write(*,"(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
-    !call prtsph('S',nsph,0,s)
+    if (iprint.ge.1) then
+        write(*, "(A,ES11.4E2,A)") " adjoint ddcosmo step time:", &
+            & finish_time-start_time, " seconds"
+        write(*, "(A,I0)") " adjoint ddcosmo step iterations: ", n_iter
+    endif
+    if (iprint.ge.2) call prtsph('s',nsph,0,s)
 
     ! solve ddpcm adjoint system
     n_iter = 200
@@ -366,16 +438,23 @@ contains
     call jacobi_diis(nsph*nbasis,iprint,ndiis,4,tol,s,y,n_iter, &
       & ok,rstarx_fmm,apply_rstarx_prec,hnorm)
     call cpu_time(finish_time)
-    write(6,*) 'adjoint ddpcm step time: ', finish_time-start_time
-    write(*,"(A,I0)") " adjoint ddpcm step iterations: ", n_iter
-    !call prtsph('Y',nsph,0,y)
+    if (iprint.ge.1) then
+        write(*,"(A,ES11.4E2,A)") " adjoint ddpcm step time:", &
+            & finish_time-start_time, " seconds"
+        write(*,"(A,I0)") " adjoint ddpcm step iterations: ", &
+            & n_iter
+    endif
+    if (iprint.ge.2) call prtsph('y',nsph,0,y)
 
     ! recover effect of Rinf^*
     fac = two*pi*(one - (eps + one)/(eps - one))
-    y = s + fac*y
-    !call prtsph('adjoint ddpcm solution',nsph,0,y)
+    q = s + fac*y
+
+    if (iprint.ge.2) call prtsph('q',nsph,0,q)
   end if
 
+  ! Deallocate ddpcm-related arrays
+  deallocate(phiinf,g)
   ! Deallocate FMM-related arrays
   deallocate(ind, snode)
   deallocate(cluster, children, parent, cnode, rnode)
@@ -393,7 +472,6 @@ contains
   deallocate(l2l_ztrans_mat)
   deallocate(m2l_reflect_mat)
   deallocate(m2l_ztrans_mat)
-  return
   end subroutine ddpcm_fmm
 
   subroutine ddpcm_fmm_adj(phi, psi, esolv)
@@ -403,16 +481,17 @@ contains
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
   real*8, intent(inout) :: esolv
   real*8 :: tol, resid, res0, rel_tol, fac
-  integer, parameter :: mgmres=10, jgmres=10
-  real*8 :: work_gmres(nsph*nbasis*(2*jgmres+mgmres+2))
-  integer :: isph, n_iter, lwork_gmres, l, ll, m
+  integer :: isph, n_iter, l, ll, m
   logical :: ok
-  external :: lx, ldm1x, gmresr
+  external :: lx, ldm1x
   real*8, external :: hnorm, dnrm2
   real(kind=8), allocatable :: fmm_mat(:, :, :, :)
   real(kind=8), allocatable :: coef_sph(:, :), coef_out(:, :)
   real(kind=8) :: total_norm, total_err
   integer :: i, j
+  ! Temporary variables to get list of all admissible pairs
+  integer :: lwork, iwork, jwork
+  integer, allocatable :: work(:, :)
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.
@@ -631,7 +710,7 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8 :: fac
   integer :: isph
 
@@ -646,37 +725,6 @@ contains
     !y(:, isph) = y(:, isph) * rsph(isph)**2
   end do
   end subroutine rx_fmm
-
-  subroutine rx_fmm_prec_gmres(n, x, y)
-  ! Use FMM to compute Y = Reps X =
-  ! = (2*pi*(eps + 1)/(eps - 1) - D) X 
-  implicit none
-  integer, intent(in) :: n
-  real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
-  real*8 :: fac, z(nbasis, nsph)
-  integer :: isph, l, ind, m
-
-  call dx_fmm(n,x,z)
-  z = -z
-
-  if (dodiag) then
-    fac = two*pi*(eps + one)/(eps - one)
-    z = z + fac*x
-  end if
-  do isph = 1, nsph
-    !z(:, isph) = z(:, isph) * rsph(isph)**2
-  end do
-  call apply_rx_prec(n, z, y)
-  ! Scale to get L2 norm instead of H-norm
-  do l = 0, lmax
-    ind = l*l + l + 1
-    fac = one / sqrt(one+dble(l))
-    do m = ind-l, ind+l
-      y(m, :) = fac * y(m, :)
-    end do
-  end do
-  end subroutine rx_fmm_prec_gmres
 
   subroutine rinfx(n,x,y)
   ! computes y = rinf x = 
@@ -703,7 +751,7 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8 :: fac
   integer :: isph
 
@@ -801,7 +849,7 @@ contains
   implicit none
   integer, intent(in) :: n
   real*8, intent(in) :: x(nbasis,nsph)
-  real*8, intent(inout) :: y(nbasis,nsph)
+  real*8, intent(out) :: y(nbasis,nsph)
   real*8 :: fmm_x((pm+1)*(pm+1), nsph) ! Input for FMM
   real*8 :: fmm_y((pl+1)*(pl+1), nsph) ! Output of FMM
   integer :: isph, igrid, l, lind, m
