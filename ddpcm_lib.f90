@@ -232,8 +232,8 @@ contains
   integer :: l2l_reflect_size, l2l_ztrans_size
   integer :: m2l_reflect_size, m2l_ztrans_size
   ! Set globally degrees of FMM harmonics
-  pm = fmm_pm
-  pl = fmm_pl
+  pm = pmax
+  pl = pmax
   ! Prepare FMM tree and other things. This can be moved out from this
   ! function to rerun ddpcm_fmm with the same molecule without recomputing
   ! FMM-related variables.

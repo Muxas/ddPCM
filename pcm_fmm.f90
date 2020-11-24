@@ -3,6 +3,7 @@ implicit none
 real(kind=8) :: sqrt_2=0, sqrt_four_pi=0
 real(kind=8) :: total_time_matvec=0
 integer :: total_count_matvec=0
+integer :: pmax
 contains
 
 ! Init global constants

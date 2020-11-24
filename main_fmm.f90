@@ -2,6 +2,7 @@ program main
 use ddcosmo
 use ddpcm_lib, only: ddpcm_fmm, ddpcm_init, ddpcm_finalize, ddpcm_forces, &
     & ddpcm_zeta
+use pcm_fmm, only: pmax
 ! 
 !      888      888  .d8888b.   .d88888b.   .d8888b.  888b     d888  .d88888b.  
 !      888      888 d88P  Y88b d88P" "Y88b d88P  Y88b 8888b   d8888 d88P" "Y88b 
@@ -137,6 +138,7 @@ open (unit=100,file='Input.txt',form='formatted',access='sequential')
 read(100,*) iprint      ! printing flag
 read(100,*) nproc       ! number of openmp threads
 read(100,*) lmax        ! max angular momentum of spherical harmonics basis
+read(100,*) pmax        ! max degree of harmonics for the FMM
 read(100,*) ngrid       ! number of lebedev points
 read(100,*) iconv       ! 10^(-iconv) is the convergence threshold for the iterative solver
 read(100,*) igrad       ! whether to compute (1) or not (0) forces
