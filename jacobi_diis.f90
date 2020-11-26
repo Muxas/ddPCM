@@ -55,7 +55,7 @@ subroutine jacobi_diis( n, lprint, diis_max, norm, tol, rhs, x, n_iter, ok, matv
       external                             :: u_norm
 !
       integer :: it, nmat, istatus, lenb
-      real*8  :: rms_norm, max_norm, tol_max
+      real*8  :: rms_norm, max_norm, tol_max, rms_norm_diff, max_norm_diff
       logical :: dodiis
 !
       real*8, allocatable :: x_new(:), y(:), x_diis(:,:), e_diis(:,:), bmat(:,:)
@@ -126,20 +126,21 @@ subroutine jacobi_diis( n, lprint, diis_max, norm, tol, rhs, x, n_iter, ok, matv
         if ( norm.le.3 ) then
 !
 !         compute norm
-          call rmsvec( n, x, rms_norm, max_norm )
+          call rmsvec( n, x, rms_norm_diff, max_norm_diff )
+          call rmsvec( n, x_new, rms_norm, max_norm)
 !
 !         check norm
           if ( norm.eq.1 ) then
 !                  
-            ok = (rms_norm.lt.tol)
+            ok = (rms_norm_diff .lt. tol*rms_norm)
             
           elseif ( norm.eq.2 ) then
 !                  
-            ok = (max_norm.lt.tol)
+            ok = (max_norm_diff .lt. tol*max_norm)
 !            
           else 
 
-            ok = (rms_norm.lt.tol) .and. (max_norm.lt.tol_max)
+            ok = (rms_norm_diff .lt. tol*rms_norm) .and. (max_norm_diff .lt. tol*max_norm)
 !            
           endif
 !
@@ -147,26 +148,27 @@ subroutine jacobi_diis( n, lprint, diis_max, norm, tol, rhs, x, n_iter, ok, matv
         elseif ( norm.eq.4 ) then
 !
 !         just a placeholder for printing
-          max_norm = -1.d0
+          max_norm_diff = -1.d0
 !
 !         compute norm
-          rms_norm = u_norm( n, x )
+          rms_norm_diff = u_norm( n, x )
+          rms_norm = u_norm( n, x_new )
 !
 !         check norm
-          ok = (rms_norm.lt.tol)
+          ok = (rms_norm_diff .lt. tol*rms_norm)
 !          
         endif
 !
 !       printing
         if ( lprint.gt.0 ) then
            if (norm.eq.1) then
-             write(*,110) it, 'max', max_norm
+             write(*,110) it, 'max', max_norm_diff/max_norm
            else if (norm.eq.2) then
-             write(*,110) it, 'rms', rms_norm
+             write(*,110) it, 'rms', rms_norm_diff/rms_norm
            else if (norm.eq.3) then
-             write(*,100) it, rms_norm, max_norm
+             write(*,100) it, rms_norm_diff/rms_norm, max_norm_diff/max_norm
            else if (norm.eq.4) then
-             write(*,120) it, rms_norm
+             write(*,120) it, rms_norm_diff/rms_norm
            end if
          end if
   100   format(t3,'iter=',i4,' residual norm (rms,max): ', 2d14.4 )

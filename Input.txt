@@ -3,7 +3,7 @@
 10               ! maximum angular momentum for the spherical harmonics expansion
 20               ! degree of shperical harmonics for the FMM
 302              ! (approximate) number of grid points to be used for numerical quadratures
-16               ! convergence threshold for the iterative solver
+14               ! convergence threshold for the iterative solver
 0                ! whether to compute (1) or not (0) the forces
 78.3553          ! dielectric constant
 0.2              ! regularization parameter
