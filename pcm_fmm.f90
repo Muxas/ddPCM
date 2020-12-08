@@ -5783,15 +5783,33 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
         & *(min(pm,pl)+2)*(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
     real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
-    integer :: i, j, indi, indj, l, m, isph, igrid, ik, ksph
+    integer :: i, j, indi, indj, l, m, isph, igrid, ik, ksph, jsph, jsph_node
     integer :: counter=1
     real(kind=8) :: start, finish, time
-    real(kind=8) :: fac, fl, gg, cx, cy, cz, vki(3), vvki, tki
+    integer :: inear, inode, jnode
+    real(kind=8) :: fac, fl, gg, cx, cy, cz, c(3), vki(3), vvki, tki
     real(kind=8) :: tlow, thigh, xgrid2(ngrid, nsph)
+    real(kind=8) :: coef_sph_l_x((pl+1)*(pl+1)), coef_sph_l_y((pl+1)*(pl+1))
+    real(kind=8) :: coef_sph_m_grad((lmax+2)*(lmax+2))
+    real(kind=8) :: zx_coord_transform(3, 3), zy_coord_transform(3, 3)
+    real(kind=8) :: fact(2*pl+1), tmp1, tmp2, tmp_gg
     call cpu_time(start)
+    zx_coord_transform = 0
+    zx_coord_transform(1, 2) = 1
+    zx_coord_transform(2, 1) = 1
+    zx_coord_transform(3, 3) = 1
+    zy_coord_transform = 0
+    zy_coord_transform(3, 2) = 1
+    zy_coord_transform(2, 3) = 1
+    zy_coord_transform(1, 1) = 1
     force_out = 0
     tlow  = one - pt5*(one - se)*eta
     thigh = one + pt5*(one + se)*eta
+    ! Fill square roots of factorials
+    fact(1) = 1
+    do j = 2, 2*pl+1
+        fact(j) = sqrt(dble(j-1)) * fact(j-1)
+    end do
     ! Direct far-field FMM matvec to get output local expansions from input
     ! multipole expansions. It will be used in R_i^A.
     ! As of now I compute potential at all external grid points, improved
@@ -5832,7 +5850,7 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     !call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_sph_m_adj, ind, cluster, &
     !    & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
     !    & coef_node_m)
-    ! Compute R_i^D
+    ! Compute all terms of grad_i(R)
     do isph = 1, nsph
         do igrid = 1, ngrid
             ! Loop over all neighbouring spheres
@@ -5858,12 +5876,19 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                     fl = dble(l)
                     fac = two*pi/(two*fl + one)
                     do m = -l, l 
-                        ! This is R^D component
+                        ! This is R^D component (grad_i of U of a sum of R_kk
+                        ! with index inequality k!=i for k being a neighbour
+                        ! of i)
+                        ! Indexes k and j are flipped compared to the paper
                         !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,ksph)
                     end do
                 end do
-                ! This is R^C component
+                ! This is R^C and R^B component (grad_i of U of a sum of R_kj
+                ! for index inequality j!=k)
+                ! Indexes k and j are flipped compared to the paper
                 !gg = gg - xgrid2(igrid, ksph)
+                ! Compute grad_i component of forces using precomputed
+                ! potential gg
                 force_out(:, isph) = force_out(:, isph) - &
                     & dfsw(tki,se,eta)/rsph(isph)*w(igrid)*gg* &
                     & xgrid(igrid, ksph)*(vki/vvki)
@@ -5876,25 +5901,66 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                     fl = dble(l)
                     fac = two*pi/(two*fl + one)
                     do m = -l, l 
+                        ! This is R^D component (grad_i of U of R_ii)
                         !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,isph)
                     end do
                 end do
+                ! R^A component (grad_i of U of a sum of R_ij for index
+                ! inequality j!=i)
+                ! Indexes k and j are flipped compared to the paper
+                !gg = gg - xgrid2(igrid, isph)
+                ! Compute grad_i component of forces using precomputed
+                ! potential gg
                 force_out(:, isph) = force_out(:, isph) + &
                     & w(igrid)*gg*xgrid(igrid,isph)*zi(:, igrid, isph)
-                ! R^A component
-                force_out(:, isph) = force_out(:, isph) - &
-                    & w(igrid)*xgrid2(igrid, isph)*xgrid(igrid, isph)* &
-                    & zi(:, igrid, isph)
+            end if
+            if (ui(igrid, isph) .gt. zero) then
+                ! Another R^A component (grad_i of potential of a sum of R_ij
+                ! for index inequality j!=i)
+                ! Indexes k and j are flipped compared to the paper
+                gg = 0
+                ! Gradient of the far-field potential is a gradient of local
+                ! expansion
+                do l = 0, pl-1
+                    indi = l*l + l + 1
+                    indj = (l+1)*(l+1) + (l+1) + 1
+                    do m = -l, l 
+                        tmp1 = one / rsph(isph) / fact(l-m+1) / fact(l+m+1) / &
+                            & vscales(indi) / vscales(indj) * fact(l-m+2) * &
+                            & fact(l+m+2)
+                        gg = gg - tmp1*vgrid(indi+m,igrid)*coef_sph_l(indj+m,isph)
+                    end do
+                end do
+                ! Gradient of the near-field potential is a gradient of
+                ! multipole expansion
+                inode = snode(isph)
+                do inear = snear(inode), snear(inode+1)-1
+                    jnode = near(inear)
+                    do jsph_node = cluster(1, jnode), cluster(2, jnode)
+                        jsph = ind(jsph_node)
+                        if (isph .eq. jsph) cycle
+                        c = csph(:, isph) + rsph(isph)*grid(:, igrid)
+                        coef_sph_m_grad = 0
+                        do l = 1, lmax+1
+                            indi = l*l + l + 1
+                            indj = (l-1)*(l-1) + (l-1) + 1
+                            do m = 1-l, l-1
+                                tmp1 = one / rsph(jsph) * sqrt(dble(l*l-m*m)) * &
+                                    & sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
+                                coef_sph_m_grad(indi+m) = tmp1 * &
+                                    & coef_sph_scaled(indj+m, jsph)
+                            end do
+                        end do
+                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), lmax+1, &
+                            & vscales, coef_sph_m_grad, tmp_gg)
+                        gg = gg + tmp_gg
+                    end do
+                end do
+                force_out(3, isph) = force_out(3, isph) - &
+                    & w(igrid)*gg*xgrid(igrid, isph)*ui(igrid, isph)
             end if
         end do
     end do
-    ! Compute R_i^A
-    ! Compute R_i^B
-    do i = 1, nsph
-        !do j = 2, lmax+1
-        !end do
-    end do
-    ! Compute R_i^C
     call cpu_time(finish)
     total_time_matvec = total_time_matvec + finish - start
     total_count_matvec = total_count_matvec + 1

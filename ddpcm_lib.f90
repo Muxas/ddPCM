@@ -1451,9 +1451,9 @@ contains
           do m = -l, l
             fac = fcl*g(ind+m,ksph)
             fac = - fac*basloc(ind+m)
-            a(1) = a(1) + fac*vb(1)
-            a(2) = a(2) + fac*vb(2) 
-            a(3) = a(3) + fac*vb(3)
+            !a(1) = a(1) + fac*vb(1)
+            !a(2) = a(2) + fac*vb(2) 
+            !a(3) = a(3) + fac*vb(3)
 
             fac = ui(its,isph)*fcl*g(ind+m,ksph)
             b = - (fl + one)*basloc(ind+m)/(rsph(ksph)*tik)
@@ -1467,7 +1467,7 @@ contains
               & sjac(3,2)*dbsloc(2,ind+m) + sjac(3,3)*dbsloc(3,ind+m)
             !a(1) = a(1) + fac*(sik(1)*b + va(1))
             !a(2) = a(2) + fac*(sik(2)*b + va(2))
-            !a(3) = a(3) + fac*(sik(3)*b + va(3))
+            a(3) = a(3) + fac*(sik(3)*b + va(3))
           end do
           tt = tt/tik
         end do
