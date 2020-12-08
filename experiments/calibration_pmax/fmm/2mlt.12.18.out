@@ -1,0 +1,12 @@
+0 ! print flag
+1 ! number of OpenMP threads
+12 ! model harmonics max.degree
+18 ! FMM harmonics max.degree
+590 ! number of Lebedev grid points
+14 ! order of convergence tolerance
+0 ! whether or not to compute forces
+78.3553 ! dielectric permittivity
+0.1 ! regularization parameter
+937 ! number of atoms
+ ddpcm_fmm esolv: -2.857265300553926E+000
+ ddpcm_fmm time:  1.1494E+03 seconds

@@ -1,10 +1,10 @@
 0                ! print flag. the larger, the more verbose the output
 1                ! number of OpenMP cores to be used
 10               ! maximum angular momentum for the spherical harmonics expansion
-20               ! degree of shperical harmonics for the FMM
+40               ! degree of shperical harmonics for the FMM
 302              ! (approximate) number of grid points to be used for numerical quadratures
 14               ! convergence threshold for the iterative solver
-0                ! whether to compute (1) or not (0) the forces
+1                ! whether to compute (1) or not (0) the forces
 78.3553          ! dielectric constant
 0.2              ! regularization parameter
 12               ! number of spheres

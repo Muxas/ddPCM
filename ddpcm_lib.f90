@@ -215,7 +215,7 @@ contains
   real*8, intent(in) :: phi(ncav), psi(nbasis,nsph)
   real*8, intent(inout) :: esolv
   logical, intent(in) :: do_adjoint
-  integer, intent(in) :: fmm_pm, fmm_pl
+  integer, intent(in) :: fmm_pm, fmm_pl ! ignored
   integer, intent(in) :: nadm
   integer :: istatus
   real*8 :: tol, resid, res0, rel_tol, fac
@@ -316,48 +316,52 @@ contains
   ! Get number of near-field M2P interactions
   call get_ngrid_ext_near(nsph, ngrid_ext_sph, nclusters, nnear, snode, &
       & ngrid_ext_near)
-  ! Allocate FMM near-field M2P and far-field L2P matrices
-  allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext), &
-      & m2p_mat((pm+1)*(pm+1), ngrid_ext_near), stat=istatus)
-  if (istatus.ne.0) then
-    write(*, "(A)") "ERROR: ddpcm_fmm allocation #7 failed"
-    stop
-  end if
-  ! Allocate FMM far-field M2M matrices
-  m2m_reflect_size = (pm+1) * (2*pm+1) * (2*pm+3) / 3
-  m2m_ztrans_size = (pm+1) * (pm+2) * (pm+3) / 6
-  allocate(m2m_reflect_mat(m2m_reflect_size, nclusters-1), &
-      & m2m_ztrans_mat(m2m_ztrans_size, nclusters-1), stat=istatus)
-  if (istatus.ne.0) then
-    write(*, "(A)") "ERROR: ddpcm_fmm allocation #8 failed"
-    stop
-  end if
-  ! Allocate FMM far-field L2L matrices
-  l2l_reflect_size = (pl+1) * (2*pl+1) * (2*pl+3) / 3
-  l2l_ztrans_size = (pl+1) * (pl+2) * (pl+3) / 6
-  allocate(l2l_reflect_mat(l2l_reflect_size, nclusters-1), &
-      & l2l_ztrans_mat(l2l_ztrans_size, nclusters-1), stat=istatus)
-  if (istatus.ne.0) then
-    write(*, "(A)") "ERROR: ddpcm_fmm allocation #9 failed"
-    stop
-  end if
-  ! Allocate FMM far-field M2L matrices
-  m2l_reflect_size = max(m2m_reflect_size, l2l_reflect_size)
-  m2l_ztrans_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
-      & * (3*max(pm,pl)+3-min(pm,pl)) / 6
-  allocate(m2l_reflect_mat(m2l_reflect_size, nnfar), &
-      & m2l_ztrans_mat(m2l_ztrans_size, nnfar), stat=istatus)
-  if (istatus.ne.0) then
-    write(*, "(A)") "ERROR: ddpcm_fmm allocation #10 failed"
-    stop
-  end if
-  ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
-  call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
-      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
-      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
-      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-      & l2p_mat, ngrid_ext_near, m2p_mat)
+  ! Compute all transfer matrices only if needed
+  if(ifmm_onfly .eq. 0) then
+      ! Allocate FMM near-field M2P and far-field L2P matrices
+      allocate(l2p_mat((pl+1)*(pl+1), ngrid_ext), &
+          & m2p_mat((pm+1)*(pm+1), ngrid_ext_near), stat=istatus)
+      if (istatus.ne.0) then
+          write(*, "(A)") "ERROR: ddpcm_fmm allocation #7 failed"
+          stop
+      end if
+      ! Allocate FMM far-field M2M matrices
+      m2m_reflect_size = (pm+1) * (2*pm+1) * (2*pm+3) / 3
+      m2m_ztrans_size = (pm+1) * (pm+2) * (pm+3) / 6
+      allocate(m2m_reflect_mat(m2m_reflect_size, nclusters-1), &
+          & m2m_ztrans_mat(m2m_ztrans_size, nclusters-1), stat=istatus)
+      if (istatus.ne.0) then
+          write(*, "(A)") "ERROR: ddpcm_fmm allocation #8 failed"
+          stop
+      end if
+      ! Allocate FMM far-field L2L matrices
+      l2l_reflect_size = (pl+1) * (2*pl+1) * (2*pl+3) / 3
+      l2l_ztrans_size = (pl+1) * (pl+2) * (pl+3) / 6
+      allocate(l2l_reflect_mat(l2l_reflect_size, nclusters-1), &
+          & l2l_ztrans_mat(l2l_ztrans_size, nclusters-1), stat=istatus)
+      if (istatus.ne.0) then
+          write(*, "(A)") "ERROR: ddpcm_fmm allocation #9 failed"
+          stop
+      end if
+      ! Allocate FMM far-field M2L matrices
+      m2l_reflect_size = max(m2m_reflect_size, l2l_reflect_size)
+      m2l_ztrans_size = (min(pm,pl)+1) * (min(pm,pl)+2) &
+          & * (3*max(pm,pl)+3-min(pm,pl)) / 6
+      allocate(m2l_reflect_mat(m2l_reflect_size, nnfar), &
+          & m2l_ztrans_mat(m2l_ztrans_size, nnfar), stat=istatus)
+      if (istatus.ne.0) then
+          write(*, "(A)") "ERROR: ddpcm_fmm allocation #10 failed"
+          stop
+      end if
+      ! Precompute all M2M, M2L and L2L reflection and OZ translation matrices
+      call pcm_matvec_grid_fmm_get_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+          & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+          & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+          & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+          & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+          & l2p_mat, ngrid_ext_near, m2p_mat)
+      write(*,*) "Allocated and computed FMM matrices"
+  endif
 
   ! Continue with ddpcm
   allocate(phiinf(nbasis,nsph), g(ngrid,nsph), stat=istatus)
@@ -453,25 +457,29 @@ contains
     if (iprint.ge.2) call prtsph('q',nsph,0,q)
   end if
 
+  ! DO NOT DEALLOCATE HERE, AS IT IS USED IN MAIN_FMM.f90
   ! Deallocate ddpcm-related arrays
-  deallocate(phiinf,g)
+  !deallocate(phiinf,g)
   ! Deallocate FMM-related arrays
-  deallocate(ind, snode)
-  deallocate(cluster, children, parent, cnode, rnode)
-  deallocate(vscales, vgrid)
-  deallocate(nfar, nnear)
-  deallocate(work)
-  deallocate(far, sfar, near, snear)
-  deallocate(ngrid_ext_sph)
-  deallocate(grid_ext_ia, grid_ext_ja)
-  deallocate(l2p_mat)
-  deallocate(m2p_mat)
-  deallocate(m2m_reflect_mat)
-  deallocate(m2m_ztrans_mat)
-  deallocate(l2l_reflect_mat)
-  deallocate(l2l_ztrans_mat)
-  deallocate(m2l_reflect_mat)
-  deallocate(m2l_ztrans_mat)
+  !deallocate(ind, snode)
+  !deallocate(cluster, children, parent, cnode, rnode)
+  !deallocate(vscales, vgrid)
+  !deallocate(nfar, nnear)
+  !deallocate(work)
+  !deallocate(far, sfar, near, snear)
+  !deallocate(ngrid_ext_sph)
+  !deallocate(grid_ext_ia, grid_ext_ja)
+  ! Deallocate transfer matrices if they were allocated/computed
+  !if(ifmm_onfly .eq. 2) then
+  !    deallocate(l2p_mat)
+  !    deallocate(m2p_mat)
+  !    deallocate(m2m_reflect_mat)
+  !    deallocate(m2m_ztrans_mat)
+  !    deallocate(l2l_reflect_mat)
+  !    deallocate(l2l_ztrans_mat)
+  !    deallocate(m2l_reflect_mat)
+  !    deallocate(m2l_ztrans_mat)
+  !endif
   end subroutine ddpcm_fmm
 
   subroutine ddpcm_fmm_adj(phi, psi, esolv)
@@ -854,18 +862,12 @@ contains
   real*8 :: fmm_y((pl+1)*(pl+1), nsph) ! Output of FMM
   integer :: isph, igrid, l, lind, m
   real*8 :: f, vts(ngrid), fourpi
-  fmm_x(1:nbasis, :) = x
-  fmm_x(nbasis+1:, :) = zero
-  ! Do actual FMM matvec
-  !call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
-  !    pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
-  !    nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
-  call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
-      & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
-      & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
-      & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
-      & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-      & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
+  if(nbasis .le. (pm+1)*(pm+1)) then
+    fmm_x(1:nbasis, :) = x
+    fmm_x(nbasis+1:, :) = zero
+  else
+    fmm_x(:, :) = x(1:(pm+1)*(pm+1), :)
+  endif
   ! Apply diagonal contribution if needed
   if(dodiag) then
     fourpi = four * pi
@@ -883,13 +885,29 @@ contains
       end do
       call intrhs(isph, vts, y(:, isph))
     end do
-    ! Cut fmm_y to fit into output y
-    y = y + fmm_y(1:nbasis, :)
   else
-    ! Cut fmm_y to fit into output y
-    y = fmm_y(1:nbasis, :)
+    y = 0
   end if
+  ! Do actual FMM matvec
+  if(ifmm_onfly .eq. 1) then
+      call pcm_matvec_grid_fmm_fast(nsph, csph, rsph, ngrid, grid, w, vgrid, ui, &
+          pm, pl, vscales, ind, nclusters, cluster, children, cnode, rnode, &
+          nnfar, sfar, far, nnnear, snear, near, fmm_x, fmm_y)
+  else
+      call pcm_matvec_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, vgrid, &
+          & ui, pm, pl, vscales, ind, nclusters, cluster, snode, children, cnode, &
+          & rnode, nnfar, sfar, far, nnnear, snear, near, m2m_reflect_mat, &
+          & m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, l2l_reflect_mat, &
+          & l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+          & l2p_mat, ngrid_ext_near, m2p_mat, fmm_x, fmm_y)
+  endif
   !write(*,*) 'I did actual FMM matvec'
+  ! Cut fmm_y to fit into output y
+  if(nbasis .le. (pl+1)*(pl+1)) then
+      y = y + fmm_y(1:nbasis, :)
+  else
+      y(1:(pl+1)*(pl+1), :) = y(1:(pl+1)*(pl+1), :) + fmm_y
+  endif
   end subroutine dx_fmm
 
   subroutine apply_rx_prec(n,x,y)
@@ -1076,6 +1094,7 @@ contains
   real*8, allocatable :: scr(:,:), ycr(:,:), qcr(:,:)
   integer :: istatus, ii, isph, ig
   ! debug
+  real*8 :: fx_test(3,nsph)
   real*8, allocatable :: fscr(:,:)
   real*8 :: fac
   allocate(fscr(3,nsph))
@@ -1130,9 +1149,18 @@ contains
   fx = fx + fscr
   fscr = zero
   write(6,*) 'gradr'
+  fx_test = 0
+  call pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
+        & vgrid, ui, pm, pl, lmax, vscales, ind, nclusters, cluster, snode, &
+        & children, &
+        & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
+        & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
+        & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
+        & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
+        & rhs-phieps, ycr, fx_test)
   do isph = 1, nsph
     call gradr(isph,vplm,vcos,vsin,basloc,dbsloc,rhs-phieps,ycr,fscr(:,isph))
-    write(6,'(1x,i5,3f16.8)') isph, -pt5*fscr(:,isph)
+    write(6,'(1x,i5,3e16.8,3e16.8)') isph, -pt5*fscr(:,isph), -pt5*fx_test(:,isph)
   end do
   fx = fx + fscr
   fscr = zero
@@ -1234,7 +1262,8 @@ contains
           fl = dble(l)
           fac = two*pi/(two*fl + one)
           do m = -l, l 
-            gg = gg + fac*basis(ind+m,its)*g(ind+m,ksph)
+            !! DEBUG comment
+            !gg = gg + fac*basis(ind+m,its)*g(ind+m,ksph)
           end do
         end do
 
@@ -1254,7 +1283,8 @@ contains
               ind = l*l + l + 1
               fcl = - four*pi*dble(l)/(two*dble(l)+one)*tt
               do m = -l, l
-                gg = gg + fcl*g(ind+m,jsph)*basloc(ind+m)
+                !! DEBUG comment
+                !gg = gg + fcl*g(ind+m,jsph)*basloc(ind+m)
               end do
               tt = tt/tkj
             end do
@@ -1268,7 +1298,8 @@ contains
           ind = l*l + l + 1
           fcl = - four*pi*dble(l)/(two*dble(l)+one)*tt
           do m = -l, l
-            gg = gg + fcl*g(ind+m,isph)*basloc(ind+m)
+            !! DEBUG comment
+            !gg = gg + fcl*g(ind+m,isph)*basloc(ind+m)
           end do
           tt = tt/tki
         end do
@@ -1290,7 +1321,8 @@ contains
         fl = dble(l)
         fac = two*pi/(two*fl + one)
         do m = -l, l 
-          gi = gi + fac*basis(ind+m,its)*g(ind+m,isph)
+          !! DEBUG comment
+          !gi = gi + fac*basis(ind+m,its)*g(ind+m,isph)
         end do
       end do
       fii = w(its)*gi*y(its,isph)
@@ -1360,9 +1392,9 @@ contains
           tt = tt/tji
         end do
         fac = ui(its,jsph)*w(its)*y(its,jsph)
-        fx(1) = fx(1) - fac*a(1)
-        fx(2) = fx(2) - fac*a(2)
-        fx(3) = fx(3) - fac*a(3)
+        !fx(1) = fx(1) - fac*a(1)
+        !fx(2) = fx(2) - fac*a(2)
+        !fx(3) = fx(3) - fac*a(3)
       end if
     end do
   end do
@@ -1433,9 +1465,9 @@ contains
               & sjac(2,2)*dbsloc(2,ind+m) + sjac(2,3)*dbsloc(3,ind+m)
             va(3) = sjac(3,1)*dbsloc(1,ind+m) + &
               & sjac(3,2)*dbsloc(2,ind+m) + sjac(3,3)*dbsloc(3,ind+m)
-            a(1) = a(1) + fac*(sik(1)*b + va(1))
-            a(2) = a(2) + fac*(sik(2)*b + va(2))
-            a(3) = a(3) + fac*(sik(3)*b + va(3))
+            !a(1) = a(1) + fac*(sik(1)*b + va(1))
+            !a(2) = a(2) + fac*(sik(2)*b + va(2))
+            !a(3) = a(3) + fac*(sik(3)*b + va(3))
           end do
           tt = tt/tik
         end do

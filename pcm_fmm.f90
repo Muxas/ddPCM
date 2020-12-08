@@ -1,9 +1,11 @@
 module pcm_fmm
+use ddcosmo, only: inl, nl, lmax, zero, one, two, pi, basis, se, eta, dfsw, pt5, zi
 implicit none
 real(kind=8) :: sqrt_2=0, sqrt_four_pi=0
 real(kind=8) :: total_time_matvec=0
 integer :: total_count_matvec=0
 integer :: pmax
+integer, parameter :: ifmm_onfly=0
 contains
 
 ! Init global constants
@@ -5741,14 +5743,14 @@ end subroutine pcm_matvec_adj_grid_fmm_use_mat
 
 ! Compute PCM portion of forces (2 matvecs)
 subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
-        & vgrid, ui, pm, pl, vscales, ind, nclusters, cluster, snode, &
+        & vgrid, ui, pm, pl, lmax, vscales, ind, nclusters, cluster, snode, &
         & children, &
         & cnode, rnode, nnfar, sfar, far, nnnear, snear, near, &
         & m2m_reflect_mat, m2m_ztrans_mat, m2l_reflect_mat, m2l_ztrans_mat, &
         & l2l_reflect_mat, l2l_ztrans_mat, ngrid_ext, ngrid_ext_sph, &
         & grid_ext_ia, grid_ext_ja, l2p_mat, ngrid_ext_near, m2p_mat, &
         & coef_sph, xgrid, force_out)
-    integer, intent(in) :: nsph, ngrid, pm, pl, ind(nsph), nclusters
+    integer, intent(in) :: nsph, ngrid, pm, pl, lmax, ind(nsph), nclusters
     integer, intent(in) :: cluster(2, nclusters), children(2, nclusters), nnfar
     integer, intent(in) :: sfar(nclusters+1), far(nnfar), nnnear, snode(nsph)
     integer, intent(in) :: snear(nclusters+1), near(nnnear)
@@ -5758,7 +5760,7 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8), intent(in) :: cnode(3, nclusters), rnode(nclusters)
     integer, intent(in) :: ngrid_ext, ngrid_ext_sph(nsph), grid_ext_ia(nsph+1)
     integer, intent(in) :: grid_ext_ja(ngrid_ext), ngrid_ext_near
-    real(kind=8), intent(in) :: coef_sph((pm+1)*(pm+1), nsph)
+    real(kind=8), intent(in) :: coef_sph((lmax+1)*(lmax+1), nsph)
     real(kind=8), intent(in) :: xgrid(ngrid, nsph)
     real(kind=8), intent(out) :: force_out(3, nsph)
     real(kind=8) :: coef_sph_scaled((pm+1)*(pm+1), nsph)
@@ -5781,13 +5783,21 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
         & *(min(pm,pl)+2)*(3*max(pm,pl)+3-min(pm,pl))/6, nnfar)
     real(kind=8), intent(in) :: l2p_mat((pl+1)*(pl+1), ngrid_ext)
     real(kind=8), intent(in) :: m2p_mat((pm+1)*(pm+1), ngrid_ext_near)
-    integer :: i, j, indi, indj
+    integer :: i, j, indi, indj, l, m, isph, igrid, ik, ksph
     integer :: counter=1
     real(kind=8) :: start, finish, time
+    real(kind=8) :: fac, fl, gg, cx, cy, cz, vki(3), vvki, tki
+    real(kind=8) :: tlow, thigh, xgrid2(ngrid, nsph)
     call cpu_time(start)
+    force_out = 0
+    tlow  = one - pt5*(one - se)*eta
+    thigh = one + pt5*(one + se)*eta
     ! Direct far-field FMM matvec to get output local expansions from input
     ! multipole expansions. It will be used in R_i^A.
-    do i = 0, pm
+    ! As of now I compute potential at all external grid points, improved
+    ! version shall only compute it at external points in a switch region
+    coef_sph_scaled = 0
+    do i = 0, lmax
         indi = i*i + i + 1
         do j = -i, i
             indj = indi + j
@@ -5802,22 +5812,82 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     call tree_l2l_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
         & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
         & coef_sph_l)
-    ! Adjoint full FMM matvec to get output multipole expansions from input
-    ! external grid points. It will be used in R_i^B.
-    call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
+    xgrid2 = 0
+    call tree_l2p_m2p_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
         & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
         & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-        & ngrid_ext_near, l2p_mat, m2p_mat, xgrid, coef_sph_m_adj, &
-        & coef_sph_l_adj)
-    call tree_l2l_adj_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
-        & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
-        & coef_sph_l_adj)
-    call tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
-        & m2l_reflect_mat, m2l_ztrans_mat, coef_node_l, coef_node_m)
-    call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_sph_m_adj, ind, cluster, &
-        & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
-        & coef_node_m)
-    ! Compute R_i^D, need gradient of U_i and list of neighbours
+        & ngrid_ext_near, l2p_mat, m2p_mat, coef_sph_scaled, coef_sph_l, xgrid2)
+    ! Adjoint full FMM matvec to get output multipole expansions from input
+    ! external grid points. It will be used in R_i^B.
+    !call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
+    !    & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
+    !    & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+    !    & ngrid_ext_near, l2p_mat, m2p_mat, xgrid, coef_sph_m_adj, &
+    !    & coef_sph_l_adj)
+    !call tree_l2l_adj_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
+    !    & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
+    !    & coef_sph_l_adj)
+    !call tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+    !    & m2l_reflect_mat, m2l_ztrans_mat, coef_node_l, coef_node_m)
+    !call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_sph_m_adj, ind, cluster, &
+    !    & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
+    !    & coef_node_m)
+    ! Compute R_i^D
+    do isph = 1, nsph
+        do igrid = 1, ngrid
+            ! Loop over all neighbouring spheres
+            do ik = inl(isph), inl(isph+1) - 1
+                ksph = nl(ik)
+                ! Only consider outside grid points
+                if(ui(igrid, ksph) .le. zero) cycle
+                ! build geometrical quantities
+                cx = csph(1,ksph) + rsph(ksph)*grid(1,igrid)
+                cy = csph(2,ksph) + rsph(ksph)*grid(2,igrid)
+                cz = csph(3,ksph) + rsph(ksph)*grid(3,igrid)
+                vki(1) = cx - csph(1,isph)
+                vki(2) = cy - csph(2,isph)
+                vki(3) = cz - csph(3,isph)
+                vvki = sqrt(vki(1)*vki(1) + vki(2)*vki(2) + &
+                    & vki(3)*vki(3))
+                tki = vvki/rsph(isph)
+                ! Only consider such points where grad U is non-zero
+                if((tki.le.tlow) .or. (tki.ge.thigh)) cycle
+                gg = zero
+                do l = 0, lmax
+                    indi = l*l + l + 1
+                    fl = dble(l)
+                    fac = two*pi/(two*fl + one)
+                    do m = -l, l 
+                        ! This is R^D component
+                        !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,ksph)
+                    end do
+                end do
+                ! This is R^C component
+                !gg = gg - xgrid2(igrid, ksph)
+                force_out(:, isph) = force_out(:, isph) - &
+                    & dfsw(tki,se,eta)/rsph(isph)*w(igrid)*gg* &
+                    & xgrid(igrid, ksph)*(vki/vvki)
+            end do
+            ! contribution from the sphere itself
+            if((ui(igrid,isph).gt.zero) .and. (ui(igrid,isph).lt.one)) then
+                gg = zero
+                do l = 0, lmax
+                    indi = l*l + l + 1
+                    fl = dble(l)
+                    fac = two*pi/(two*fl + one)
+                    do m = -l, l 
+                        !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,isph)
+                    end do
+                end do
+                force_out(:, isph) = force_out(:, isph) + &
+                    & w(igrid)*gg*xgrid(igrid,isph)*zi(:, igrid, isph)
+                ! R^A component
+                force_out(:, isph) = force_out(:, isph) - &
+                    & w(igrid)*xgrid2(igrid, isph)*xgrid(igrid, isph)* &
+                    & zi(:, igrid, isph)
+            end if
+        end do
+    end do
     ! Compute R_i^A
     ! Compute R_i^B
     do i = 1, nsph
