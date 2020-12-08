@@ -5790,18 +5790,24 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: fac, fl, gg, cx, cy, cz, c(3), vki(3), vvki, tki
     real(kind=8) :: tlow, thigh, xgrid2(ngrid, nsph)
     real(kind=8) :: coef_sph_l_x((pl+1)*(pl+1)), coef_sph_l_y((pl+1)*(pl+1))
-    real(kind=8) :: coef_sph_m_grad((lmax+2)*(lmax+2))
+    real(kind=8) :: coef_sph_l_x2((pl+1)*(pl+1)), coef_sph_l_y2((pl+1)*(pl+1))
+    real(kind=8) :: coef_sph_l_z((pl+1)*(pl+1))
+    real(kind=8) :: coef_sph_m_x((lmax+2)*(lmax+2))
+    real(kind=8) :: coef_sph_m_x2((lmax+2)*(lmax+2))
+    real(kind=8) :: coef_sph_m_y((lmax+2)*(lmax+2))
+    real(kind=8) :: coef_sph_m_y2((lmax+2)*(lmax+2))
+    real(kind=8) :: coef_sph_m_z((lmax+2)*(lmax+2))
     real(kind=8) :: zx_coord_transform(3, 3), zy_coord_transform(3, 3)
-    real(kind=8) :: fact(2*pl+1), tmp1, tmp2, tmp_gg
+    real(kind=8) :: fact(2*pl+1), tmp1, tmp2, tmp_gg, gg3(3)
     call cpu_time(start)
     zx_coord_transform = 0
-    zx_coord_transform(1, 2) = 1
-    zx_coord_transform(2, 1) = 1
-    zx_coord_transform(3, 3) = 1
+    zx_coord_transform(3, 2) = 1
+    zx_coord_transform(2, 3) = 1
+    zx_coord_transform(1, 1) = 1
     zy_coord_transform = 0
-    zy_coord_transform(3, 2) = 1
-    zy_coord_transform(2, 3) = 1
-    zy_coord_transform(1, 1) = 1
+    zy_coord_transform(1, 2) = 1
+    zy_coord_transform(2, 1) = 1
+    zy_coord_transform(3, 3) = 1
     force_out = 0
     tlow  = one - pt5*(one - se)*eta
     thigh = one + pt5*(one + se)*eta
@@ -5918,17 +5924,40 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                 ! Another R^A component (grad_i of potential of a sum of R_ij
                 ! for index inequality j!=i)
                 ! Indexes k and j are flipped compared to the paper
-                gg = 0
+                gg3 = 0
+                ! Get rotated local expansions
+                call fmm_sph_transform3(pl, zx_coord_transform, &
+                    & coef_sph_l(:, isph), coef_sph_l_x)
+                call fmm_sph_transform3(pl, zy_coord_transform, &
+                    & coef_sph_l(:, isph), coef_sph_l_y)
+                coef_sph_l_z = coef_sph_l(:, isph)
                 ! Gradient of the far-field potential is a gradient of local
                 ! expansion
                 do l = 0, pl-1
                     indi = l*l + l + 1
                     indj = (l+1)*(l+1) + (l+1) + 1
-                    do m = -l, l 
+                    do m = -l, l
                         tmp1 = one / rsph(isph) / fact(l-m+1) / fact(l+m+1) / &
                             & vscales(indi) / vscales(indj) * fact(l-m+2) * &
                             & fact(l+m+2)
-                        gg = gg - tmp1*vgrid(indi+m,igrid)*coef_sph_l(indj+m,isph)
+                        coef_sph_l_x(indi+m) = tmp1 * coef_sph_l_x(indj+m)
+                        coef_sph_l_y(indi+m) = tmp1 * coef_sph_l_y(indj+m)
+                        coef_sph_l_z(indi+m) = tmp1 * coef_sph_l_z(indj+m)
+                    end do
+                end do
+                call fmm_sph_transform3(pl, zx_coord_transform, &
+                    & coef_sph_l_x, coef_sph_l_x2)
+                call fmm_sph_transform3(pl, zy_coord_transform, &
+                    & coef_sph_l_y, coef_sph_l_y2)
+                do l = 0, pl-1
+                    indi = l*l + l + 1
+                    do m = indi-l, indi+l
+                        gg3(1) = gg3(1) - &
+                            & coef_sph_l_x2(m)*vgrid(m, igrid)
+                        gg3(2) = gg3(2) - &
+                            & coef_sph_l_y2(m)*vgrid(m, igrid)
+                        gg3(3) = gg3(3) - &
+                            & coef_sph_l_z(m)*vgrid(m, igrid)
                     end do
                 end do
                 ! Gradient of the near-field potential is a gradient of
@@ -5938,26 +5967,50 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                     jnode = near(inear)
                     do jsph_node = cluster(1, jnode), cluster(2, jnode)
                         jsph = ind(jsph_node)
+                        coef_sph_m_z = coef_sph_scaled(:(lmax+2)*(lmax+2), jsph)
+                        call fmm_sph_transform3(lmax+1, zx_coord_transform, &
+                            & coef_sph_m_z, coef_sph_m_x)
+                        call fmm_sph_transform3(lmax+1, zy_coord_transform, &
+                            & coef_sph_m_z, coef_sph_m_y)
                         if (isph .eq. jsph) cycle
                         c = csph(:, isph) + rsph(isph)*grid(:, igrid)
-                        coef_sph_m_grad = 0
-                        do l = 1, lmax+1
+                        do l = lmax+1, 1, -1
                             indi = l*l + l + 1
                             indj = (l-1)*(l-1) + (l-1) + 1
                             do m = 1-l, l-1
                                 tmp1 = one / rsph(jsph) * sqrt(dble(l*l-m*m)) * &
                                     & sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
-                                coef_sph_m_grad(indi+m) = tmp1 * &
-                                    & coef_sph_scaled(indj+m, jsph)
+                                coef_sph_m_x(indi+m) = tmp1 * coef_sph_m_x(indj+m)
+                                coef_sph_m_y(indi+m) = tmp1 * coef_sph_m_y(indj+m)
+                                coef_sph_m_z(indi+m) = tmp1 * coef_sph_m_z(indj+m)
                             end do
+                            coef_sph_m_x(indi-l) = 0
+                            coef_sph_m_x(indi+l) = 0
+                            coef_sph_m_y(indi-l) = 0
+                            coef_sph_m_y(indi+l) = 0
+                            coef_sph_m_z(indi-l) = 0
+                            coef_sph_m_z(indi+l) = 0
                         end do
+                        coef_sph_m_x(1) = 0
+                        coef_sph_m_y(1) = 0
+                        coef_sph_m_z(1) = 0
+                        call fmm_sph_transform3(lmax+1, zx_coord_transform, &
+                            & coef_sph_m_x, coef_sph_m_x2)
+                        call fmm_sph_transform3(lmax+1, zy_coord_transform, &
+                            & coef_sph_m_y, coef_sph_m_y2)
                         call fmm_m2p(c-csph(:, jsph), rsph(jsph), lmax+1, &
-                            & vscales, coef_sph_m_grad, tmp_gg)
-                        gg = gg + tmp_gg
+                            & vscales, coef_sph_m_x2, tmp_gg)
+                        gg3(1) = gg3(1) + tmp_gg
+                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), lmax+1, &
+                            & vscales, coef_sph_m_y2, tmp_gg)
+                        gg3(2) = gg3(2) + tmp_gg
+                        call fmm_m2p(c-csph(:, jsph), rsph(jsph), lmax+1, &
+                            & vscales, coef_sph_m_z, tmp_gg)
+                        gg3(3) = gg3(3) + tmp_gg
                     end do
                 end do
-                force_out(3, isph) = force_out(3, isph) - &
-                    & w(igrid)*gg*xgrid(igrid, isph)*ui(igrid, isph)
+                force_out(:, isph) = force_out(:, isph) - &
+                    & w(igrid)*gg3*xgrid(igrid, isph)*ui(igrid, isph)
             end if
         end do
     end do

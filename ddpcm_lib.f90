@@ -1465,8 +1465,8 @@ contains
               & sjac(2,2)*dbsloc(2,ind+m) + sjac(2,3)*dbsloc(3,ind+m)
             va(3) = sjac(3,1)*dbsloc(1,ind+m) + &
               & sjac(3,2)*dbsloc(2,ind+m) + sjac(3,3)*dbsloc(3,ind+m)
-            !a(1) = a(1) + fac*(sik(1)*b + va(1))
-            !a(2) = a(2) + fac*(sik(2)*b + va(2))
+            a(1) = a(1) + fac*(sik(1)*b + va(1))
+            a(2) = a(2) + fac*(sik(2)*b + va(2))
             a(3) = a(3) + fac*(sik(3)*b + va(3))
           end do
           tt = tt/tik
