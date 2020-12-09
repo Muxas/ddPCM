@@ -274,12 +274,12 @@ if (do_adjoint) then
   !
   ! --------------------------   end modify   --------------------------  
   
-  if (iprint.ge.1) then
+  if (iprint.ge.0) then
     write(iout,2000)
 2000 format(1x,'ddPCM forces (atomic units):',/, &
               1x,' atom',15x,'x',15x,'y',15x,'z')
     do isph = 1, nsph
-      write(6,'(1x,i5,3f16.8)') isph, fx(:,isph)
+      write(6,'(1x,i5,3e16.8)') isph, fx(:,isph)
     end do
   end if
  

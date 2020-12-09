@@ -5788,7 +5788,7 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     real(kind=8) :: start, finish, time
     integer :: inear, inode, jnode
     real(kind=8) :: fac, fl, gg, cx, cy, cz, c(3), vki(3), vvki, tki
-    real(kind=8) :: tlow, thigh, xgrid2(ngrid, nsph)
+    real(kind=8) :: tlow, thigh, xgrid2(ngrid, nsph), xgrid3(ngrid, nsph)
     real(kind=8) :: coef_sph_l_x((pl+1)*(pl+1)), coef_sph_l_y((pl+1)*(pl+1))
     real(kind=8) :: coef_sph_l_x2((pl+1)*(pl+1)), coef_sph_l_y2((pl+1)*(pl+1))
     real(kind=8) :: coef_sph_l_z((pl+1)*(pl+1))
@@ -5816,6 +5816,24 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
     do j = 2, 2*pl+1
         fact(j) = sqrt(dble(j-1)) * fact(j-1)
     end do
+    ! Adjoint full FMM matvec to get output multipole expansions from input
+    ! external grid points. It will be used in R_i^B.
+    do isph = 1, nsph
+        xgrid3(:, isph) = xgrid(:, isph) * w(:)
+    end do
+    call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
+        & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
+        & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
+        & ngrid_ext_near, l2p_mat, m2p_mat, xgrid3, coef_sph_m_adj, &
+        & coef_sph_l_adj)
+    call tree_l2l_adj_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
+        & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
+        & coef_sph_l_adj)
+    call tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
+        & m2l_reflect_mat, m2l_ztrans_mat, coef_node_l, coef_node_m)
+    call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_sph_m_adj, ind, cluster, &
+        & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
+        & coef_node_m)
     ! Direct far-field FMM matvec to get output local expansions from input
     ! multipole expansions. It will be used in R_i^A.
     ! As of now I compute potential at all external grid points, improved
@@ -5841,21 +5859,6 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
         & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
         & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
         & ngrid_ext_near, l2p_mat, m2p_mat, coef_sph_scaled, coef_sph_l, xgrid2)
-    ! Adjoint full FMM matvec to get output multipole expansions from input
-    ! external grid points. It will be used in R_i^B.
-    !call tree_l2p_m2p_adj_use_mat(nsph, csph, rsph, ngrid, grid, pm, pl, &
-    !    & vscales, w, vgrid, nclusters, nnnear, snear, near, cluster, snode, &
-    !    & ind, ui, ngrid_ext, ngrid_ext_sph, grid_ext_ia, grid_ext_ja, &
-    !    & ngrid_ext_near, l2p_mat, m2p_mat, xgrid, coef_sph_m_adj, &
-    !    & coef_sph_l_adj)
-    !call tree_l2l_adj_use_mat(nsph, nclusters, pl, coef_node_l, ind, cluster, &
-    !    & children, cnode, rnode, l2l_reflect_mat, l2l_ztrans_mat, &
-    !    & coef_sph_l_adj)
-    !call tree_m2l_adj_use_mat(nclusters, cnode, rnode, nnfar, sfar, far, pm, pl, &
-    !    & m2l_reflect_mat, m2l_ztrans_mat, coef_node_l, coef_node_m)
-    !call tree_m2m_adj_use_mat(nsph, nclusters, pm, coef_sph_m_adj, ind, cluster, &
-    !    & children, cnode, rnode, m2m_reflect_mat, m2m_ztrans_mat, &
-    !    & coef_node_m)
     ! Compute all terms of grad_i(R)
     do isph = 1, nsph
         do igrid = 1, ngrid
@@ -5886,13 +5889,13 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                         ! with index inequality k!=i for k being a neighbour
                         ! of i)
                         ! Indexes k and j are flipped compared to the paper
-                        !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,ksph)
+                        gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,ksph)
                     end do
                 end do
                 ! This is R^C and R^B component (grad_i of U of a sum of R_kj
                 ! for index inequality j!=k)
                 ! Indexes k and j are flipped compared to the paper
-                !gg = gg - xgrid2(igrid, ksph)
+                gg = gg - xgrid2(igrid, ksph)
                 ! Compute grad_i component of forces using precomputed
                 ! potential gg
                 force_out(:, isph) = force_out(:, isph) - &
@@ -5908,13 +5911,13 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                     fac = two*pi/(two*fl + one)
                     do m = -l, l 
                         ! This is R^D component (grad_i of U of R_ii)
-                        !gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,isph)
+                        gg = gg + fac*basis(indi+m,igrid)*coef_sph(indi+m,isph)
                     end do
                 end do
                 ! R^A component (grad_i of U of a sum of R_ij for index
                 ! inequality j!=i)
                 ! Indexes k and j are flipped compared to the paper
-                !gg = gg - xgrid2(igrid, isph)
+                gg = gg - xgrid2(igrid, isph)
                 ! Compute grad_i component of forces using precomputed
                 ! potential gg
                 force_out(:, isph) = force_out(:, isph) + &
@@ -6009,10 +6012,48 @@ subroutine pcm_force_grid_fmm_use_mat(nsph, csph, rsph, ngrid, grid, w, &
                         gg3(3) = gg3(3) + tmp_gg
                     end do
                 end do
+                ! Accumulate all computed forces
                 force_out(:, isph) = force_out(:, isph) - &
                     & w(igrid)*gg3*xgrid(igrid, isph)*ui(igrid, isph)
             end if
         end do
+        ! Another R^B component (grad_i of potential of a sum of R_ji
+        ! for index inequality j!=i)
+        ! Indexes k and j are flipped compared to the paper
+        gg3 = 0
+        coef_sph_m_z = coef_sph_scaled(:(lmax+2)*(lmax+2), isph)
+        call fmm_sph_transform3(lmax+1, zx_coord_transform, &
+            & coef_sph_m_z, coef_sph_m_x)
+        call fmm_sph_transform3(lmax+1, zy_coord_transform, &
+            & coef_sph_m_z, coef_sph_m_y)
+        do l = lmax+1, 1, -1
+            indi = l*l + l + 1
+            indj = (l-1)*(l-1) + (l-1) + 1
+            do m = 1-l, l-1
+                tmp1 = one / rsph(isph) * sqrt(dble(l*l-m*m)) * &
+                    & sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
+                coef_sph_m_x(indi+m) = tmp1 * coef_sph_m_x(indj+m)
+                coef_sph_m_y(indi+m) = tmp1 * coef_sph_m_y(indj+m)
+                coef_sph_m_z(indi+m) = tmp1 * coef_sph_m_z(indj+m)
+            end do
+            coef_sph_m_x(indi-l) = 0
+            coef_sph_m_x(indi+l) = 0
+            coef_sph_m_y(indi-l) = 0
+            coef_sph_m_y(indi+l) = 0
+            coef_sph_m_z(indi-l) = 0
+            coef_sph_m_z(indi+l) = 0
+        end do
+        coef_sph_m_x(1) = 0
+        coef_sph_m_y(1) = 0
+        coef_sph_m_z(1) = 0
+        call fmm_sph_transform3(lmax+1, zx_coord_transform, &
+            & coef_sph_m_x, coef_sph_m_x2)
+        call fmm_sph_transform3(lmax+1, zy_coord_transform, &
+            & coef_sph_m_y, coef_sph_m_y2)
+        gg3(1) = dot_product(coef_sph_m_adj(:(lmax+2)*(lmax+2), isph), coef_sph_m_x2)
+        gg3(2) = dot_product(coef_sph_m_adj(:(lmax+2)*(lmax+2), isph), coef_sph_m_y2)
+        gg3(3) = dot_product(coef_sph_m_adj(:(lmax+2)*(lmax+2), isph), coef_sph_m_z)
+        force_out(:, isph) = force_out(:, isph) + gg3
     end do
     call cpu_time(finish)
     total_time_matvec = total_time_matvec + finish - start

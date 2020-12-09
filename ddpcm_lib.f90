@@ -1097,6 +1097,7 @@ contains
   real*8 :: fx_test(3,nsph)
   real*8, allocatable :: fscr(:,:)
   real*8 :: fac
+  real*8, external :: dnrm2
   allocate(fscr(3,nsph))
   allocate(vsin(lmax+1),vcos(lmax+1),vplm(nbasis),basloc(nbasis), &
     & dbsloc(3,nbasis),scr(ngrid,nsph), &
@@ -1162,7 +1163,10 @@ contains
     call gradr(isph,vplm,vcos,vsin,basloc,dbsloc,rhs-phieps,ycr,fscr(:,isph))
     write(6,'(1x,i5,3e16.8,3e16.8)') isph, -pt5*fscr(:,isph), -pt5*fx_test(:,isph)
   end do
+  write(*,*) "Rel.error of gradr: ", dnrm2(3*nsph, fx_test-fscr, 1) / &
+      & dnrm2(3*nsph, fscr, 1)
   fx = fx + fscr
+  !fx = fx + fx_test
   fscr = zero
   write(6,*) 'fdoga'
   do isph = 1, nsph
@@ -1175,7 +1179,7 @@ contains
 
   write(6,*) 'geometrical forces'
   do isph = 1, nsph
-    write(6,'(1x,i5,3f16.8)') isph, fx(:,isph)
+    write(6,'(1x,i5,3e16.8)') isph, fx(:,isph)
   end do
 
   deallocate(vsin,vcos,vplm,basloc,dbsloc,scr,phiexp,ycr,qcr,stat=istatus)
@@ -1263,7 +1267,7 @@ contains
           fac = two*pi/(two*fl + one)
           do m = -l, l 
             !! DEBUG comment
-            !gg = gg + fac*basis(ind+m,its)*g(ind+m,ksph)
+            gg = gg + fac*basis(ind+m,its)*g(ind+m,ksph)
           end do
         end do
 
@@ -1284,7 +1288,7 @@ contains
               fcl = - four*pi*dble(l)/(two*dble(l)+one)*tt
               do m = -l, l
                 !! DEBUG comment
-                !gg = gg + fcl*g(ind+m,jsph)*basloc(ind+m)
+                gg = gg + fcl*g(ind+m,jsph)*basloc(ind+m)
               end do
               tt = tt/tkj
             end do
@@ -1299,7 +1303,7 @@ contains
           fcl = - four*pi*dble(l)/(two*dble(l)+one)*tt
           do m = -l, l
             !! DEBUG comment
-            !gg = gg + fcl*g(ind+m,isph)*basloc(ind+m)
+            gg = gg + fcl*g(ind+m,isph)*basloc(ind+m)
           end do
           tt = tt/tki
         end do
@@ -1322,7 +1326,7 @@ contains
         fac = two*pi/(two*fl + one)
         do m = -l, l 
           !! DEBUG comment
-          !gi = gi + fac*basis(ind+m,its)*g(ind+m,isph)
+          gi = gi + fac*basis(ind+m,its)*g(ind+m,isph)
         end do
       end do
       fii = w(its)*gi*y(its,isph)
@@ -1392,9 +1396,9 @@ contains
           tt = tt/tji
         end do
         fac = ui(its,jsph)*w(its)*y(its,jsph)
-        !fx(1) = fx(1) - fac*a(1)
-        !fx(2) = fx(2) - fac*a(2)
-        !fx(3) = fx(3) - fac*a(3)
+        fx(1) = fx(1) - fac*a(1)
+        fx(2) = fx(2) - fac*a(2)
+        fx(3) = fx(3) - fac*a(3)
       end if
     end do
   end do
@@ -1451,9 +1455,9 @@ contains
           do m = -l, l
             fac = fcl*g(ind+m,ksph)
             fac = - fac*basloc(ind+m)
-            !a(1) = a(1) + fac*vb(1)
-            !a(2) = a(2) + fac*vb(2) 
-            !a(3) = a(3) + fac*vb(3)
+            a(1) = a(1) + fac*vb(1)
+            a(2) = a(2) + fac*vb(2) 
+            a(3) = a(3) + fac*vb(3)
 
             fac = ui(its,isph)*fcl*g(ind+m,ksph)
             b = - (fl + one)*basloc(ind+m)/(rsph(ksph)*tik)

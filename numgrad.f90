@@ -84,7 +84,7 @@ use ddpcm_lib, only: ddpcm, ddpcm_init, ddpcm_finalize, ddpcm_forces, ddpcm_zeta
 !                                                                              !
 implicit none
 !
-integer :: i, ii, isph, ig, n
+integer :: i, ii, isph, ig, n, pmax
 real*8  :: tobohr, esolv, xx(1)
 real*8, parameter :: toang=0.52917721092d0, tokcal=627.509469d0, step=0.001
 real*8, allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
@@ -99,6 +99,7 @@ open (unit=100,file='Input.txt',form='formatted',access='sequential')
 read(100,*) iprint      ! printing flag
 read(100,*) nproc       ! number of openmp threads
 read(100,*) lmax        ! max angular momentum of spherical harmonics basis
+read(100,*) pmax        ! max degree of harmonics for the FMM
 read(100,*) ngrid       ! number of lebedev points
 read(100,*) iconv       ! 10^(-iconv) is the convergence threshold for the iterative solver
 read(100,*) igrad       ! whether to compute (1) or not (0) forces
@@ -149,7 +150,7 @@ end do
 
 write(6,'(2A60)') 'Analytical forces', 'Numerical forces'
 do i = 1, n
-  write(6,'(6F20.10)') fx(1,i), fx(2,i), fx(3,i), numfx(1,i), numfx(2,i), numfx(3,i)
+  write(6,'(6E20.10)') fx(1,i), fx(2,i), fx(3,i), numfx(1,i), numfx(2,i), numfx(3,i)
 end do
 
 deallocate(fx,numfx,x,y,z,rvdw,charge)
