@@ -8,8 +8,10 @@
 # @date 2020-02-17
 
 set(TESTS
-    "dd_core.f90")
+    "dd_core.f90"
+    "main.f90")
 list(APPEND COVERAGE_EXCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/*")
+set(TESTS_EXE)
 message(STATUS "EXCLUDE: ${COVERAGE_EXCLUDES}")
 
 foreach(src ${TESTS})
@@ -22,10 +24,11 @@ foreach(src ${TESTS})
     target_link_libraries(${exec} ddx)
     # Register test
     add_test(NAME ${exec} COMMAND ${exec})
-    # Code coverage
-    if(CODE_COVERAGE)
-        setup_target_for_coverage_lcov(NAME coverage DEPENDENCIES ${exec}
-            EXECUTABLE ${exec})
-    endif()
+    list(APPEND TESTS_EXE ${exec})
 endforeach()
 
+# Code coverage
+if(CODE_COVERAGE)
+    setup_target_for_coverage_lcov(NAME coverage DEPENDENCIES ${TESTS_EXE}
+        EXECUTABLE ${exec})
+endif()

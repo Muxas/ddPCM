@@ -20,17 +20,21 @@ integer, parameter :: rp=selected_real_kind(15)
 
 !! Compile-time constants
 real(kind=rp), parameter :: zero = 0d0, one = 1d0, two = 2d0, four = 4d0
+real(kind=rp), parameter :: pt5 = 5d-1
 real(kind=rp), parameter :: sqrt2 = sqrt(two)
 real(kind=rp), parameter :: pi4 = atan(one)
 real(kind=rp), parameter :: pi = four * pi4
+real(kind=rp), parameter :: fourpi = four * pi
 real(kind=rp), parameter :: twopi = two * pi
 real(kind=rp), parameter :: sqrt4pi = four * sqrt(atan(one))
-!> Number of supported Lebedev-Laikov grids
+!> Number of supported Lebedev grids
 integer, parameter :: nllg = 32
-!> Number of grid points of each Lebedev-Laikov grid
+!> Number of grid points of each Lebedev grid
 integer, parameter :: ng0(nllg) = (/ 6, 14, 26, 38, 50, 74, 86, 110, 146, &
     & 170, 194, 230, 266, 302, 350, 434, 590, 770, 974, 1202, 1454, 1730, &
     & 2030, 2354, 2702, 3074, 3470, 3890, 4334, 4802, 5294, 5810 /)
+!> Shift of characteristic function
+real(kind=rp),  parameter :: se = 0.0d0
 
 !> Main ddX type that stores all required information
 type dd_data_type
@@ -49,6 +53,8 @@ type dd_data_type
     real(kind=rp) :: epsin
     !> Dielectric permittivity outside
     real(kind=rp) :: epsout
+    !> Relative dielectric permittivity
+    real(kind=rp) :: eps
     !> Parameter kappa (meaning?)
     real(kind=rp) :: kappa
     !> Regularization parameter
@@ -57,6 +63,8 @@ type dd_data_type
     real(kind=rp) :: tol
     !> Maximal degree of modeling spherical harmonics
     integer :: lmax
+    !> Number modeling spherical harmonics
+    integer :: nbasis
     !> Number of Lebedev grid points on each sphere
     integer :: ngrid
     !> Whether to compute (1) or not (0) forces
@@ -66,7 +74,7 @@ type dd_data_type
     !!!!!!!!!!!!!! Constants, initialized by ddinit
     !> Maximal degree of used real normalized spherical harmonics
     !!
-    !! `dmax=lmax` in case `fmm=0` and `dmax=pm+pl` in case `fmm=1`. If FMM is
+    !! For example, if FMM is
     !! used, its M2L operation requires computing spherical harmonics of all
     !! degrees up to `pm+pl`. If `force=1` then this parameter might be
     !! increased by 1 because certain implementations of analytical gradients
@@ -87,17 +95,42 @@ type dd_data_type
     !! at Lebedev grid points. In the case `force=1` this degrees might be
     !! increased by 1 depending on implementation of gradients.
     integer :: vgrid_dmax
+    !> Number of spherical harmonics evaluated at Lebedev grid points
+    integer :: vgrid_nbasis
     !> Values of spherical harmonics at Lebedev grid points
     !!
-    !! Dimensions of this array are (vgrid_dmax, ngrid)
+    !! Dimensions of this array are (vgrid_nbasis, ngrid)
     real(kind=rp), allocatable :: vgrid(:, :)
+    !> Weighted values of spherical harmonics at Lebedev grid points
+    !!
+    !! vwgrid(:, igrid) = vgrid(:, igrid) * wgrid(igrid)
+    !! Dimensions of this array are ((vgrid_nbasis, ngrid)
+    real(kind=rp), allocatable :: vwgrid(:, :)
     !> Maximum sqrt of factorial precomputed
     !!
     !! Just like with `dmax` parameter, number of used factorials is either
     !! `2*lmax+1` or `2*(pm+pl)+1` depending on whether FMM is used or not
     integer :: nfact
     !> Array of square roots of factorials of dimension (nfact)
-    real(kind=rp), allocatable :: fact(:)
+    real(kind=rp), allocatable :: vfact(:)
+    !> Maximum number of neighbours per sphere. Input from a user
+    integer :: nngmax
+    !> List of intersecting spheres in a CSR format
+    integer, allocatable :: inl(:)
+    !> List of intersecting spheres in a CSR format
+    integer, allocatable :: nl(:)
+    !> Number of external Lebedev grid points on a molecule surface
+    integer :: ncav
+    !> Coordinates of external Lebedev grid points of dimension (3, ncav)
+    real(kind=rp), allocatable :: ccav(:, :)
+    !> Characteristic function f. Dimension is (ngrid, npsh)
+    real(kind=rp), allocatable :: fi(:, :)
+    !> Characteristic function U. Dimension is (ngrid, nsph)
+    real(kind=rp), allocatable :: ui(:, :)
+    !> Derivative of characteristic function U. Dimension is (3, ngrid, nsph)
+    real(kind=rp), allocatable :: zi(:, :, :)
+    !> Preconditioner for operator R_eps. Dimension is (nbasis, nbasis, nsph)
+    real(kind=rp), allocatable :: rx_prc(:, :, :)
     ! Maximum degree of spherical harmonics for M (multipole) expansion
     integer :: pm
     ! Maximum degree of spherical harmonics for L (local) expansion
@@ -112,9 +145,9 @@ type dd_data_type
     ! Parent of each cluster
     integer, allocatable :: parent(:)
     ! Center of bounding sphere of each cluster
-    real*8, allocatable :: cnode(:, :)
+    real(kind=rp), allocatable :: cnode(:, :)
     ! Radius of bounding sphere of each cluster
-    real*8, allocatable :: rnode(:)
+    real(kind=rp), allocatable :: rnode(:)
     ! Which leaf node contains only given input sphere
     integer, allocatable :: snode(:)
     ! Number of nodes (subclusters)
@@ -143,7 +176,7 @@ end type dd_data_type
 
 contains
 
-!> Initialize ddX input and parameters
+!> Initialize ddX input with a full set of parameters
 !!
 !!
 !! @param[in] n: Number of atoms
@@ -161,27 +194,21 @@ contains
 !! @param[in] pl: Maximal degree of local spherical harmonics. `pl` >= 0
 !! @param[out] dd_data: Object containing all inputs
 subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
-        & dd_data)
+        & iprint, nngmax, eta, dd_data)
     ! Inputs
-    integer, intent(in) :: n, model, lmax, force, fmm, pm, pl
-    real(kind=rp) :: x(n), y(n), z(n), rvdw(n)
+    integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, iprint, nngmax
+    real(kind=rp) :: x(n), y(n), z(n), rvdw(n), eta
     ! Output
     type(dd_data_type) :: dd_data
     ! Inouts
     integer, intent(inout) :: ngrid
     ! Local variables
-    integer :: istat, i, inear, jnear, igrid, jgrid
-    !!! Set input parameters
-    dd_data % nsph = n
-    allocate(dd_data % csph(3, n), dd_data % rsph(n), stat=istat)
-    if (istat .ne. 0) then
-        write(*, *) "ddinit: [1] allocation failed!"
-        stop
-    end if
-    dd_data % csph(1, :) = x
-    dd_data % csph(2, :) = y
-    dd_data % csph(3, :) = z
-    dd_data % rsph = rvdw
+    integer :: istatus, i, ii, inear, jnear, igrid, jgrid, isph, jsph, lnl
+    real(kind=rp) :: rho, ctheta, stheta, cphi, sphi
+    real(kind=rp), allocatable :: vplm(:), vcos(:), vsin(:)
+    real(kind=rp) :: v(3), vv, t, xt, swthr, fac, d2, r2
+    double precision, external :: dnrm2
+    !!! Check input parameters
     if ((model .lt. 1) .and. (model .gt. 3)) then
         write(*, *) "ddinit: wrong value of parameter `model`"
         stop
@@ -192,6 +219,7 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         stop
     end if
     dd_data % lmax = lmax
+    dd_data % nbasis = (lmax+1)**2
     if ((force .lt. 0) .and. (force .gt. 1)) then
         write(*, *) "ddinit: wrong value of parameter `force`"
         stop
@@ -202,6 +230,16 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         stop
     end if
     dd_data % fmm = fmm
+    if (nngmax .le. 0) then
+        write(*, *) "ddinit: wrong value of parameter `nngmax`"
+        stop
+    end if
+    dd_data % nngmax = nngmax
+    if (eta .lt. 0) then
+        write(*, *) "ddinit: wrong value of parameter `eta`"
+        stop
+    end if
+    dd_data % eta = eta
     ! Set FMM parameters
     if(fmm .eq. 1) then
         if(pm .lt. 0) then
@@ -213,21 +251,53 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
             stop
         end if
     end if
-    !!! Generate constants
-    ! At first compute sizes of auxiliary arrays for `fmm=0`
-    dd_data % dmax = lmax
-    dd_data % nfact = max(2*lmax+1, 2)
-    ! Update sizes of arrays if `fmm=1`
-    if(fmm .eq. 1) then
-        dd_data % dmax = max(pm+pl, dd_data % lmax)
-        dd_data % nfact = max(2*(pm+pl)+1, dd_data % nfact)
+    dd_data % pm = pm
+    dd_data % pl = pl
+    ! Set input data
+    dd_data % nsph = n
+    allocate(dd_data % csph(3, n), dd_data % rsph(n), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [1] allocation failed!"
+        stop
     end if
+    dd_data % csph(1, :) = x
+    dd_data % csph(2, :) = y
+    dd_data % csph(3, :) = z
+    dd_data % rsph = rvdw
+    !!! Generate constants and auxiliary arrays
+    ! Compute sizes of auxiliary arrays for `fmm=0`
+    if (fmm .eq. 0) then
+        dd_data % dmax = lmax
+        dd_data % vgrid_dmax = lmax
+    ! Compute sizes of arrays if `fmm=1`
+    else
+        ! If forces are required then we need M2P of degree lmax+1 for
+        ! near-field analytical gradients
+        if (force .eq. 1) then
+            dd_data % dmax = max(pm+pl, lmax+1)
+        else
+            dd_data % dmax = max(pm+pl, lmax)
+        end if
+        dd_data % vgrid_dmax = max(pl, lmax)
+    end if
+    dd_data % vgrid_nbasis = (dd_data % vgrid_dmax+1)**2
+    dd_data % nfact = max(2*dd_data % dmax+1, 2)
     ! Compute scaling factors of spherical harmonics
+    allocate(dd_data % vscales((dd_data % dmax+1)**2), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [2] allocation failed!"
+        stop
+    end if
     call ylmscale(dd_data % dmax, dd_data % vscales)
     ! Precompute square roots of factorials
-    dd_data % fact(1) = 1
+    allocate(dd_data % vfact(dd_data % nfact), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [3] allocation failed!"
+        stop
+    end if
+    dd_data % vfact(1) = 1
     do i = 2, dd_data % nfact
-        dd_data % fact(i) = dd_data % fact(i-1) * sqrt(dble(i-1))
+        dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
     end do
     ! Get nearest number of Lebedev grid points
     igrid = 0
@@ -242,7 +312,224 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
     ngrid = ng0(igrid)
     dd_data % ngrid = ngrid
     ! Get weights and coordinates of Lebedev grid points
+    allocate(dd_data % cgrid(3, ngrid), dd_data % wgrid(ngrid), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [4] allocation failed!"
+        stop
+    end if
     call llgrid(ngrid, dd_data % wgrid, dd_data % cgrid)
+    ! Compute spherical harmonics at grid points
+    allocate(dd_data % vgrid(dd_data % vgrid_nbasis, ngrid), &
+        & dd_data % vwgrid(dd_data % vgrid_nbasis, ngrid), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [5] allocation failed!"
+        stop
+    end if
+    allocate(vplm(dd_data % vgrid_nbasis), vcos(dd_data % vgrid_dmax+1), &
+        & vsin(dd_data % vgrid_dmax+1), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [6] allocation failed!"
+        stop
+    end if
+    do igrid = 1, ngrid
+        call ylmbas(dd_data % cgrid(:, igrid), rho, ctheta, stheta, cphi, &
+            & sphi, dd_data % vgrid_dmax, dd_data % vscales, &
+            & dd_data % vgrid(:, igrid), vplm, vcos, vsin)
+    end do
+    ! Debug printing to compare against ddPCM
+    if (iprint.ge.4) then
+        call prtsph('facs', dd_data % nbasis, lmax, 1, 0, dd_data % vscales)
+        call prtsph('facl', dd_data % nbasis, lmax, 1, 0, dd_data % vscales)
+        call prtsph('basis', dd_data % nbasis, lmax, ngrid, 0, dd_data % vgrid)
+        call ptcart('grid', ngrid, 3, 0, dd_data % cgrid)
+        call ptcart('weights', ngrid, 1, 0, dd_data % wgrid)
+    end if
+    deallocate(vplm, vcos, vsin, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddinit: [1] deallocation failed!"
+        stop
+    end if
+    ! Build list of neighbours in CSR format
+    allocate(dd_data % inl(n+1), dd_data % nl(n*nngmax), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) 'ddinit : [7] allocation failed !'
+        stop
+    endif
+    i  = 1
+    lnl = 0
+    do isph = 1, n
+        dd_data % inl(isph) = lnl + 1
+        do jsph = 1, dd_data % nsph
+            if (isph .ne. jsph) then
+                d2 = dnrm2(3, &
+                    & dd_data % csph(:, isph)-dd_data % csph(:, jsph), 1)
+                r2 = rvdw(isph) + rvdw(jsph)
+                ! This check does not take into account eta regularization
+                ! TODO: take eta into account
+                if (d2 .le. r2) then
+                    dd_data % nl(i) = jsph
+                    i  = i + 1
+                    lnl = lnl + 1
+                end if
+            end if
+        end do
+    end do
+    dd_data % inl(n+1) = lnl+1
+    ! Some format data that I will throw away as soon as this code works
+    1000 format(t3,'neighbours of sphere ',i6)
+    1010 format(t5,12i6)
+    ! Debug printing
+    if (iprint.ge.4) then
+        write(6,*) '   inl:'
+        write(6,'(10i6)') dd_data % inl(1:n+1)
+        write(6,*)
+        do isph = 1, n
+            write(6,1000) isph
+            write(6,1010) dd_data % nl(dd_data % inl(isph): &
+                & dd_data % inl(isph+1)-1)
+        end do
+        write(6,*)
+    end if
+    ! Build arrays fi, ui, zi
+    allocate(dd_data % fi(ngrid, n), dd_data % ui(ngrid, n), stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) 'ddinit : [8] allocation failed !'
+        stop
+    endif
+    dd_data % fi = zero
+    dd_data % ui = zero
+    if (force .eq. 1) then
+        allocate(dd_data % zi(3, ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) 'ddinit : [9] allocation failed !'
+            stop
+        endif
+        dd_data % zi = zero
+    end if
+    ! TODO: improve next loop
+    ! !!$omp parallel do default(shared) private(isph,i,ii,jsph,v,vv,t,xt,swthr,fac)
+    !     loop over spheres
+    do isph = 1, n
+        !      
+        !       loop over integration points
+        do i = 1, ngrid
+            !    
+            !         loop over neighbors of i-sphere
+            do ii = dd_data % inl(isph), dd_data % inl(isph+1)-1
+                !    
+                !           neighbor's number
+                jsph = dd_data % nl(ii)
+                !            
+                !           compute t_n^ij
+                v(:) = dd_data % csph(:,isph) + &
+                    & rvdw(isph)*dd_data % cgrid(:,i) - &
+                    & dd_data % csph(:,jsph)
+                vv   = sqrt(dot_product(v,v))
+                t    = vv/dd_data % rsph(jsph)
+                !    
+                !           compute \chi( t_n^ij )
+                xt = fsw(t, se, eta)
+                !            
+                !           upper bound of switch region
+                swthr = one + (se+one)*eta / two
+                !            
+                !           t_n^ij belongs to switch region
+                if ((force .eq. 1) .and. &
+                    & ((t .lt. swthr) .and. &
+                    & (t .gt. swthr-eta ))) then
+                    !                    
+                    fac = dfsw(t, se, eta) / rvdw(jsph)
+                    !    
+                    !             accumulate for zi
+                    !             -----------------
+                    dd_data % zi(:, i, isph) = dd_data % zi(:,i,isph) + &
+                        & fac*v(:)/vv
+                    !              
+                endif
+                !    
+                !           accumulate for fi
+                !           -----------------
+                dd_data % fi(i, isph) = dd_data % fi(i, isph) + xt
+                !            
+            enddo
+            !    
+            !         compute ui
+            !         ----------
+            if (dd_data % fi(i, isph) .le. one) then
+                dd_data % ui(i, isph) = one - dd_data % fi(i, isph)
+            end if
+            !
+        enddo
+    enddo
+    ! !!$omp end parallel do
+    !
+    if (iprint.ge.4) then
+        call ptcart('fi', ngrid, n, 0, dd_data % fi)
+        call ptcart('ui', ngrid, n, 0, dd_data % ui)
+    end if
+    !    
+    !     build cavity array
+    !     ==================
+    !    
+    !     initialize number of cavity points
+    dd_data % ncav = 0
+    !      
+    !     loop over spheres
+    do isph = 1, n
+        !    
+        !       loop over integration points
+        do i = 1, ngrid
+            !        
+            !         positive contribution from integration point
+            if (dd_data % ui(i,isph) .gt. zero) then
+                !
+                !           accumulate
+                dd_data % ncav = dd_data % ncav + 1
+                !                  
+            endif
+        enddo
+    enddo
+    !    
+    !     allocate cavity array
+    allocate(dd_data % ccav(3, dd_data % ncav) , stat=istatus)
+    if (istatus .ne. 0) then
+        write(*,*)'ddinit : [10] allocation failed!'
+        stop
+    endif
+    !    
+    !
+    !     initialize cavity array index
+    ii = 0
+    !
+    !     loop over spheres
+    do isph = 1, n
+        !
+        !       loop over integration points
+        do i = 1, ngrid
+            !
+            !         positive contribution from integration point
+            if (dd_data % ui(i, isph) .gt. zero) then
+                !
+                !           advance cavity array index
+                ii = ii + 1
+                !
+                !           store point
+                dd_data % ccav(:, ii) = dd_data % csph(:, isph) + &
+                    & rvdw(isph)*dd_data % cgrid(:, i)
+                !            
+            endif
+        enddo
+    enddo
+!
+1100  format(t3,i8,3f14.6)
+!
+    if (iprint.ge.4) then
+        write(6,*) '   external cavity points:'
+        do ii = 1, dd_data % ncav
+            write(6,1100) ii, dd_data % ccav(:, ii)
+        end do
+        write(6,*)
+    end if
 end subroutine ddinit
 
 !> Deallocate object with corresponding data
@@ -259,6 +546,111 @@ subroutine ddfree(dd_data)
         stop
     end if
 end subroutine ddfree
+
+!> Print array of spherical harmonics
+!!
+!! Prints (nbasis, ncol) array
+!!
+!! @param[in] label: Label to print
+!! @param[in] nbasis: Number of rows of input x. nbasis >= 0
+!! @param[in] lmax: Maximal degree of corresponding spherical harmonics.
+!!      (lmax+1)**2 = nbasis
+!! @param[in] ncol: Number of columns to print
+!! @param[in] icol: This number is only for printing purposes
+!! @param[in] x: Actual data to print
+subroutine prtsph(label, nbasis, lmax, ncol, icol, x)
+    ! Inputs
+    character (len=*), intent(in) :: label
+    integer, intent(in) :: nbasis, lmax, ncol, icol
+    real(kind=rp), intent(in) :: x(nbasis, ncol)
+    ! Local variables
+    integer :: l, m, ind, noff, nprt, ic, j
+    ! Print header:
+    if (ncol .eq. 1) then
+        write (6,'(3x,a,1x,"(column ",i4")")') label, icol
+    else
+        write (6,'(3x,a)') label
+    endif
+    ! Print entries:
+    if (ncol .eq. 1) then
+        do l = 0, lmax
+            ind = l*l + l + 1
+            do m = -l, l
+                write(6,1000) l, m, x(ind+m, 1)
+            end do
+        end do
+    else
+        noff = mod(ncol, 5)
+        nprt = max(ncol-noff, 0)
+        do ic = 1, nprt, 5
+            write(6,1010) (j, j = ic, ic+4)
+            do l = 0, lmax
+                ind = l*l + l + 1
+                do m = -l, l
+                    write(6,1020) l, m, x(ind+m, ic:ic+4)
+                end do
+            end do
+        end do
+        write (6,1010) (j, j = nprt+1, nprt+noff)
+        do l = 0, lmax
+            ind = l*l + l + 1
+            do m = -l, l
+                write(6,1020) l, m, x(ind+m, nprt+1:nprt+noff)
+            end do
+        end do
+    end if
+    1000 format(1x,i3,i4,f14.8)
+    1010 format(8x,5i14)
+    1020 format(1x,i3,i4,5f14.8)
+end subroutine prtsph
+
+!> Print array of quadrature points
+!!
+!! Prints (ngrid, ncol) array
+!!
+!! @param[in] label: Label to print
+!! @param[in] ngrid: Number of rows of input x. ngrid >= 0
+!! @param[in] ncol: Number of columns to print
+!! @param[in] icol: This number is only for printing purposes
+!! @param[in] x: Actual data to print
+subroutine ptcart(label, ngrid, ncol, icol, x)
+    ! Inputs
+    character (len=*), intent(in) :: label
+    integer, intent(in) :: ngrid, ncol, icol
+    real(kind=rp), intent(in) :: x(ngrid, ncol)
+    ! Local variables
+    integer :: ig, noff, nprt, ic, j
+    ! Print header :
+    if (ncol .eq. 1) then
+        write (6,'(3x,a,1x,"(column ",i4")")') label, icol
+    else
+        write (6,'(3x,a)') label
+    endif
+    ! Print entries :
+    if (ncol .eq. 1) then
+        do ig = 1, ngrid
+            write(6,1000) ig, x(ig, 1)
+        enddo
+    else
+        noff = mod(ncol, 5)
+        nprt = max(ncol-noff, 0)
+        do ic = 1, nprt, 5
+            write(6,1010) (j, j = ic, ic+4)
+            do ig = 1, ngrid
+                write(6,1020) ig, x(ig, ic:ic+4)
+            end do
+        end do
+        write (6,1010) (j, j = nprt+1, nprt+noff)
+        do ig = 1, ngrid
+            write(6,1020) ig, x(ig, nprt+1:nprt+noff)
+        end do
+    end if
+    !
+    1000 format(1x,i5,f14.8)
+    1010 format(6x,5i14)
+    1020 format(1x,i5,5f14.8)
+    !
+end subroutine ptcart
 
 !> Compute scaling factors of real normalized spherical harmonics
 !!
@@ -521,7 +913,7 @@ end subroutine ylmbas
 !! \f$ [1-eta, 1] \f$ which is an internal shift.
 !! In the case shift \f$ s=0 \f$ the switch function \f$ \chi(t) \f$ is 1 for
 !! \f$ t \in [0,1-\eta/2] \f$, is 0 for \f$ t \in [1+\eta/2, \infty) \f$ and
-!! varies in \f$ [1-eta/2, 1+\eta/2] \f$ which is an centered shift.
+!! varies in \f$ [1-eta/2, 1+\eta/2] \f$ which is a centered shift.
 !!
 !! @param[in] t: real non-negative input value
 !! @param[in] s: shift
@@ -536,10 +928,10 @@ real(kind=rp) function fsw(t, s, eta)
     !   s =  0   =>   t - eta/2  [ CENTERED ]
     !   s =  1   =>   t - eta    [ EXTERIOR ]
     !   s = -1   =>   t          [ INTERIOR ]
-    x = t - (s + 1.d0)*eta / 2.d0
+    x = t - (s + one)*eta / two
     ! Lower bound of switch region
     flow = one - eta
-    ! Define switch function \chi
+    ! Define switch function chi
     if (x .ge. one) then
         fsw = zero
     else if (x .le. flow) then
@@ -551,6 +943,715 @@ real(kind=rp) function fsw(t, s, eta)
         fsw = fsw * (f6*x*x+a*x+b) / (eta**5)
     end if
 end function fsw
+
+!> Derivative of a switching function
+!!
+!! This is an implementation of \f$ \chi'(t) \f$ with a shift \f$ s \f$:
+!! \f[
+!!      \chi'(t) = \left\{ \begin{array}{ll} 0, & \text{if} \quad x \geq
+!!      1 \\ p'_\eta(x), & \text{if} \quad 1-\eta < x < 1 \\ 0, & \text{if}
+!!      \quad x \leq 1-\eta \end{array} \right.
+!! \f]
+!! where \f$ x = t - \frac{1+s}{2} \eta \f$ is a shifted coordinate and
+!! \f[
+!!      p'_\eta(x) = -\frac{30}{\eta^5} (1-t)^2 (t-1+\eta)^2
+!! \f]
+!! is a derivative of the smoothing polynomial.
+!! In the case shift \f$ s=1 \f$ the derivative \f$ \chi'(t) \f$ is 0 for
+!! \f$ t \in [0,1] \cup [1+\eta, \infty) \f$ and varies in
+!! \f$ [1, 1+\eta] \f$ which is an external shift.
+!! In the case shift \f$ s=-1 \f$ the derivative \f$ \chi'(t) \f$ is 0 for
+!! \f$ t \in [0,1-\eta] \cup [1, \infty) \f$ and varies in
+!! \f$ [1-eta, 1] \f$ which is an internal shift.
+!! In the case shift \f$ s=0 \f$ the derivative \f$ \chi'(t) \f$ is 0 for
+!! \f$ t \in [0,1-\eta/2] \cup [1+\eta/2, \infty) \f$ and
+!! varies in \f$ [1-eta/2, 1+\eta/2] \f$ which is a centered shift.
+!!
+!! @param[in] t: real non-negative input value
+!! @param[in] s: shift
+!! @param[in] eta: regularization parameter \f$ \eta \f$
+real(kind=rp) function dfsw(t, s, eta)
+    ! Inputs
+    real(kind=rp), intent(in) :: t, s, eta
+    ! Local variables
+    real(kind=rp) :: flow, x
+    real(kind=rp), parameter :: f30=30.0d0
+    ! Apply shift:
+    !   s =  0   =>   t - eta/2  [ CENTERED ]
+    !   s =  1   =>   t - eta    [ EXTERIOR ]
+    !   s = -1   =>   t          [ INTERIOR ]
+    x = t - (s + 1.d0)*eta / 2.d0
+    ! Lower bound of switch region
+    flow = one - eta
+    ! Define derivative of switch function chi
+    if (x .ge. one) then
+        dfsw = zero
+    else if (x .le. flow) then
+        dfsw = zero
+    else
+        dfsw = -f30 * (( (one-x)*(x-one+eta) )**2) / (eta**5)
+    endif
+end function dfsw
+
+!> Integrate against spherical harmonics
+!!
+!! Integrate by Lebedev spherical quadrature. This function can be simply
+!! substituted by a matrix-vector product.
+!!
+!! TODO: use dgemv. Loop of this cycle can be easily substituted by a dgemm.
+!!
+!! @param[in] ngrid: Number of Lebedev grid points. `ngrid` > 0
+!! @param[in] p: Maximal degree of spherical harmonics. `p` >= 0
+!! @param[in] vwgrid: Values of spherical harmonics at Lebedev grid points,
+!!      multiplied by weights of grid points. Dimension is ((p+1)**2, ngrid)
+!! @param[in] isph: Index of given sphere. Used for debug purpose.
+!! @param[in] x: Input values at grid points of the sphere. Dimension is
+!!      (ngrid)
+!! @param[out] xlm: Output spherical harmonics. Dimension is ((p+1)**2)
+subroutine intrhs(iprint, ngrid, p, vwgrid, isph, x, xlm)
+    ! Inputs
+    integer, intent(in) :: iprint, ngrid, p, isph
+    real(kind=rp), intent(in) :: vwgrid((p+1)**2, ngrid)
+    real(kind=rp), intent(in) :: x(ngrid)
+    ! Output
+    real(kind=rp), intent(out) :: xlm((p+1)**2)
+    ! Local variables
+    integer :: igrid
+    ! Initialize
+    xlm = zero
+    ! Accumulate over integration points
+    do igrid = 1, ngrid
+        xlm = xlm + vwgrid(:,igrid)*x(igrid)
+    enddo
+    ! Printing (these functions are not implemented yet)
+    if (iprint .ge. 5) then
+        call ptcart('pot', ngrid, 1, isph, x)
+        call prtsph('vlm', (p+1)**2, p, 1, isph, xlm)
+    endif
+end subroutine intrhs
+
+!> Compute first derivatives of spherical harmonics
+!!
+!! @param[in] x:
+!! @param[out] basloc:
+!! @param[out] dbsloc:
+!! @param[out] vplm:
+!! @param[out] vcos:
+!! @param[out] vsin:
+!!
+!!
+!! TODO: rewrite code and fill description. Computing sqrt(one-cthe*cthe)
+!! reduces effective range of input double precision values. cthe*cthe for
+!! cthe=1d+155 is NaN.
+subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
+    type(dd_data_type) :: dd_data
+    real(kind=rp), dimension(3),        intent(in)    :: x
+    real(kind=rp), dimension((dd_data % lmax+1)**2),   intent(inout) :: basloc, vplm
+    real(kind=rp), dimension(3,(dd_data % lmax +1)**2), intent(inout) :: dbsloc
+    real(kind=rp), dimension(dd_data % lmax+1),   intent(inout) :: vcos, vsin
+    integer :: l, m, ind, VC, VS
+    real(kind=rp)  :: cthe, sthe, cphi, sphi, plm, fln, pp1, pm1, pp
+    real(kind=rp)  :: et(3), ep(3)
+    !     get cos(\theta), sin(\theta), cos(\phi) and sin(\phi) from the cartesian
+    !     coordinates of x.
+    cthe = x(3)
+    sthe = sqrt(one - cthe*cthe)
+    !     not ( NORTH or SOUTH pole )
+    if ( sthe.ne.zero ) then
+        cphi = x(1)/sthe
+        sphi = x(2)/sthe
+        !     NORTH or SOUTH pole
+    else
+        cphi = one
+        sphi = zero
+    end if
+    !     evaluate the derivatives of theta and phi:
+    et(1) = cthe*cphi
+    et(2) = cthe*sphi
+    et(3) = -sthe
+    !     not ( NORTH or SOUTH pole )
+    if( sthe.ne.zero ) then
+        ep(1) = -sphi/sthe
+        ep(2) = cphi/sthe
+        ep(3) = zero
+        !     NORTH or SOUTH pole
+    else
+        ep(1) = zero
+        ep(2) = one
+        ep(3) = zero
+    end if
+    !     evaluate cos(m*phi) and sin(m*phi) arrays. notice that this is 
+    !     pointless if z = 1, as the only non vanishing terms will be the 
+    !     ones with m=0.
+    !
+    !     not ( NORTH or SOUTH pole )
+    if ( sthe.ne.zero ) then
+        call trgev( cphi, sphi, dd_data % lmax, vcos, vsin )
+        !     NORTH or SOUTH pole
+    else
+        vcos = one
+        vsin = zero
+    end if
+    VC=zero
+    VS=cthe
+    !     evaluate the generalized legendre polynomials.
+    call polleg( cthe, sthe, dd_data % lmax, vplm )
+    !
+    !     now build the spherical harmonics. we will distinguish m=0,
+    !     m>0 and m<0:
+    !
+    basloc = zero
+    dbsloc = zero
+    do l = 0, dd_data % lmax
+        ind = l*l + l + 1
+        ! m = 0
+        fln = dd_data % vscales(ind)   
+        basloc(ind) = fln*vplm(ind)
+        if (l.gt.0) then
+            dbsloc(:,ind) = fln*vplm(ind+1)*et(:)
+        else
+            dbsloc(:,ind) = zero
+        end if
+        !dir$ simd
+        do m = 1, l
+            fln = dd_data % vscales(ind+m)
+            plm = fln*vplm(ind+m)   
+            pp1 = zero
+            if (m.lt.l) pp1 = -pt5*vplm(ind+m+1)
+            pm1 = pt5*(dble(l+m)*dble(l-m+1)*vplm(ind+m-1))
+            pp  = pp1 + pm1   
+            !
+            !         m > 0
+            !         -----
+            !
+            basloc(ind+m) = plm*vcos(m+1)
+            !          
+            !         not ( NORTH or SOUTH pole )
+            if ( sthe.ne.zero ) then
+                ! 
+                dbsloc(:,ind+m) = -fln*pp*vcos(m+1)*et(:) - dble(m)*plm*vsin(m+1)*ep(:)
+                !
+                !            
+                !         NORTH or SOUTH pole
+            else
+                !                  
+                dbsloc(:,ind+m) = -fln*pp*vcos(m+1)*et(:) - fln*pp*ep(:)*VC
+                !
+                !
+            endif
+            !
+            !         m < 0
+            !         -----
+            !
+            basloc(ind-m) = plm*vsin(m+1)
+            !          
+            !         not ( NORTH or SOUTH pole )
+            if ( sthe.ne.zero ) then
+                ! 
+                dbsloc(:,ind-m) = -fln*pp*vsin(m+1)*et(:) + dble(m)*plm*vcos(m+1)*ep(:)
+                !
+                !         NORTH or SOUTH pole
+            else
+                !                  
+                dbsloc(:,ind-m) = -fln*pp*vsin(m+1)*et(:) - fln*pp*ep(:)*VS
+                !            
+            endif
+            !  
+        enddo
+    enddo
+end subroutine dbasis
+
+! Purpose : compute
+!
+!                               l
+!             sum   4pi/(2l+1) t  * Y_l^m( s ) * sigma_l^m
+!             l,m                                           
+!
+!           which is need to compute action of COSMO matrix L.
+!------------------------------------------------------------------------------------------------
+!
+!!> TODO
+real(kind=rp) function intmlp( dd_data, t, sigma, basloc )
+!  
+      implicit none
+      type(dd_data_type) :: dd_data
+      real(kind=rp), intent(in) :: t
+      real(kind=rp), dimension((dd_data % lmax+1)**2), intent(in) :: sigma, basloc
+!
+      integer :: l, ind
+      real(kind=rp)  :: tt, ss, fac
+!
+!------------------------------------------------------------------------------------------------
+!
+!     initialize t^l
+      tt = one
+!
+!     initialize
+      ss = zero
+!
+!     loop over l
+      do l = 0, dd_data % lmax
+!      
+        ind = l*l + l + 1
+!
+!       update factor 4pi / (2l+1) * t^l
+        fac = tt / dd_data % vscales(ind)**2
+!
+!       contract over l,m and accumulate
+        ss = ss + fac * dot_product( basloc(ind-l:ind+l), &
+                                     sigma( ind-l:ind+l)   )
+!
+!       update t^l
+        tt = tt*t
+!        
+      enddo
+!      
+!     redirect
+      intmlp = ss
+!
+!
+end function intmlp
+
+! Purpose : weigh potential at cavity points by characteristic function "ui"
+!------------------------------------------------------------------------------------------------
+!> TODO
+subroutine wghpot( dd_data, phi, g )
+!
+      implicit none
+!
+    type(dd_data_type) :: dd_data
+      real(kind=rp), dimension(dd_data % ncav),       intent(in)  :: phi
+      real(kind=rp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: g
+!
+      integer isph, ig, ic
+!
+!------------------------------------------------------------------------------------------------
+!
+!     initialize
+      ic = 0 ; g(:,:)=0.d0
+!      
+!     loop over spheres
+      do isph = 1, dd_data % nsph
+!
+!       loop over points
+        do ig = 1, dd_data % ngrid
+!
+!         nonzero contribution from point
+          if ( dd_data % ui(ig,isph).ne.zero ) then
+!
+!           advance cavity point counter
+            ic = ic + 1
+!            
+!           weigh by (negative) characteristic function
+            g(ig,isph) = -dd_data % ui(ig,isph) * phi(ic)
+!            
+          endif
+!          
+        enddo
+      enddo
+end subroutine wghpot
+
+! Purpose : compute H-norm
+!------------------------------------------------------------------------------------------------
+!> TODO
+subroutine hsnorm( dd_data, u, unorm )
+!          
+      implicit none
+      type(dd_data_type) :: dd_data
+      real(kind=rp), dimension((dd_data % lmax+1)**2), intent(in)    :: u
+      real(kind=rp),                    intent(inout) :: unorm
+!
+      integer :: l, m, ind
+      real(kind=rp)  :: fac
+!
+!------------------------------------------------------------------------------------------------
+!
+!     initialize
+      unorm = zero
+!      
+!     loop over l
+      do l = 0, dd_data % lmax
+!      
+!       first index associated to l
+        ind = l*l + l + 1
+!
+!       scaling factor
+        fac = one/(one + dble(l))
+!
+!       loop over m
+        do m = -l, l
+!
+!         accumulate
+          unorm = unorm + fac*u(ind+m)*u(ind+m)
+!          
+        enddo
+      enddo
+!
+!     the much neglected square root
+      unorm = sqrt(unorm)
+!
+      return
+!
+!
+end subroutine hsnorm
+
+! compute the h^-1/2 norm of the increment on each sphere, then take the
+! rms value.
+!-------------------------------------------------------------------------------
+!
+!> TODO
+real(kind=rp) function hnorm(dd_data, x)
+    type(dd_data_type), intent(in) :: dd_data
+      real(kind=rp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in) :: x
+!
+      integer                                     :: isph, istatus
+      real(kind=rp)                                      :: vrms, vmax
+      real(kind=rp), allocatable                         :: u(:)
+!
+!-------------------------------------------------------------------------------
+!
+!     allocate workspace
+      allocate( u(dd_data % nsph) , stat=istatus )
+      if ( istatus.ne.0 ) then
+        write(*,*) 'hnorm: allocation failed !'
+        stop
+      endif
+!
+!     loop over spheres
+      do isph = 1, dd_data % nsph
+!
+!       compute norm contribution
+        call hsnorm(dd_data, x(:,isph), u(isph))
+      enddo
+!
+!     compute rms of norms
+      call rmsvec( dd_data % nsph, u, vrms, vmax )
+!
+!     return value
+      hnorm = vrms
+!
+!     deallocate workspace
+      deallocate( u , stat=istatus )
+      if ( istatus.ne.0 ) then
+        write(*,*) 'hnorm: deallocation failed !'
+        stop
+      endif
+!
+!
+end function hnorm
+
+!------------------------------------------------------------------------------
+! Purpose : compute root-mean-square and max norm
+!------------------------------------------------------------------------------
+subroutine rmsvec( n, v, vrms, vmax )
+!
+      implicit none
+      integer,               intent(in)    :: n
+      real(kind=rp),  dimension(n), intent(in)    :: v
+      real(kind=rp),                intent(inout) :: vrms, vmax
+!
+      integer :: i
+      real(kind=rp), parameter :: zero=0.0d0
+!      
+!------------------------------------------------------------------------------
+!      
+!     initialize
+      vrms = zero
+      vmax = zero
+!
+!     loop over entries
+      do i = 1,n
+!
+!       max norm
+        vmax = max(vmax,abs(v(i)))
+!
+!       rms norm
+        vrms = vrms + v(i)*v(i)
+!        
+      enddo
+!
+!     the much neglected square root
+      vrms = sqrt(vrms/dble(n))
+!      
+      return
+!      
+!      
+endsubroutine rmsvec
+
+!-----------------------------------------------------------------------------------
+! Purpose : compute
+!
+!   v_l^m = v_l^m +
+!
+!               4 pi           l
+!     sum  sum  ---- ( t_n^ji )  Y_l^m( s_n^ji ) W_n^ji [ \xi_j ]_n
+!      j    n   2l+1
+!
+! which is related to the action of the adjont COSMO matrix L^* in the following
+! way. Set
+!
+!   [ \xi_j ]_n = sum  Y_l^m( s_n ) [ s_j ]_l^m
+!                 l,m
+!
+! then
+!
+!   v_l^m = -   sum    (L^*)_ij s_j
+!             j \ne i 
+!
+! The auxiliary quantity [ \xi_j ]_l^m needs to be computed explicitly.
+!-----------------------------------------------------------------------------------
+!
+!> TODO
+subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
+!
+      implicit none
+      type(dd_data_type) :: dd_data
+      integer,                       intent(in)    :: isph
+      real(kind=rp), dimension(dd_data % ngrid, dd_data % nsph), intent(in)    :: xi
+      real(kind=rp), dimension((dd_data % lmax+1)**2),     intent(inout) :: vlm
+      real(kind=rp), dimension((dd_data % lmax+1)**2),     intent(inout) :: basloc, vplm
+      real(kind=rp), dimension(dd_data % lmax+1),     intent(inout) :: vcos, vsin
+!
+      integer :: ij, jsph, ig, l, ind, m
+      real(kind=rp)  :: vji(3), vvji, tji, sji(3), xji, oji, fac, ffac, t
+!      
+!-----------------------------------------------------------------------------------
+!
+!     loop over neighbors of i-sphere
+      do ij = dd_data % inl(isph), dd_data % inl(isph+1)-1
+!
+!       j-sphere is neighbor
+        jsph = dd_data % nl(ij)
+!
+!       loop over integration points
+        do ig = 1, dd_data % ngrid
+!        
+!         compute t_n^ji = | r_j + \rho_j s_n - r_i | / \rho_i
+          vji  = dd_data % csph(:,jsph) + dd_data % rsph(jsph)* &
+              & dd_data % cgrid(:,ig) - dd_data % csph(:,isph)
+          vvji = sqrt(dot_product(vji,vji))
+          tji  = vvji/dd_data % rsph(isph)
+!
+!         point is INSIDE i-sphere (+ transition layer)
+!         ---------------------------------------------
+          if ( tji.lt.( one + (se+one)/two*dd_data % eta ) ) then
+!                  
+!           compute s_n^ji
+            sji = vji/vvji
+!
+!           compute \chi( t_n^ji )
+            xji = fsw( tji, se, dd_data % eta )
+!
+!           compute W_n^ji
+            if ( dd_data % fi(ig,jsph).gt.one ) then
+!                    
+              oji = xji/ dd_data % fi(ig,jsph)
+!              
+            else
+!                    
+              oji = xji
+!              
+            endif
+!            
+!           compute Y_l^m( s_n^ji )
+            !call ylmbas( sji, basloc, vplm, vcos, vsin )
+!            
+!           initialize ( t_n^ji )^l
+            t = one
+!            
+!           compute w_n * xi(n,j) * W_n^ji
+            fac = dd_data % wgrid(ig) * xi(ig,jsph) * oji
+!            
+!           loop over l
+            do l = 0, dd_data % lmax
+!            
+              ind  = l*l + l + 1
+!
+!             compute 4pi / (2l+1) * ( t_n^ji )^l * w_n * xi(n,j) * W_n^ji
+              ffac = fac*t/ dd_data % vscales(ind)**2
+!
+!             loop over m
+              do m = -l,l
+!              
+                vlm(ind+m) = vlm(ind+m) + ffac*basloc(ind+m)
+!                
+              enddo
+!
+!             update ( t_n^ji )^l
+              t = t*tji
+!              
+            enddo
+!            
+          endif
+        enddo
+      enddo
+!
+!
+end subroutine adjrhs
+
+!------------------------------------------------------------------------
+! Purpose : compute
+!
+!   \Phi( n ) =
+!     
+!                       4 pi           l
+!     sum  W_n^ij  sum  ---- ( t_n^ij )  Y_l^m( s_n^ij ) [ \sigma_j ]_l^m
+!      j           l,m  2l+1
+!
+! which is related to the action of the COSMO matrix L in the following
+! way :
+!
+!   -   sum    L_ij \sigma_j = sum  w_n Y_l^m( s_n ) \Phi( n ) 
+!     j \ne i                   n
+!
+! This second step is performed by routine "intrhs".
+!------------------------------------------------------------------------
+!
+!> TODO
+subroutine calcv( dd_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
+!
+    type(dd_data_type) :: dd_data
+      logical,                        intent(in)    :: first
+      integer,                        intent(in)    :: isph
+      real(kind=rp), dimension((dd_data % lmax+1)**2, dd_data % nsph), intent(in)    :: sigma
+      real(kind=rp), dimension(dd_data % ngrid),       intent(inout) :: pot
+      real(kind=rp), dimension((dd_data % lmax+1)**2),      intent(inout) :: basloc
+      real(kind=rp), dimension((dd_data % lmax+1)**2),      intent(inout) :: vplm
+      real(kind=rp), dimension(dd_data % lmax+1),      intent(inout) :: vcos
+      real(kind=rp), dimension(dd_data % lmax+1),      intent(inout) :: vsin
+!
+      integer :: its, ij, jsph
+      real(kind=rp)  :: vij(3), sij(3)
+      real(kind=rp)  :: vvij, tij, xij, oij, stslm, stslm2, stslm3, &
+          & thigh, rho, ctheta, stheta, cphi, sphi
+!
+!------------------------------------------------------------------------
+      thigh = one + pt5*(se + one)*dd_data % eta
+!
+!     initialize
+      pot(:) = zero
+!
+!     if 1st iteration of Jacobi method, then done!
+      if ( first )  return
+!
+!     loop over grid points
+      do its = 1, dd_data % ngrid
+!
+!       contribution from integration point present
+        if ( dd_data % ui(its,isph).lt.one ) then
+!
+!         loop over neighbors of i-sphere
+          do ij = dd_data % inl(isph), dd_data % inl(isph+1)-1
+!
+!           neighbor is j-sphere
+            jsph = dd_data % nl(ij)
+!            
+!           compute t_n^ij = | r_i + \rho_i s_n - r_j | / \rho_j
+            vij  = dd_data % csph(:,isph) + dd_data % rsph(isph)* &
+                & dd_data % cgrid(:,its) - dd_data % csph(:,jsph)
+            vvij = sqrt( dot_product( vij, vij ) )
+            tij  = vvij / dd_data % rsph(jsph) 
+!
+!           point is INSIDE j-sphere
+!           ------------------------
+            if ( tij.lt.thigh .and. tij.gt.zero) then
+!
+!             compute s_n^ij = ( r_i + \rho_i s_n - r_j ) / | ... |
+              sij = vij / vvij
+!            
+!             compute \chi( t_n^ij )
+              xij = fsw( tij, se, dd_data % eta )
+!
+!             compute W_n^ij
+              if ( dd_data % fi(its,isph).gt.one ) then
+!
+                oij = xij / dd_data % fi(its,isph)
+!
+              else
+!
+                oij = xij
+!
+              endif
+!
+!             compute Y_l^m( s_n^ij )
+              !call ylmbas( sij, basloc, vplm, vcos, vsin )
+              call ylmbas(sij, rho, ctheta, stheta, cphi, sphi, dd_data % lmax, &
+                  & dd_data % vscales, basloc, vplm, vcos, vsin)
+!                    
+!             accumulate over j, l, m
+              pot(its) = pot(its) + oij * intmlp( dd_data, tij, sigma(:,jsph), basloc )
+!              
+            endif
+          end do
+        end if
+      end do
+!      
+!      
+!      
+end subroutine calcv
+!------------------------------------------------------------------------
+!
+!------------------------------------------------------------------------
+! Purpose : compute
+!
+! \xi(n,i) = 
+!
+!  sum w_n U_n^i Y_l^m(s_n) [S_i]_l^m
+!  l,m
+!
+!------------------------------------------------------------------------
+subroutine ddmkxi( dd_data, s, xi)
+!
+    type(dd_data_type) :: dd_data
+       real(kind=rp), dimension((dd_data % lmax+1)**2, dd_data % nsph), intent(in)    :: s
+       real(kind=rp), dimension(dd_data % ncav),      intent(inout) :: xi
+!
+       integer :: its, isph, ii
+!
+       ii = 0
+       do isph = 1, dd_data % nsph
+         do its = 1, dd_data % ngrid
+           if (dd_data % ui(its,isph) .gt. zero) then
+             ii     = ii + 1
+             xi(ii) = dd_data % ui(its,isph)*dot_product(dd_data % vwgrid(:,its),s(:,isph))
+           end if
+         end do
+       end do
+!
+       return
+end subroutine ddmkxi
+!
+!------------------------------------------------------------------------
+! Purpose : compute
+!
+! \zeta(n,i) = 
+!
+!  1/2 f(\eps) sum w_n U_n^i Y_l^m(s_n) [S_i]_l^m
+!              l,m
+!
+!------------------------------------------------------------------------
+subroutine ddmkzeta( dd_data, s, zeta)
+!
+    type(dd_data_type) :: dd_data
+       real(kind=rp), dimension((dd_data % lmax+1)**2, dd_data % nsph), intent(in)    :: s
+       real(kind=rp), dimension(dd_data % ncav),      intent(inout) :: zeta
+!
+       integer :: its, isph, ii
+!
+       ii = 0
+       do isph = 1, dd_data % nsph
+         do its = 1, dd_data % ngrid
+           if (dd_data % ui(its,isph) .gt. zero) then
+             ii     = ii + 1
+             zeta(ii) = dd_data % ui(its,isph)* &
+                 & dot_product(dd_data % vwgrid(:,its),s(:,isph))
+           end if
+         end do
+       end do
+!
+       zeta = pt5*((dd_data % eps-one)/dd_data % eps)*zeta
+       return
+end subroutine ddmkzeta
 
 !> Compute multipole coefficients for a particle of a unit charge
 !!
