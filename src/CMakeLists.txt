@@ -10,6 +10,9 @@
 set(SRC
     "dd_core.f90"
     "dd_operators.f90"
+    "dd_solvers.f90"
+    "dd_cosmo.f90"
+    "dd_pcm.f90"
     "llgnew.f")
 
 set(COVERAGE_EXCLUDES

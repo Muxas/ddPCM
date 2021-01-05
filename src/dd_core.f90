@@ -1,4 +1,4 @@
-!> @copyright (c) 2020-2020 RWTH Aachen. All rights reserved.
+!> @copyright (c) 2020-2021 RWTH Aachen. All rights reserved.
 !!
 !! ddX software
 !!
@@ -34,7 +34,7 @@ integer, parameter :: ng0(nllg) = (/ 6, 14, 26, 38, 50, 74, 86, 110, 146, &
     & 170, 194, 230, 266, 302, 350, 434, 590, 770, 974, 1202, 1454, 1730, &
     & 2030, 2354, 2702, 3074, 3470, 3890, 4334, 4802, 5294, 5810 /)
 !> Shift of characteristic function
-real(kind=rp),  parameter :: se = 0.0d0
+real(kind=rp), parameter :: se = 0.0d0
 
 !> Main ddX type that stores all required information
 type dd_data_type
@@ -63,8 +63,10 @@ type dd_data_type
     real(kind=rp) :: tol
     !> Maximal degree of modeling spherical harmonics
     integer :: lmax
-    !> Number modeling spherical harmonics
+    !> Number modeling spherical harmonics per sphere
     integer :: nbasis
+    !> Total number of modeling spherical harmonics
+    integer :: n
     !> Number of Lebedev grid points on each sphere
     integer :: ngrid
     !> Whether to compute (1) or not (0) forces
@@ -84,6 +86,13 @@ type dd_data_type
     !!
     !! This array has `(dmax+1)**2` entries
     real(kind=rp), allocatable :: vscales(:)
+    !> Maximum sqrt of factorial precomputed
+    !!
+    !! Just like with `dmax` parameter, number of used factorials is either
+    !! `2*lmax+1` or `2*(pm+pl)+1` depending on whether FMM is used or not
+    integer :: nfact
+    !> Array of square roots of factorials of dimension (nfact)
+    real(kind=rp), allocatable :: vfact(:)
     !> Coordinates of Lebedev quadrature points of dimension (3, ngrid)
     real(kind=rp), allocatable :: cgrid(:, :)
     !> Weights of Lebedev quadrature points of dimension (ngrid)
@@ -106,29 +115,22 @@ type dd_data_type
     !! vwgrid(:, igrid) = vgrid(:, igrid) * wgrid(igrid)
     !! Dimensions of this array are ((vgrid_nbasis, ngrid)
     real(kind=rp), allocatable :: vwgrid(:, :)
-    !> Maximum sqrt of factorial precomputed
-    !!
-    !! Just like with `dmax` parameter, number of used factorials is either
-    !! `2*lmax+1` or `2*(pm+pl)+1` depending on whether FMM is used or not
-    integer :: nfact
-    !> Array of square roots of factorials of dimension (nfact)
-    real(kind=rp), allocatable :: vfact(:)
     !> Maximum number of neighbours per sphere. Input from a user
     integer :: nngmax
     !> List of intersecting spheres in a CSR format
     integer, allocatable :: inl(:)
     !> List of intersecting spheres in a CSR format
     integer, allocatable :: nl(:)
-    !> Number of external Lebedev grid points on a molecule surface
-    integer :: ncav
-    !> Coordinates of external Lebedev grid points of dimension (3, ncav)
-    real(kind=rp), allocatable :: ccav(:, :)
     !> Characteristic function f. Dimension is (ngrid, npsh)
     real(kind=rp), allocatable :: fi(:, :)
     !> Characteristic function U. Dimension is (ngrid, nsph)
     real(kind=rp), allocatable :: ui(:, :)
     !> Derivative of characteristic function U. Dimension is (3, ngrid, nsph)
     real(kind=rp), allocatable :: zi(:, :, :)
+    !> Number of external Lebedev grid points on a molecule surface
+    integer :: ncav
+    !> Coordinates of external Lebedev grid points of dimension (3, ncav)
+    real(kind=rp), allocatable :: ccav(:, :)
     !> Preconditioner for operator R_eps. Dimension is (nbasis, nbasis, nsph)
     real(kind=rp), allocatable :: rx_prc(:, :, :)
     ! Maximum degree of spherical harmonics for M (multipole) expansion
@@ -178,92 +180,136 @@ contains
 
 !> Initialize ddX input with a full set of parameters
 !!
-!!
 !! @param[in] n: Number of atoms
 !! @param[in] x: \f$ x \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] y: \f$ y \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] z: \f$ z \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] rvdw: Van-der-Waals radii of atoms. Dimension is `(n)`
 !! @param[in] model: Choose model: 1 for COSMO, 2 for PCM and 3 for LPB
+!! @param[in] lmax: Maximal degree of modeling spherical harmonics. `lmax` >= 0
 !! @param[inout] ngrid: Approximate number of Lebedev grid points on input and
 !!      actual number of grid points on exit. `ngrid` > 0
-!! @param[in] lmax: Maximal degree of modeling spherical harmonics. `lmax` >= 0
 !! @param[in] force: 1 if forces are required and 0 otherwise
 !! @param[in] fmm: 1 to use FMM acceleration and 0 otherwise
 !! @param[in] pm: Maximal degree of multipole spherical harmonics. `pm` >= 0
 !! @param[in] pl: Maximal degree of local spherical harmonics. `pl` >= 0
+!! @param[in] iprint: Level of printing debug info
+!! @param[in] nngmax: Maximal number of neighbours (intersects) for every
+!!      sphere
+!! @param[in] eta: regularization parameter
+!! @param[in] eps: Relative dielectric permittivity
 !! @param[out] dd_data: Object containing all inputs
+!! @param[out] info: flag of succesfull exit
+!!      = 0: Succesfull exit
+!!      < 0: If info=-i then i-th argument had an illegal value
+!!      > 0: Allocation of a buffer for the output dd_data failed
+!!
+!!
+!! TODO: intersecting spheres must take into account regularization parameter
 subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
-        & iprint, nngmax, eta, dd_data)
+        & iprint, nngmax, eta, eps, dd_data)!, info)
     ! Inputs
     integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, iprint, nngmax
-    real(kind=rp) :: x(n), y(n), z(n), rvdw(n), eta
+    real(kind=rp) :: x(n), y(n), z(n), rvdw(n), eta, eps
     ! Output
-    type(dd_data_type) :: dd_data
+    type(dd_data_type), intent(out) :: dd_data
+    integer :: info
     ! Inouts
     integer, intent(inout) :: ngrid
     ! Local variables
     integer :: istatus, i, ii, inear, jnear, igrid, jgrid, isph, jsph, lnl
     real(kind=rp) :: rho, ctheta, stheta, cphi, sphi
     real(kind=rp), allocatable :: vplm(:), vcos(:), vsin(:)
-    real(kind=rp) :: v(3), vv, t, xt, swthr, fac, d2, r2
+    real(kind=rp) :: v(3), vv, t, swthr, fac, d2, r2
     double precision, external :: dnrm2
     !!! Check input parameters
-    if ((model .lt. 1) .and. (model .gt. 3)) then
-        write(*, *) "ddinit: wrong value of parameter `model`"
-        stop
+    if (n .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `n`"
+        info = -1
+        return
     end if
-    dd_data % model = model
-    if (lmax .lt. 0) then
-        write(*, *) "ddinit: wrong value of parameter `lmax`"
-        stop
-    end if
-    dd_data % lmax = lmax
-    dd_data % nbasis = (lmax+1)**2
-    if ((force .lt. 0) .and. (force .gt. 1)) then
-        write(*, *) "ddinit: wrong value of parameter `force`"
-        stop
-    end if
-    dd_data % force = force
-    if ((fmm .lt. 0) .and. (fmm .gt. 1)) then
-        write(*, *) "ddinit: wrong value of parameter `fmm`"
-        stop
-    end if
-    dd_data % fmm = fmm
-    if (nngmax .le. 0) then
-        write(*, *) "ddinit: wrong value of parameter `nngmax`"
-        stop
-    end if
-    dd_data % nngmax = nngmax
-    if (eta .lt. 0) then
-        write(*, *) "ddinit: wrong value of parameter `eta`"
-        stop
-    end if
-    dd_data % eta = eta
-    ! Set FMM parameters
-    if(fmm .eq. 1) then
-        if(pm .lt. 0) then
-            write(*, *) "ddinit: wrong value of parameter `pm`"
-            stop
-        end if
-        if(pl .lt. 0) then
-            write(*, *) "ddinit: wrong value of parameter `pl`"
-            stop
-        end if
-    end if
-    dd_data % pm = pm
-    dd_data % pl = pl
-    ! Set input data
     dd_data % nsph = n
     allocate(dd_data % csph(3, n), dd_data % rsph(n), stat=istatus)
     if (istatus .ne. 0) then
-        write(*, *) "ddinit: [1] allocation failed!"
-        stop
+        !write(*, *) "ddinit: [1] allocation failed!"
+        info = 1
+        return
     end if
     dd_data % csph(1, :) = x
     dd_data % csph(2, :) = y
     dd_data % csph(3, :) = z
     dd_data % rsph = rvdw
+    if ((model .lt. 1) .and. (model .gt. 3)) then
+        !write(*, *) "ddinit: wrong value of parameter `model`"
+        info = -6
+        return
+    end if
+    dd_data % model = model
+    if (lmax .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `lmax`"
+        info = -7
+        return
+    end if
+    dd_data % lmax = lmax
+    dd_data % nbasis = (lmax+1)**2
+    dd_data % n = n * dd_data % nbasis
+    if (ngrid .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `ngrid`"
+        info = -8
+        return
+    end if
+    ! Actual value of ngrid will be calculated later
+    if ((force .lt. 0) .and. (force .gt. 1)) then
+        !write(*, *) "ddinit: wrong value of parameter `force`"
+        info = -9
+        return
+    end if
+    dd_data % force = force
+    if ((fmm .lt. 0) .and. (fmm .gt. 1)) then
+        !write(*, *) "ddinit: wrong value of parameter `fmm`"
+        info = -10
+        return
+    end if
+    dd_data % fmm = fmm
+    if (iprint .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `iprint`"
+        info = -13
+        return
+    end if
+    dd_data % iprint = iprint
+    if (nngmax .le. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `nngmax`"
+        info = -14
+        return
+    end if
+    dd_data % nngmax = nngmax
+    if ((eta .lt. 0) .or. (eta .gt. 1)) then
+        !write(*, *) "ddinit: wrong value of parameter `eta`"
+        info = -15
+        return
+    end if
+    dd_data % eta = eta
+    if (eps .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `eps`"
+        info = -16
+        return
+    end if
+    dd_data % eps = eps
+    ! Set FMM parameters
+    if(fmm .eq. 1) then
+        if(pm .lt. 0) then
+            write(*, *) "ddinit: wrong value of parameter `pm`"
+            info = -11
+            return
+        end if
+        if(pl .lt. 0) then
+            write(*, *) "ddinit: wrong value of parameter `pl`"
+            info = -12
+            return
+        end if
+    end if
+    dd_data % pm = pm
+    dd_data % pl = pl
     !!! Generate constants and auxiliary arrays
     ! Compute sizes of auxiliary arrays for `fmm=0`
     if (fmm .eq. 0) then
@@ -283,10 +329,11 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
     dd_data % vgrid_nbasis = (dd_data % vgrid_dmax+1)**2
     dd_data % nfact = max(2*dd_data % dmax+1, 2)
     ! Compute scaling factors of spherical harmonics
-    allocate(dd_data % vscales((dd_data % dmax+1)**2), stat=istatus)
+    allocate(dd_data % vscales(dd_data % nbasis), stat=istatus)
     if (istatus .ne. 0) then
-        write(*, *) "ddinit: [2] allocation failed!"
-        stop
+        !write(*, *) "ddinit: [2] allocation failed!"
+        info = 2
+        return
     end if
     call ylmscale(dd_data % dmax, dd_data % vscales)
     ! Precompute square roots of factorials
@@ -335,10 +382,13 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         call ylmbas(dd_data % cgrid(:, igrid), rho, ctheta, stheta, cphi, &
             & sphi, dd_data % vgrid_dmax, dd_data % vscales, &
             & dd_data % vgrid(:, igrid), vplm, vcos, vsin)
+        dd_data % vwgrid(:, igrid) = dd_data % wgrid(igrid) * &
+            & dd_data % vgrid(:, igrid)
     end do
     ! Debug printing to compare against ddPCM
     if (iprint.ge.4) then
         call prtsph('facs', dd_data % nbasis, lmax, 1, 0, dd_data % vscales)
+        ! TODO: this printing is obviously wrong, but it is the same in ddPCM
         call prtsph('facl', dd_data % nbasis, lmax, 1, 0, dd_data % vscales)
         call prtsph('basis', dd_data % nbasis, lmax, ngrid, 0, dd_data % vgrid)
         call ptcart('grid', ngrid, 3, 0, dd_data % cgrid)
@@ -349,12 +399,14 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         write(*, *) "ddinit: [1] deallocation failed!"
         stop
     end if
+    ! Upper bound of switch region. Defines intersection criterion for spheres
+    swthr = one + (se+one)*eta/two
     ! Build list of neighbours in CSR format
     allocate(dd_data % inl(n+1), dd_data % nl(n*nngmax), stat=istatus)
     if (istatus .ne. 0) then
         write(*, *) 'ddinit : [7] allocation failed !'
         stop
-    endif
+    end if
     i  = 1
     lnl = 0
     do isph = 1, n
@@ -366,6 +418,8 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
                 r2 = rvdw(isph) + rvdw(jsph)
                 ! This check does not take into account eta regularization
                 ! TODO: take eta into account
+                ! Solution is in the following commented line
+                ! r2 = rvdw(isph) + swthr*rvdw(jsph)
                 if (d2 .le. r2) then
                     dd_data % nl(i) = jsph
                     i  = i + 1
@@ -395,7 +449,7 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
     if (istatus .ne. 0) then
         write(*, *) 'ddinit : [8] allocation failed !'
         stop
-    endif
+    end if
     dd_data % fi = zero
     dd_data % ui = zero
     if (force .eq. 1) then
@@ -406,144 +460,150 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         endif
         dd_data % zi = zero
     end if
-    ! TODO: improve next loop
-    ! !!$omp parallel do default(shared) private(isph,i,ii,jsph,v,vv,t,xt,swthr,fac)
-    !     loop over spheres
     do isph = 1, n
-        !      
-        !       loop over integration points
         do i = 1, ngrid
-            !    
-            !         loop over neighbors of i-sphere
+            ! Loop over neighbours of i-th sphere
             do ii = dd_data % inl(isph), dd_data % inl(isph+1)-1
-                !    
-                !           neighbor's number
+                ! Neighbour's index
                 jsph = dd_data % nl(ii)
-                !            
-                !           compute t_n^ij
-                v(:) = dd_data % csph(:,isph) + &
-                    & rvdw(isph)*dd_data % cgrid(:,i) - &
-                    & dd_data % csph(:,jsph)
-                vv   = sqrt(dot_product(v,v))
-                t    = vv/dd_data % rsph(jsph)
-                !    
-                !           compute \chi( t_n^ij )
-                xt = fsw(t, se, eta)
-                !            
-                !           upper bound of switch region
-                swthr = one + (se+one)*eta / two
-                !            
-                !           t_n^ij belongs to switch region
-                if ((force .eq. 1) .and. &
-                    & ((t .lt. swthr) .and. &
-                    & (t .gt. swthr-eta ))) then
-                    !                    
-                    fac = dfsw(t, se, eta) / rvdw(jsph)
-                    !    
-                    !             accumulate for zi
-                    !             -----------------
-                    dd_data % zi(:, i, isph) = dd_data % zi(:,i,isph) + &
-                        & fac*v(:)/vv
-                    !              
-                endif
-                !    
-                !           accumulate for fi
-                !           -----------------
-                dd_data % fi(i, isph) = dd_data % fi(i, isph) + xt
-                !            
+                ! Compute t_n^ij
+                v(:) = dd_data % csph(:, isph) - dd_data % csph(:, jsph) + &
+                    & rvdw(isph)*dd_data % cgrid(:, i)
+                vv = dnrm2(3, v, 1)
+                t = vv / dd_data % rsph(jsph)
+                ! Accumulate characteristic function \chi(t_n^ij)
+                dd_data % fi(i, isph) = dd_data % fi(i, isph) + fsw(t, se, eta)
+                ! Check if gradients are required
+                if (force .eq. 1) then
+                    ! Check if t_n^ij belongs to switch region
+                    if ((t .lt. swthr) .and. (t .gt. swthr-eta)) then
+                        ! Accumulate gradient of characteristic function \chi
+                        fac = dfsw(t, se, eta) / rvdw(jsph)
+                        dd_data % zi(:, i, isph) = dd_data % zi(:, i, isph) + &
+                            & fac*v/vv
+                    end if
+                end if
             enddo
-            !    
-            !         compute ui
-            !         ----------
+            ! Compute characteristic function of a molecular surface ui
             if (dd_data % fi(i, isph) .le. one) then
                 dd_data % ui(i, isph) = one - dd_data % fi(i, isph)
             end if
-            !
         enddo
     enddo
-    ! !!$omp end parallel do
-    !
-    if (iprint.ge.4) then
+    ! Debug printing
+    if (iprint .ge. 4) then
         call ptcart('fi', ngrid, n, 0, dd_data % fi)
         call ptcart('ui', ngrid, n, 0, dd_data % ui)
     end if
-    !    
-    !     build cavity array
-    !     ==================
-    !    
-    !     initialize number of cavity points
+    ! Build cavity array. At first get total count
     dd_data % ncav = 0
-    !      
-    !     loop over spheres
     do isph = 1, n
-        !    
-        !       loop over integration points
+        ! Loop over integration points
         do i = 1, ngrid
-            !        
-            !         positive contribution from integration point
-            if (dd_data % ui(i,isph) .gt. zero) then
-                !
-                !           accumulate
+            ! Positive contribution from integration point
+            if (dd_data % ui(i, isph) .gt. zero) then
                 dd_data % ncav = dd_data % ncav + 1
-                !                  
             endif
         enddo
     enddo
-    !    
-    !     allocate cavity array
+    ! Allocate cavity array
     allocate(dd_data % ccav(3, dd_data % ncav) , stat=istatus)
     if (istatus .ne. 0) then
         write(*,*)'ddinit : [10] allocation failed!'
         stop
     endif
-    !    
-    !
-    !     initialize cavity array index
+    ! Get actual cavity coordinates
     ii = 0
-    !
-    !     loop over spheres
     do isph = 1, n
-        !
-        !       loop over integration points
+        ! Loop over integration points
         do i = 1, ngrid
-            !
-            !         positive contribution from integration point
+            ! Positive contribution from integration point
             if (dd_data % ui(i, isph) .gt. zero) then
-                !
-                !           advance cavity array index
+                ! Advance cavity array index
                 ii = ii + 1
-                !
-                !           store point
+                ! Store point
                 dd_data % ccav(:, ii) = dd_data % csph(:, isph) + &
                     & rvdw(isph)*dd_data % cgrid(:, i)
-                !            
             endif
         enddo
     enddo
-!
-1100  format(t3,i8,3f14.6)
-!
-    if (iprint.ge.4) then
-        write(6,*) '   external cavity points:'
+    ! Create preconditioner for PCM
+    if (model .eq. 2) then
+        allocate(dd_data % rx_prc(dd_data % nbasis, dd_data % nbasis, n), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            write(*,*)'ddinit : [11] allocation failed!'
+            stop
+        endif
+        call mkprec(dd_data)
+    end if
+    ! Again some debug output
+    1100  format(t3,i8,3f14.6)
+    if (iprint .ge. 4) then
+        write(6, *) '   external cavity points:'
         do ii = 1, dd_data % ncav
             write(6,1100) ii, dd_data % ccav(:, ii)
         end do
-        write(6,*)
+        write(6, *)
     end if
 end subroutine ddinit
 
 !> Deallocate object with corresponding data
 !!
-!! @param[inout] dd_data
+!! @param[inout] dd_data: object to deallocate
 subroutine ddfree(dd_data)
     ! Input/output
-    type(dd_data_type) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     ! Local variables
-    integer :: istat
-    deallocate(dd_data % csph, dd_data % rsph, stat=istat)
-    if (istat .ne. 0) then
+    integer :: istatus
+    deallocate(dd_data % csph, dd_data % rsph, stat=istatus)
+    if (istatus .ne. 0) then
         write(*, *) "ddfree: [1] deallocation failed!"
         stop
+    end if
+    deallocate(dd_data % vscales, dd_data % vfact, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [2] deallocation failed!"
+        stop
+    end if
+    deallocate(dd_data % cgrid, dd_data % wgrid, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [3] deallocation failed!"
+        stop
+    end if
+    deallocate(dd_data % vgrid, dd_data % vwgrid, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [4] deallocation failed!"
+        stop
+    end if
+    deallocate(dd_data % inl, dd_data % nl, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [5] deallocation failed!"
+        stop
+    end if
+    deallocate(dd_data % fi, dd_data % ui, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [6] deallocation failed!"
+        stop
+    end if
+    if (dd_data % force .eq. 1) then
+        deallocate(dd_data % zi, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [7] deallocation failed!"
+            stop
+        end if
+    end if
+    deallocate(dd_data % ccav, stat=istatus)
+    if (istatus .ne. 0) then
+        write(*, *) "ddfree: [8] deallocation failed!"
+        stop
+    end if
+    if (dd_data % model .eq. 2) then
+        deallocate(dd_data % rx_prc, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [9] deallocation failed!"
+            stop
+        end if
     end if
 end subroutine ddfree
 
@@ -846,7 +906,7 @@ subroutine ylmbas(x, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
         rho = max12 * sqrt(ssq12)
     else if (abs(x(3)) .gt. max12) then
         rho = one + ssq12 *(max12/x(3))**2
-        rho = x(3) * sqrt(rho)
+        rho = abs(x(3)) * sqrt(rho)
     else
         rho = ssq12 + (x(3)/max12)**2
         rho = max12 * sqrt(rho)
@@ -1022,12 +1082,12 @@ subroutine intrhs(iprint, ngrid, p, vwgrid, isph, x, xlm)
     ! Accumulate over integration points
     do igrid = 1, ngrid
         xlm = xlm + vwgrid(:,igrid)*x(igrid)
-    enddo
+    end do
     ! Printing (these functions are not implemented yet)
     if (iprint .ge. 5) then
         call ptcart('pot', ngrid, 1, isph, x)
         call prtsph('vlm', (p+1)**2, p, 1, isph, xlm)
-    endif
+    end if
 end subroutine intrhs
 
 !> Compute first derivatives of spherical harmonics
@@ -1652,6 +1712,72 @@ subroutine ddmkzeta( dd_data, s, zeta)
        zeta = pt5*((dd_data % eps-one)/dd_data % eps)*zeta
        return
 end subroutine ddmkzeta
+
+!> Compute preconditioner
+!!
+!! assemble the diagonal blocks of the reps matrix
+!! then invert them to build the preconditioner
+subroutine mkprec(dd_data)
+    ! Inouts
+    type(dd_data_type), intent(inout) :: dd_data
+    integer :: isph, lm, ind, l1, m1, ind1, its, istatus
+    real(kind=rp)  :: f, f1
+    integer, allocatable :: ipiv(:)
+    real(kind=rp),  allocatable :: work(:)
+    external :: dgetrf, dgetri
+    ! Allocation of temporaries
+    allocate(ipiv(dd_data % nbasis),work(dd_data % nbasis**2),stat=istatus)
+    if (istatus.ne.0) then
+        write(*,*) 'mkprec : allocation failed !'
+        stop
+    endif
+    ! Init
+    dd_data % rx_prc = zero
+    ! Off-diagonal part
+    do isph = 1, dd_data % nsph
+        do its = 1, dd_data % ngrid
+            f = twopi* dd_data % ui(its,isph) * dd_data % wgrid(its)
+            do l1 = 0, dd_data % lmax
+                ind1 = l1*l1 + l1 + 1
+                do m1 = -l1, l1
+                    f1 = f*dd_data % vgrid(ind1 + m1,its)/(two*dble(l1) + one)
+                    do lm = 1, dd_data % nbasis
+                        dd_data % rx_prc(lm,ind1 + m1,isph) = dd_data % rx_prc(lm,ind1 + m1,isph) + &
+                            & f1*dd_data % vgrid(lm,its)
+                    end do
+                end do
+            end do
+        end do
+    end do
+    ! add diagonal
+    f = twopi*(dd_data % eps + one)/(dd_data % eps - one)
+    do isph = 1, dd_data % nsph
+        do lm = 1, dd_data % nbasis
+            dd_data % rx_prc(lm,lm,isph) = dd_data % rx_prc(lm,lm,isph) + f
+        end do
+    end do
+    ! invert the blocks
+    do isph = 1, dd_data % nsph
+        call dgetrf(dd_data % nbasis, dd_data % nbasis, &
+            & dd_data % rx_prc(:,:,isph), dd_data % nbasis, ipiv, istatus)
+        if (istatus.ne.0) then 
+            write(6,*) 'lu failed in mkprc'
+            stop
+        end if
+        call dgetri(dd_data % nbasis, dd_data % rx_prc(:,:,isph), &
+            & dd_data % nbasis, ipiv, work, dd_data % nbasis**2, istatus)
+        if (istatus.ne.0) then 
+            write(6,*) 'inversion failed in mkprc'
+            stop
+        end if
+    end do
+    ! Cleanup temporaries
+    deallocate(work, ipiv, stat=istatus)
+    if (istatus.ne.0) then
+        write(*,*) 'mkprec : deallocation failed !'
+        stop
+    end if
+endsubroutine mkprec
 
 !> Compute multipole coefficients for a particle of a unit charge
 !!

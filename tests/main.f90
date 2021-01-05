@@ -10,21 +10,31 @@
 !! @date 2020-12-17
 
 program main
+use dd_core
 use dd_operators
+use dd_solvers
+use dd_cosmo
+use dd_pcm
 implicit none
 
+character(len=255) :: fname
 type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
-integer :: nngmax=200
-real(kind=rp) :: eps, eta
+integer :: nngmax=200, niter, ndiis=25
+logical :: ok
+real(kind=rp) :: eps, eta, tol
 real(kind=rp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
-real(kind=rp), allocatable :: phi(:), psi(:,:)
+real(kind=rp), allocatable :: phi(:), psi(:, :), xs(:, :)
+real(kind=rp), allocatable :: g(:, :), rhs(:, :)
 real(kind=rp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
 real(kind=rp), parameter :: tobohr=1d0/toang
 
-integer :: i
+integer :: i, j
 
-open (unit=100,file='Input.txt',form='formatted',access='sequential')
+! Read input file name
+call getarg(1, fname)
+write(*, *) "Reading input file ", fname
+open (unit=100,file=fname,form='formatted',access='sequential')
 !
 ! scalar parameters. the variables are defined in the ddcosmo module and are common to
 ! all the ddcosmo routines (no need to declare them if ddcosmo.mod is loaded.)
@@ -56,23 +66,21 @@ z    = z*tobohr
 rvdw = rvdw*tobohr
 !
 close (100)
-!
-! call the initialization routine. this routine allocates memory, computes some
-! quantities for internal use and creates and fills an array ccav(3,ncav) with
-! the coordinates of the grid points at which the user needs to compute the potential.
-! ncav is the number of external grid points and nbasis the number of spherical
-! harmonics functions used for the expansion of the various ddcosmo quantities;
-! both are computed by ddinit and defined as common variables in ddcosmo.mod.
 
-model=1
+model=2
 force=0
 fmm=0
 call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, nngmax, eta, dd_data)
-allocate (phi(dd_data % ncav), psi(dd_data % nbasis,n))
-!call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
-!    & dd_data % nbasis, psi)
+    & iprint, nngmax, eta, eps, dd_data)
+allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n))
+call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
+    & dd_data % nbasis, psi)
+tol = 10d0 ** (-iconv)
+niter = 200
+call ddpcm(dd_data, phi, psi, tol, ndiis, niter)
 deallocate(phi, psi)
 deallocate(x, y, z, rvdw, charge)
+call ddfree(dd_data)
+
 end program main
 

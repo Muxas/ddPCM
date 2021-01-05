@@ -15,6 +15,9 @@ implicit none
 integer :: p, i
 real(kind=rp) :: alpha(4)=(/1d0, 1d-307, 1d-308, 1d+307/)
 
+! Check correctness of info for invalid input parameters of ddinit
+
+! Check P2M, M2P and M2M operations of the FMM
 do i = 1, 4
     do p = 0, 40
         call check_p2m_m2p_m2m_baseline(p, alpha(i))

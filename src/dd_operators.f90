@@ -16,25 +16,144 @@ use dd_core
 
 contains
 
-!> Apply double layer potential to spherical harmonics
+!> Compute potential in cavity points
+!!
+!! TODO: make use of FMM here
+subroutine mkrhs(n, charge, x, y, z, ncav, ccav, phi, nbasis, psi)
+    ! Inputs
+    integer, intent(in) :: n, ncav, nbasis
+    real(kind=rp), intent(in) :: x(n), y(n), z(n), charge(n)
+    real(kind=rp), intent(in) :: ccav(3, ncav)
+    ! Outputs
+    real(kind=rp), intent(out) :: phi(ncav)
+    real(kind=rp), intent(out) :: psi(nbasis, n)
+    ! Local variables
+    integer :: isph, icav
+    real(kind=rp) :: d(3), v
+    real(kind=rp), external :: dnrm2
+    ! Vector phi
+    do icav = 1, ncav
+        v = zero
+        do isph = 1, n
+            d(1) = ccav(1, icav) - x(isph)
+            d(2) = ccav(2, icav) - y(isph)
+            d(3) = ccav(3, icav) - z(isph)
+            v = v + charge(isph)/dnrm2(3, d, 1)
+        end do
+        phi(icav) = v
+    end do
+    ! Vector psi
+    psi(2:, :) = zero
+    do isph = 1, n
+        psi(1, isph) = sqrt4pi * charge(isph)
+    end do
+end subroutine mkrhs
+
+!> Apply single layer operator to spherical harmonics
+!!
+!! Diagonal blocks are not counted here.
+subroutine lx(dd_data, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Local variables
+    integer :: isph, istatus
+    real(kind=rp), allocatable :: pot(:), vplm(:), basloc(:), vcos(:), vsin(:)
+    ! Allocate workspaces
+    allocate(pot(dd_data % ngrid), vplm(dd_data % nbasis), &
+        & basloc(dd_data % nbasis), vcos(dd_data % lmax+1), &
+        & vsin(dd_data % lmax+1) , stat=istatus )
+    if ( istatus.ne.0 ) then
+        write(*,*) 'lx: allocation failed !'
+        stop
+    end if
+    ! Debug printing
+    if (dd_data % iprint .ge. 5) then
+        call prtsph('X', dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, &
+            & x)
+    end if
+    ! Initialize
+    y = zero
+    ! !!$omp parallel do default(shared) private(isph,pot,basloc,vplm,vcos,vsin) &
+    ! !!$omp schedule(dynamic)
+    do isph = 1, dd_data % nsph
+        ! Compute NEGATIVE action of off-digonal blocks
+        call calcv(dd_data, .false., isph, pot, x, basloc, vplm, vcos, vsin)
+        call intrhs(dd_data % iprint, dd_data % ngrid, dd_data % lmax, &
+            & dd_data % vwgrid, isph, pot, y(:,isph))
+        ! Action of off-diagonal blocks
+        y(:,isph) = - y(:,isph)
+    end do
+    ! Debug printing
+    if (dd_data % iprint .ge. 5) then
+        call prtsph('LX (off diagonal)', dd_data % nbasis, dd_data % lmax, &
+            & dd_data % nsph, 0, y)
+    end if
+    ! Deallocate workspaces
+    deallocate(pot, basloc, vplm, vcos, vsin , stat=istatus)
+    if (istatus .ne. 0) then
+        write(*,*) 'lx: allocation failed !'
+        stop
+    endif
+end subroutine lx
+
+!> Diagonal preconditioning for Lx operator
+!!
+!! Applies inverse diagonal (block) of the L matrix
+subroutine ldm1x(dd_data, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Local variables
+    integer :: l, ind
+    ! Loop over harmonics
+    do l = 0, dd_data % lmax
+        ind = l*l + l + 1
+        y(ind-l:ind+l, :) = x(ind-l:ind+l, :) * (dd_data % vscales(ind)**2)
+    end do
+end subroutine ldm1x
+
+!> Apply double layer operator to spherical harmonics
 !!
 !! @param[in] dd_data
 subroutine dx(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Select implementation
+    if (dd_data % fmm .eq. 0) then
+        call dx_dense(dd_data, do_diag, x, y)
+    else
+        call dx_fmm(dd_data, do_diag, x, y)
+    end if
+end subroutine dx
+
+!> Baseline implementation of double layer operator
+!!
+!! @param[in] dd_data
+subroutine dx_dense(dd_data, do_diag, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: do_diag
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     real(kind=rp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
     real(kind=rp) :: c(3), vij(3), sij(3)
-    real(kind=rp) :: vvij, tij, fourpi, tt, f, f1, rho, ctheta, stheta, cphi, sphi
+    real(kind=rp) :: vvij, tij, tt, f, f1, rho, ctheta, stheta, cphi, sphi
     integer :: its, isph, jsph, l, m, ind, lm, istatus
     ! Allocate temporaries
-    allocate(vts(dd_data % ngrid), vplm((dd_data % lmax+1)**2), &
-        & basloc((dd_data % lmax+1)**2),vcos(dd_data % lmax + 1), &
-        & vsin(dd_data % lmax + 1), stat=istatus)
+    allocate(vts(dd_data % ngrid), vplm(dd_data % nbasis), &
+        & basloc(dd_data % nbasis),vcos(dd_data % lmax+1), &
+        & vsin(dd_data % lmax+1), stat=istatus)
     if (istatus.ne.0) then
         write(6,*) 'dx: allocation failed !'
         stop
@@ -102,27 +221,58 @@ subroutine dx(dd_data, do_diag, x, y)
         write(6,*) 'dx: deallocation failed !'
         stop
     end if
-end subroutine dx
+end subroutine dx_dense
 
-!> Apply adjoint double layer operator
+!> FMM-accelerated implementation of double layer operator
 !!
+!! @param[in] dd_data
+subroutine dx_fmm(dd_data, do_diag, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: do_diag
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Local variables
+end subroutine dx_fmm
+
+!> Apply adjoint double layer operator to spherical harmonics
 !!
+!! @param[in] dd_data
 subroutine dstarx(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Select implementation
+    if (dd_data % fmm .eq. 0) then
+        call dstarx_dense(dd_data, do_diag, x, y)
+    else
+        call dstarx_fmm(dd_data, do_diag, x, y)
+    end if
+end subroutine dstarx
+
+!> Baseline implementation of adjoint double layer operator
+!!
+!!
+subroutine dstarx_dense(dd_data, do_diag, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: do_diag
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     real(kind=rp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
     real(kind=rp) :: c(3), vji(3), sji(3)
     real(kind=rp) :: vvji, tji, fourpi, tt, f, f1, rho, ctheta, stheta, cphi, sphi
     integer :: its, isph, jsph, l, m, ind, lm, istatus
     ! Allocate temporaries
-    allocate(vts(dd_data % ngrid), vplm((dd_data % lmax+1)**2), &
-        & basloc((dd_data % lmax+1)**2),vcos(dd_data % lmax + 1), &
-        & vsin(dd_data % lmax + 1), stat=istatus)
+    allocate(vts(dd_data % ngrid), vplm(dd_data % nbasis), &
+        & basloc(dd_data % nbasis),vcos(dd_data % lmax+1), &
+        & vsin(dd_data % lmax+1), stat=istatus)
     if (istatus.ne.0) then
         write(6,*) 'dx: allocation failed !'
         stop
@@ -175,7 +325,41 @@ subroutine dstarx(dd_data, do_diag, x, y)
         write(6,*) 'dx: deallocation failed !'
         stop
     end if
-end subroutine dstarx
+end subroutine dstarx_dense
+
+!> FMM-accelerated implementation of adjoint double layer operator
+!!
+!!
+subroutine dstarx_fmm(dd_data, do_diag, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: do_diag
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Local variables
+end subroutine dstarx_fmm
+
+!> Apply \f$ R \f$ operator to spherical harmonics
+!!
+!! Compute \f$ y = R x = - D x \f$ with excluded diagonal influence (blocks
+!! D_ii are assumed to be zero).
+!!
+!! @param[in] dd_data:
+!! @param[in] x:
+!! @param[out] y:
+subroutine rx(dd_data, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    ! Local variables
+    real(kind=rp) :: fac
+    ! Output `y` is cleaned here
+    call dx(dd_data, 0, x, y)
+    y = -y
+end subroutine rx
 
 !> Apply \f$ R_\varepsilon \f$ operator to spherical harmonics
 !!
@@ -183,26 +367,22 @@ end subroutine dstarx
 !! - 1) - D) x \f$.
 !!
 !! @param[in] dd_data:
-!! @param[in] do_diag:
 !! @param[in] x:
 !! @param[out] y:
-subroutine repsx(dd_data, do_diag, x, y)
+subroutine repsx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     real(kind=rp) :: fac
     ! Output `y` is cleaned here
-    call dx(dd_data, do_diag, x, y)
-    y = -y
+    call dx(dd_data, 1, x, y)
     ! Apply diagonal
-    if (do_diag .eq. 1) then
-        fac = twopi * (dd_data % eps + one) / (dd_data % eps - one)
-        y = y + fac*x
-    end if
+    fac = twopi * (dd_data % eps + one) / (dd_data % eps - one)
+    y = fac*x - y
+    call prtsph("matvec x", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
 end subroutine repsx
 
 !> Apply \f$ R_\infty \f$ operator to spherical harmonics
@@ -210,25 +390,20 @@ end subroutine repsx
 !! Compute \f$ y = R_\infty x = (2\pi - D) x \f$.
 !!
 !! @param[in] dd_data:
-!! @param[in] do_diag:
 !! @param[in] x:
 !! @param[out] y:
-subroutine rinfx(dd_data, do_diag, x, y)
+subroutine rinfx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     real(kind=rp) :: fac
     ! Output `y` is cleaned here
-    call dx(dd_data, do_diag, x, y)
-    y = -y
+    call dx(dd_data, 1, x, y)
     ! Apply diagonal
-    if (do_diag .eq. 1) then
-        y = y + twopi*x
-    end if
+    y = twopi*x - y
 end subroutine rinfx
 
 !> Apply adjoint f$ R_\varepsilon \f$ operator to spherical harmonics
@@ -237,30 +412,44 @@ end subroutine rinfx
 !! - 1) - D^*) x \f$.
 !!
 !! @param[in] dd_data:
-!! @param[in] do_diag:
 !! @param[in] x:
 !! @param[out] y:
-subroutine rstarepsx(dd_data, do_diag, x, y)
+subroutine rstarepsx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     real(kind=rp) :: fac
     ! Output `y` is cleaned here
-    call dstarx(dd_data, do_diag, x, y)
-    y = -y
+    call dstarx(dd_data, 1, x, y)
     ! Apply diagonal
-    if (do_diag .eq. 1) then
-        fac = twopi * (dd_data % eps + one) / (dd_data % eps - one)
-        y = y + fac*x
-    end if
+    fac = twopi * (dd_data % eps + one) / (dd_data % eps - one)
+    y = fac*x - y
 end subroutine rstarepsx
 
 !> Apply preconditioner for 
-subroutine apply_rstarx_prec(dd_data, x, y)
+subroutine apply_repsx_prec(dd_data, x, y)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(kind=rp), intent(inout) :: y(dd_data % nbasis, dd_data % nsph)
+    integer :: isph
+    ! simply do a matrix-vector product with the transposed preconditioner 
+    ! !!$omp parallel do default(shared) schedule(dynamic) &
+    ! !!$omp private(isph)
+    do isph = 1, dd_data % nsph
+        call dgemm('N', 'N', dd_data % nbasis, 1, dd_data % nbasis, one, &
+            & dd_data % rx_prc(:, :, isph), dd_data % nbasis, x(:, isph), &
+            dd_data % nbasis, zero, y(:, isph), dd_data % nbasis)
+    end do
+  call prtsph("rx_prec x", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, x)
+  call prtsph("rx_prec y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
+end subroutine apply_repsx_prec
+
+!> Apply preconditioner for 
+subroutine apply_rstarepsx_prec(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
@@ -270,75 +459,10 @@ subroutine apply_rstarx_prec(dd_data, x, y)
     ! !!$omp parallel do default(shared) schedule(dynamic) &
     ! !!$omp private(isph)
     do isph = 1, dd_data % nsph
-        call dgemm('t','n',(dd_data % lmax+1)**2,1,(dd_data % lmax+1)**2,one,&
-            & dd_data % rx_prc(:,:,isph),(dd_data % lmax+1)**2, &
-            & x(:,isph),(dd_data % lmax+1)**2,zero,y(:,isph),(dd_data % lmax+1)**2)
+        call dgemm('T', 'N', dd_data % nbasis, 1, dd_data % nbasis, one, &
+            & dd_data % rx_prc(:, :, isph), dd_data % nbasis, x(:, isph), &
+            dd_data % nbasis, zero, y(:, isph), dd_data % nbasis)
     end do
-end subroutine apply_rstarx_prec
-
-!> Compute preconditioner
-!!
-!! assemble the diagonal blocks of the reps matrix
-!! then invert them to build the preconditioner
-subroutine mkprec(dd_data)
-    ! Inouts
-    type(dd_data_type), intent(inout) :: dd_data
-    integer :: isph, lm, ind, l1, m1, ind1, its, istatus
-    real*8  :: f, f1
-    integer, allocatable :: ipiv(:)
-    real*8,  allocatable :: work(:)
-    ! Allocation of temporaries
-    allocate(ipiv(nbasis),work(nbasis*nbasis),stat=istatus)
-    if (istatus.ne.0) then
-        write(*,*) 'mkprec : allocation failed !'
-        stop
-    endif
-    ! Init
-    dd_data % rx_prc = zero
-    ! Off-diagonal part
-    do isph = 1, dd_data % nsph
-        do its = 1, dd_data % ngrid
-            f = twopi* dd_data % ui(its,isph) * dd_data % wgrid(its)
-            do l1 = 0, dd_data % lmax
-                ind1 = l1*l1 + l1 + 1
-                do m1 = -l1, l1
-                    f1 = f*dd_data % vgrid(ind1 + m1,its)/(two*dble(l1) + one)
-                    do lm = 1, dd_data % nbasis
-                        dd_data % rx_prc(lm,ind1 + m1,isph) = dd_data % rx_prc(lm,ind1 + m1,isph) + &
-                            & f1*dd_data % vgrid(lm,its)
-                    end do
-                end do
-            end do
-        end do
-    end do
-    ! add diagonal
-    f = twopi*(dd_data % eps + one)/(dd_data % eps - one)
-    do isph = 1, dd_data % nsph
-        do lm = 1, dd_data % nbasis
-            dd_data % rx_prc(lm,lm,isph) = dd_data % rx_prc(lm,lm,isph) + f
-        end do
-    end do
-    ! invert the blocks
-    do isph = 1, dd_data % nsph
-        call dgetrf(dd_data % nbasis, dd_data % nbasis, &
-            & dd_data % rx_prc(:,:,isph), dd_data % nbasis, ipiv, istatus)
-        if (istatus.ne.0) then 
-            write(6,*) 'lu failed in mkprc'
-            stop
-        end if
-        call dgetri(dd_data % nbasis, dd_data % rx_prc(:,:,isph), &
-            & dd_data % nbasis, ipiv, work, dd_data % nbasis**2, istatus)
-        if (istatus.ne.0) then 
-            write(6,*) 'inversion failed in mkprc'
-            stop
-        end if
-    end do
-    ! Cleanup temporaries
-    deallocate(work, ipiv, stat=istatus)
-    if (istatus.ne.0) then
-        write(*,*) 'mkprec : deallocation failed !'
-        stop
-    end if
-endsubroutine mkprec
+end subroutine apply_rstarepsx_prec
 
 end module dd_operators
