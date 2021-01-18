@@ -22,7 +22,7 @@ type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
 integer :: nngmax=200, niter, ndiis=25
 logical :: ok
-real(kind=rp) :: eps, eta, tol
+real(kind=rp) :: eps, eta, tol, kappa
 real(kind=rp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
 real(kind=rp), allocatable :: phi(:), psi(:, :), xs(:, :)
 real(kind=rp), allocatable :: g(:, :), rhs(:, :)
@@ -70,8 +70,9 @@ close (100)
 model=2
 force=0
 fmm=0
+kappa=0d0
 call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, nngmax, eta, eps, dd_data)
+    & iprint, nngmax, eta, eps, kappa, dd_data)
 allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n))
 call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
     & dd_data % nbasis, psi)
