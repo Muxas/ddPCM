@@ -20,14 +20,14 @@ implicit none
 character(len=255) :: fname
 type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
-integer :: nngmax=200, niter, ndiis=25
+integer :: nngmax=200, niter, ndiis=25, info
 logical :: ok
-real(kind=rp) :: eps, eta, tol
-real(kind=rp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
-real(kind=rp), allocatable :: phi(:), psi(:, :), xs(:, :)
-real(kind=rp), allocatable :: g(:, :), rhs(:, :)
-real(kind=rp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
-real(kind=rp), parameter :: tobohr=1d0/toang
+real(dp) :: eps, eta, tol, se=zero
+real(dp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
+real(dp), allocatable :: phi(:), psi(:, :), xs(:, :)
+real(dp), allocatable :: g(:, :), rhs(:, :)
+real(dp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
+real(dp), parameter :: tobohr=1d0/toang
 
 integer :: i, j
 
@@ -71,7 +71,7 @@ model=2
 force=0
 fmm=0
 call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, nngmax, eta, eps, dd_data)
+    & iprint, nngmax, se, eta, eps, dd_data, info)
 allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n))
 call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
     & dd_data % nbasis, psi)

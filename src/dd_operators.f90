@@ -22,15 +22,15 @@ contains
 subroutine mkrhs(n, charge, x, y, z, ncav, ccav, phi, nbasis, psi)
     ! Inputs
     integer, intent(in) :: n, ncav, nbasis
-    real(kind=rp), intent(in) :: x(n), y(n), z(n), charge(n)
-    real(kind=rp), intent(in) :: ccav(3, ncav)
+    real(dp), intent(in) :: x(n), y(n), z(n), charge(n)
+    real(dp), intent(in) :: ccav(3, ncav)
     ! Outputs
-    real(kind=rp), intent(out) :: phi(ncav)
-    real(kind=rp), intent(out) :: psi(nbasis, n)
+    real(dp), intent(out) :: phi(ncav)
+    real(dp), intent(out) :: psi(nbasis, n)
     ! Local variables
     integer :: isph, icav
-    real(kind=rp) :: d(3), v
-    real(kind=rp), external :: dnrm2
+    real(dp) :: d(3), v
+    real(dp), external :: dnrm2
     ! Vector phi
     do icav = 1, ncav
         v = zero
@@ -55,12 +55,12 @@ end subroutine mkrhs
 subroutine lx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     integer :: isph, istatus
-    real(kind=rp), allocatable :: pot(:), vplm(:), basloc(:), vcos(:), vsin(:)
+    real(dp), allocatable :: pot(:), vplm(:), basloc(:), vcos(:), vsin(:)
     ! Allocate workspaces
     allocate(pot(dd_data % ngrid), vplm(dd_data % nbasis), &
         & basloc(dd_data % nbasis), vcos(dd_data % lmax+1), &
@@ -105,9 +105,9 @@ end subroutine lx
 subroutine ldm1x(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     integer :: l, ind
     ! Loop over harmonics
@@ -124,9 +124,9 @@ subroutine dx(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Select implementation
     if (dd_data % fmm .eq. 0) then
         call dx_dense(dd_data, do_diag, x, y)
@@ -142,13 +142,13 @@ subroutine dx_dense(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
-    real(kind=rp) :: c(3), vij(3), sij(3)
-    real(kind=rp) :: vvij, tij, tt, f, f1, rho, ctheta, stheta, cphi, sphi
+    real(dp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
+    real(dp) :: c(3), vij(3), sij(3)
+    real(dp) :: vvij, tij, tt, f, f1, rho, ctheta, stheta, cphi, sphi
     integer :: its, isph, jsph, l, m, ind, lm, istatus
     ! Allocate temporaries
     allocate(vts(dd_data % ngrid), vplm(dd_data % nbasis), &
@@ -230,9 +230,9 @@ subroutine dx_fmm(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
 end subroutine dx_fmm
 
@@ -243,9 +243,9 @@ subroutine dstarx(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Select implementation
     if (dd_data % fmm .eq. 0) then
         call dstarx_dense(dd_data, do_diag, x, y)
@@ -261,13 +261,13 @@ subroutine dstarx_dense(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
-    real(kind=rp) :: c(3), vji(3), sji(3)
-    real(kind=rp) :: vvji, tji, fourpi, tt, f, f1, rho, ctheta, stheta, cphi, sphi
+    real(dp), allocatable :: vts(:), vplm(:), basloc(:), vcos(:), vsin(:)
+    real(dp) :: c(3), vji(3), sji(3)
+    real(dp) :: vvji, tji, fourpi, tt, f, f1, rho, ctheta, stheta, cphi, sphi
     integer :: its, isph, jsph, l, m, ind, lm, istatus
     ! Allocate temporaries
     allocate(vts(dd_data % ngrid), vplm(dd_data % nbasis), &
@@ -334,9 +334,9 @@ subroutine dstarx_fmm(dd_data, do_diag, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
     integer, intent(in) :: do_diag
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
 end subroutine dstarx_fmm
 
@@ -351,11 +351,11 @@ end subroutine dstarx_fmm
 subroutine rx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp) :: fac
+    real(dp) :: fac
     ! Output `y` is cleaned here
     call dx(dd_data, 0, x, y)
     y = -y
@@ -372,11 +372,11 @@ end subroutine rx
 subroutine repsx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp) :: fac
+    real(dp) :: fac
     ! Output `y` is cleaned here
     call dx(dd_data, 1, x, y)
     ! Apply diagonal
@@ -395,11 +395,11 @@ end subroutine repsx
 subroutine rinfx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp) :: fac
+    real(dp) :: fac
     ! Output `y` is cleaned here
     call dx(dd_data, 1, x, y)
     ! Apply diagonal
@@ -417,11 +417,11 @@ end subroutine rinfx
 subroutine rstarepsx(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
-    real(kind=rp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    real(kind=rp) :: fac
+    real(dp) :: fac
     ! Output `y` is cleaned here
     call dstarx(dd_data, 1, x, y)
     ! Apply diagonal
@@ -433,8 +433,8 @@ end subroutine rstarepsx
 subroutine apply_repsx_prec(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
-    real(kind=rp), intent(inout) :: y(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
+    real(dp), intent(inout) :: y(dd_data % nbasis, dd_data % nsph)
     integer :: isph
     ! simply do a matrix-vector product with the transposed preconditioner 
     ! !!$omp parallel do default(shared) schedule(dynamic) &
@@ -452,8 +452,8 @@ end subroutine apply_repsx_prec
 subroutine apply_rstarepsx_prec(dd_data, x, y)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(kind=rp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
-    real(kind=rp), intent(inout) :: y((dd_data % lmax+1)**2, dd_data % nsph)
+    real(dp), intent(in) :: x((dd_data % lmax+1)**2, dd_data % nsph)
+    real(dp), intent(inout) :: y((dd_data % lmax+1)**2, dd_data % nsph)
     integer :: isph
     ! simply do a matrix-vector product with the transposed preconditioner 
     ! !!$omp parallel do default(shared) schedule(dynamic) &

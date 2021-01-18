@@ -89,10 +89,11 @@ if(COVERAGE)
     include(CodeCoverage)
     # Append coverage flags
     append_coverage_compiler_flags()
+    # Set excluded coverage paths
+    set(COVERAGE_EXCLUDES "tests/*" "src/llgnew.f")
     # Setup a target for an overall coverage
     setup_target_for_coverage_lcov(NAME coverage
         EXECUTABLE ctest
-        EXCLUDE "${CMAKE_SOURCE_DIR}/tests/*"
         LCOV_ARGS --no-external)
 endif()
 
@@ -143,17 +144,16 @@ function(ddx_add_test src)
     endif()
     # Link to ddx
     target_link_libraries(${logical} ddx)
+    if(COVERAGE)
+        # Add coverage for all tests together (they have ${logical}_${i} names)
+        setup_target_for_coverage_lcov(NAME coverage_${logical}
+            EXECUTABLE ctest -R ${logical}
+            DEPENDENCIES ${logical}
+            LCOV_ARGS --no-external)
+    endif()
     # If no arguments were provided, add test without parameters
     if(${ARGC} EQUAL 1)
         add_test(NAME ${logical} COMMAND ${exec})
-        if(COVERAGE)
-            # Add coverage by a single test
-            setup_target_for_coverage_lcov(NAME coverage_${logical}
-                EXECUTABLE ${path}/${exec}
-                DEPENDENCIES ${logical}
-                EXCLUDE "${CMAKE_SOURCE_DIR}/tests/*"
-                LCOV_ARGS --no-external)
-        endif()
         message(STATUS "Adding 1 test: ${path}/${exec}")
     # If only one test with arguments must be added
     elseif(${ARGC} EQUAL 2)

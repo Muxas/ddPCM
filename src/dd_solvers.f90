@@ -55,7 +55,7 @@ contains
 !              format: subroutine dm1vec(n,x,y)
 ! 
 !   u_norm   : external, optional function to compute the norm of a vector.
-!              format: real*8 function u_norm(n,x)
+!              format: real(dp) function u_norm(n,x)
 !
 !---------------------------------------------------------------------------------------------
 subroutine jacobi_diis(dd_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, &
@@ -63,21 +63,21 @@ subroutine jacobi_diis(dd_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, 
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
       integer,               intent(in)    :: n, diis_max, norm, lprint
-      real*8,                intent(in)    :: tol
-      real*8,  dimension(n), intent(in)    :: rhs
+      real(dp),                intent(in)    :: tol
+      real(dp),  dimension(n), intent(in)    :: rhs
       ! Outputs
-      real*8,  dimension(n), intent(inout) :: x
+      real(dp),  dimension(n), intent(inout) :: x
       integer,               intent(inout) :: n_iter
       logical,               intent(inout) :: ok
       external                             :: matvec, dm1vec
-      real*8,  optional                    :: u_norm
+      real(dp),  optional                    :: u_norm
       external                             :: u_norm
       ! Local variables
       integer :: it, nmat, istatus, lenb
-      real*8  :: rms_norm, max_norm, tol_max, rms_norm_diff, max_norm_diff
+      real(dp)  :: rms_norm, max_norm, tol_max, rms_norm_diff, max_norm_diff
       logical :: dodiis
 !
-      real*8, allocatable :: x_new(:), y(:), x_diis(:,:), e_diis(:,:), bmat(:,:)
+      real(dp), allocatable :: x_new(:), y(:), x_diis(:,:), e_diis(:,:), bmat(:,:)
 !
 !---------------------------------------------------------------------------------------------
 !
@@ -223,17 +223,17 @@ subroutine diis(n,nmat,ndiis,x,e,b,xnew)
 implicit none
 integer,                             intent(in)    :: n, ndiis
 integer,                             intent(inout) :: nmat
-real*8,  dimension(n,ndiis),         intent(inout) :: x, e
-real*8,  dimension(ndiis+1,ndiis+1), intent(inout) :: b
-real*8,  dimension(n),               intent(inout) :: xnew
+real(dp),  dimension(n,ndiis),         intent(inout) :: x, e
+real(dp),  dimension(ndiis+1,ndiis+1), intent(inout) :: b
+real(dp),  dimension(n),               intent(inout) :: xnew
 !
 integer :: nmat1, i, istatus
 integer :: j, k
 logical :: ok
 !
-real*8, allocatable :: bloc(:,:), cex(:)
+real(dp), allocatable :: bloc(:,:), cex(:)
 !
-real*8, parameter :: zero = 0.0d0, one = 1.0d0
+real(dp), parameter :: zero = 0.0d0, one = 1.0d0
 !
 !------------------------------------------------------------------------------
 !
@@ -282,12 +282,12 @@ end subroutine diis
 subroutine makeb(n,nmat,ndiis,e,b)
 implicit none
 integer, intent(in) :: n, nmat, ndiis
-real*8, dimension(n,ndiis),         intent(in) :: e
-real*8, dimension(ndiis+1,ndiis+1), intent(inout) :: b
+real(dp), dimension(n,ndiis),         intent(in) :: e
+real(dp), dimension(ndiis+1,ndiis+1), intent(inout) :: b
 !
 integer :: i
-real*8  :: bij
-real*8, parameter :: zero = 0.0d0, one = 1.0d0
+real(dp)  :: bij
+real(dp), parameter :: zero = 0.0d0, one = 1.0d0
   
 ! 1st built
 if (nmat.eq.1) then
@@ -325,15 +325,15 @@ implicit none
 !
 integer,                    intent(in)    :: n, nrhs
 logical,                    intent(inout) :: ok
-real*8,  dimension(n,n),    intent(inout) :: a
-real*8,  dimension(n,nrhs), intent(inout) :: b
+real(dp),  dimension(n,n),    intent(inout) :: a
+real(dp),  dimension(n,nrhs), intent(inout) :: b
 !
 integer :: i, j, k, irow, icol, istatus
-real*8  :: big, dum, pinv
-real*8, parameter :: zero = 0.0d0, one = 1.0d0
+real(dp)  :: big, dum, pinv
+real(dp), parameter :: zero = 0.0d0, one = 1.0d0
 !
 integer, allocatable :: indxc(:), indxr(:), piv(:)
-real*8,  allocatable :: scr(:)
+real(dp),  allocatable :: scr(:)
 !
 allocate (indxc(n), indxr(n), piv(n) , stat=istatus)
 if ( istatus.ne.0 ) then

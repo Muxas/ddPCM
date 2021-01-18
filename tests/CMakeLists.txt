@@ -10,8 +10,6 @@
 set(TESTS
     "dd_core.f90"
     "main.f90")
-list(APPEND COVERAGE_EXCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/*")
-message(STATUS "EXCLUDE: ${COVERAGE_EXCLUDES}")
 
 ddx_add_test("dd_core.f90")
 ddx_add_test("main.f90" "${CMAKE_SOURCE_DIR}/tests/Input.txt")

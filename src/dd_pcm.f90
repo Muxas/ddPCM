@@ -21,13 +21,13 @@ contains
 subroutine ddpcm(dd_data, phi, psi, tol, ndiis, maxiter)
     ! Inputs:
     type(dd_data_type), intent(in)  :: dd_data
-    real(kind=rp), intent(in) :: phi(dd_data % ncav), &
+    real(dp), intent(in) :: phi(dd_data % ncav), &
         & psi(dd_data % nbasis, dd_data % nsph)
-    real(kind=rp), intent(in) :: tol
+    real(dp), intent(in) :: tol
     integer, intent(in) :: ndiis
     integer, intent(in) :: maxiter
     ! Local variables
-    real(kind=rp), allocatable :: g(:, :), rhs(:, :), phieps(:, :), &
+    real(dp), allocatable :: g(:, :), rhs(:, :), phieps(:, :), &
         & phiinf(:, :), xs(:, :)
     integer :: istatus, isph, niter
     logical :: ok
