@@ -17,8 +17,8 @@ implicit none
 integer, parameter :: dp = kind(1d0)
 
 !! Compile-time constants
-real(dp), parameter :: zero = 0d0, one = 1d0, two = 2d0, four = 4d0
-real(dp), parameter :: pt5 = 5d-1
+real(dp), parameter :: zero = 0d0, one = 1d0, two = 2d0, three = 3d0
+real(dp), parameter :: four = 4d0, pt5 = 5d-1
 real(dp), parameter :: sqrt2 = sqrt(two)
 real(dp), parameter :: pi4 = atan(one)
 real(dp), parameter :: pi = four * pi4
@@ -52,11 +52,12 @@ type dd_data_type
     real(dp) :: epsout
     !> Relative dielectric permittivity
     real(dp) :: eps
-    !> Parameter kappa (meaning?)
+    !> Debye H\"{u}ckel parameter
     real(dp) :: kappa
     !> Shift of characteristic function
     !!
-    !! -1 for interior, 0 for centered and 1 for outer regularization
+    !! -1 for interior, 0 for centered and 1 for outer regularization. ddCOSMO
+    !! and ddLPB use value -1 while ddPCM uses value 0 by default.
     real(dp) :: se
     !> Regularization parameter
     real(dp) :: eta
@@ -203,16 +204,17 @@ contains
 !!      centered and 1 for outer regularization
 !! @param[in] eta: Regularization parameter
 !! @param[in] eps: Relative dielectric permittivity
+!! @param[in] kappa: Debye H\"{u}ckel parameter
 !! @param[out] dd_data: Object containing all inputs
 !! @param[out] info: flag of succesfull exit
 !!      = 0: Succesfull exit
 !!      < 0: If info=-i then i-th argument had an illegal value
 !!      > 0: Allocation of a buffer for the output dd_data failed
 subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
-        & iprint, nngmax, se, eta, eps, dd_data, info)
+        & iprint, nngmax, se, eta, eps, kappa, dd_data, info)
     ! Inputs
     integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, iprint, nngmax
-    real(dp), intent(in):: x(n), y(n), z(n), rvdw(n), se, eta, eps
+    real(dp), intent(in):: x(n), y(n), z(n), rvdw(n), se, eta, eps, kappa
     ! Output
     type(dd_data_type), intent(out) :: dd_data
     integer, intent(out) :: info
@@ -306,7 +308,13 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         return
     end if
     dd_data % eps = eps
-    ! Set FMM parameters only if fmm flag is 1
+    if (kappa .lt. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `kappa`"
+        info = -18
+        return
+    end if
+    dd_data % kappa = kappa
+    ! Set FMM parameters
     if(fmm .eq. 1) then
         if(pm .lt. 0) then
             write(*, *) "ddinit: wrong value of parameter `pm`"
@@ -793,6 +801,28 @@ subroutine ptcart(label, ngrid, ncol, icol, x)
     1020 format(1x,i5,5f14.8)
     !
 end subroutine ptcart
+
+!> Print dd Solution vector
+!!
+!! @param[in] label : Label to print
+!! @param[in] vector: Vector to print
+
+subroutine print_ddvector(dd_data, label, vector)
+    implicit none
+    type(dd_data_type), intent(in)  :: dd_data
+    character(len=*) :: label
+    real(dp) :: vector(dd_data % nbasis, dd_data % nsph)
+    integer :: isph, lm
+  
+    write(6,*) label
+    do isph = 1, dd_data % nsph
+      do lm = 1, dd_data % nbasis
+        write(6,'(F15.8)') vector(lm,isph)
+      end do
+    end do
+    return
+end subroutine print_ddvector
+
 
 !> Compute scaling factors of real normalized spherical harmonics
 !!
@@ -1471,32 +1501,31 @@ subroutine wghpot( dd_data, phi, g )
       real(dp), dimension(dd_data % ncav),       intent(in)  :: phi
       real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: g
 !
-      integer isph, ig, ic
+    integer isph, ig, ic
 !
 !------------------------------------------------------------------------------------------------
 !
-!     initialize
-      ic = 0 ; g(:,:)=0.d0
+!   initialize
+    ic = 0 ; g(:,:)=0.d0
 !      
-!     loop over spheres
-      do isph = 1, dd_data % nsph
+!   loop over spheres
+    do isph = 1, dd_data % nsph
 !
-!       loop over points
-        do ig = 1, dd_data % ngrid
+!   loop over points
+      do ig = 1, dd_data % ngrid
 !
-!         nonzero contribution from point
-          if ( dd_data % ui(ig,isph).ne.zero ) then
+!       nonzero contribution from point
+        if ( dd_data % ui(ig,isph).ne.zero ) then
 !
-!           advance cavity point counter
-            ic = ic + 1
+!         advance cavity point counter
+          ic = ic + 1
 !            
-!           weigh by (negative) characteristic function
-            g(ig,isph) = -dd_data % ui(ig,isph) * phi(ic)
-!            
-          endif
+!         weigh by (negative) characteristic function
+          g(ig,isph) = -dd_data % ui(ig,isph) * phi(ic)
+        endif
 !          
-        enddo
-      enddo
+       enddo
+   enddo
 end subroutine wghpot
 
 ! Purpose : compute H-norm

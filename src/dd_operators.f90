@@ -19,28 +19,35 @@ contains
 !> Compute potential in cavity points
 !!
 !! TODO: make use of FMM here
-subroutine mkrhs(n, charge, x, y, z, ncav, ccav, phi, nbasis, psi)
+!! AJ: Added gradphi for ddLPB
+subroutine mkrhs(n, charge, x, y, z, ncav, ccav, phi, gradphi, nbasis, psi)
     ! Inputs
     integer, intent(in) :: n, ncav, nbasis
     real(dp), intent(in) :: x(n), y(n), z(n), charge(n)
     real(dp), intent(in) :: ccav(3, ncav)
     ! Outputs
     real(dp), intent(out) :: phi(ncav)
+    real(dp), intent(out) :: gradphi(3, ncav)
     real(dp), intent(out) :: psi(nbasis, n)
     ! Local variables
     integer :: isph, icav
-    real(dp) :: d(3), v
+    real(dp) :: d(3), v, dnorm, gradv(3), epsp=one
     real(dp), external :: dnrm2
     ! Vector phi
     do icav = 1, ncav
-        v = zero
+        v     = zero
+        gradv = zero
         do isph = 1, n
-            d(1) = ccav(1, icav) - x(isph)
-            d(2) = ccav(2, icav) - y(isph)
-            d(3) = ccav(3, icav) - z(isph)
+            d(1)  = ccav(1, icav) - x(isph)
+            d(2)  = ccav(2, icav) - y(isph)
+            d(3)  = ccav(3, icav) - z(isph)
+            dnorm = d(1)*d(1) + d(2)*d(2) + d(3)*d(3)
             v = v + charge(isph)/dnrm2(3, d, 1)
+            gradv = gradv - (charge(isph)/(epsp*dnorm))*( (/d(1),d(2),d(3)/) &
+                & / dnrm2(3, d, 1))
         end do
         phi(icav) = v
+        gradphi(:,icav) = gradv
     end do
     ! Vector psi
     psi(2:, :) = zero

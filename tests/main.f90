@@ -22,9 +22,9 @@ type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
 integer :: nngmax=200, niter, ndiis=25, info
 logical :: ok
-real(dp) :: eps, eta, tol, se=zero
+real(dp) :: eps, eta, tol, se=zero, kappa
 real(dp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
-real(dp), allocatable :: phi(:), psi(:, :), xs(:, :)
+real(dp), allocatable :: phi(:), gradphi(:, :), psi(:, :), xs(:, :)
 real(dp), allocatable :: g(:, :), rhs(:, :)
 real(dp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
 real(dp), parameter :: tobohr=1d0/toang
@@ -70,15 +70,18 @@ close (100)
 model=2
 force=0
 fmm=0
+kappa=0d0
 call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, nngmax, se, eta, eps, dd_data, info)
-allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n))
-call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
+    & iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+allocate(phi(dd_data % ncav), gradphi(3, dd_data % ncav), &
+    & psi(dd_data % nbasis,n))
+call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, gradphi, &
     & dd_data % nbasis, psi)
 tol = 10d0 ** (-iconv)
 niter = 200
 call ddpcm(dd_data, phi, psi, tol, ndiis, niter)
-deallocate(phi, psi)
+return
+deallocate(phi, gradphi, psi)
 deallocate(x, y, z, rvdw, charge)
 call ddfree(dd_data)
 

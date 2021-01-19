@@ -49,6 +49,7 @@ subroutine ddpcm(dd_data, phi, psi, tol, ndiis, maxiter)
     niter = maxiter
     call jacobi_diis(dd_data, dd_data % n, dd_data % iprint, ndiis, 4, tol, &
         & phiinf, phieps, niter, ok, rx, apply_repsx_prec, hnorm)
+    return
     allocate(xs(dd_data % nbasis, dd_data % nsph))
     call prtsph('phieps', dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, phieps)
     niter = maxiter

@@ -13,10 +13,13 @@ set(SRC
     "dd_solvers.f90"
     "dd_cosmo.f90"
     "dd_pcm.f90"
+    "dd_lpb.f90"
+    "bessel.f90"
     "llgnew.f")
 
 set(COVERAGE_EXCLUDES
-    "${CMAKE_CURRENT_SOURCE_DIR}/llgnew.f" PARENT_SCOPE)
+    "${CMAKE_CURRENT_SOURCE_DIR}/llgnew.f" PARENT_SCOPE
+    "${CMAKE_CURRENT_SOURCE_DIR}/bessel.f90" PARENT_SCOPE)
 
 list(TRANSFORM SRC PREPEND ${CMAKE_CURRENT_SOURCE_DIR}/)
 
