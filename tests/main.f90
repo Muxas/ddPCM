@@ -80,7 +80,6 @@ call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, gradphi, &
 tol = 10d0 ** (-iconv)
 niter = 200
 call ddpcm(dd_data, phi, psi, tol, ndiis, niter)
-return
 deallocate(phi, gradphi, psi)
 deallocate(x, y, z, rvdw, charge)
 call ddfree(dd_data)

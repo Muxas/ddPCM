@@ -2004,32 +2004,30 @@ endsubroutine mkprec
 !!      M_\ell^m = \beta M_\ell^m + \frac{q \|c\|^\ell}{r^{\ell+1}}
 !!      Y_\ell^m \left( \frac{c}{\|c\|} \right),
 !! \f]
-!! where \f$ M \f$ is a vector of coefficients of input and output harmonics of
+!! where \f$ M \f$ is a vector of coefficients of output harmonics of
 !! a degree up to \f$ p \f$ inclusively with a convergence radius \f$ r \f$
 !! located at the origin, \f$ \beta \f$ is a scaling factor, \f$ q \f$ and \f$
 !! c \f$ are a charge and coordinates of a particle.
 !!
 !! Based on normalized real spherical harmonics \f$ Y_\ell^m \f$, scaled by \f$
 !! r^{\ell+1} \f$. It means corresponding coefficients are simply scaled by an
-!! additional factor \f$ r^{-l-1} \f$.
-!! This function is not needed by ddX, but it is used for testing purposes.
+!! additional factor \f$ r^{-\ell-1} \f$.
 !!
 !! @param[in] c: Radius-vector from the particle to the center of harmonics
-!! @param[in] q: Charge of the particle
-!! @param[in] r: Radius of convergence of spherical harmonics
-!! @param[in] p: Maximal degree of multipole basis functions
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
-!!      is `(p+1)**2`
-!! @param[in] beta: Scaling factor for input multipole coefficients.
-!! @param[inout] m: Multipole coefficients. Dimension is `(p+1)**2`
+!! @param[in] src_q: Charge of the source particle
+!! @param[in] dst_r: Radius of output multipole spherical harmonics
+!! @param[in] p: Maximal degree of output multipole spherical harmonics
+!! @param[in] vscales: Normalization constants for spherical harmonics
+!! @param[in] beta: Scaling factor for `dst_m`
+!! @param[inout] dst_m: Multipole coefficients
 !!
 !! @sa fmm_m2p
-subroutine fmm_p2m(c, q, r, p, vscales, beta, m)
+subroutine fmm_p2m(c, src_q, dst_r, p, vscales, beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: c(3), q, r, vscales((p+1)**2), beta
+    real(dp), intent(in) :: c(3), src_q, dst_r, vscales((p+1)**2), beta
     integer, intent(in) :: p
     ! Output
-    real(dp), intent(inout) :: m((p+1)**2)
+    real(dp), intent(inout) :: dst_m((p+1)**2)
     ! Local variables
     real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(dp) :: vylm((p+1)**2), vplm((p+1)**2), t, rcoef
@@ -2038,21 +2036,22 @@ subroutine fmm_p2m(c, q, r, p, vscales, beta, m)
     call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
         & vcos, vsin)
     ! Harmonics are available only if rho > 0
-    if (rho .ne. 0) then
-        rcoef = rho / r
-        t = q / r
+    if (rho .ne. zero) then
+        rcoef = rho / dst_r
+        t = src_q / dst_r
         ! Ignore input `m` in case of zero scaling factor
         if (beta .eq. zero) then
             do n = 0, p
                 ind = n*n + n + 1
-                m(ind-n:ind+n) = t * vylm(ind-n:ind+n)
+                dst_m(ind-n:ind+n) = t * vylm(ind-n:ind+n)
                 t = t * rcoef
             end do
         ! Update `m` otherwise
         else
             do n = 0, p
                 ind = n*n + n + 1
-                m(ind-n:ind+n) = beta*m(ind-n:ind+n) + t*vylm(ind-n:ind+n)
+                dst_m(ind-n:ind+n) = beta*dst_m(ind-n:ind+n) + &
+                    & t*vylm(ind-n:ind+n)
                 t = t * rcoef
             end do
         end if
@@ -2060,12 +2059,12 @@ subroutine fmm_p2m(c, q, r, p, vscales, beta, m)
     else
         ! Ignore input `m` in case of zero scaling factor
         if (beta .eq. zero) then
-            m(1) = q / r / sqrt4pi
-            m(2:) = zero
+            dst_m(1) = src_q / dst_r / sqrt4pi
+            dst_m(2:) = zero
         ! Update `m` otherwise
         else
-            m(1) = beta*m(1) + q/r/sqrt4pi
-            m(2:) = beta * m(2:)
+            dst_m(1) = beta*dst_m(1) + src_q/dst_r/sqrt4pi
+            dst_m(2:) = beta * dst_m(2:)
         end if
     end if
 end subroutine fmm_p2m
@@ -2074,33 +2073,32 @@ end subroutine fmm_p2m
 !!
 !! Computes the following sum:
 !! \f[
-!!      v = \alpha v + \beta \sum_{\ell=0}^p \frac{4\pi}{\sqrt{2\ell+1}}
+!!      v = \beta v + \alpha \sum_{\ell=0}^p \frac{4\pi}{\sqrt{2\ell+1}}
 !!      \left( \frac{r}{\|c\|} \right)^{\ell+1} \sum_{m=-\ell}^\ell
 !!      M_\ell^m Y_\ell^m \left( \frac{c}{\|c\|} \right),
 !! \f]
-!! where \f$ M \f$ is a vector of coefficients of input and output harmonics of
-!! a degree up to \f$ p \f$ inclusively, \f$ \alpha \f$ is a scaling factor,
-!! \f$ c \f$ is a vector of coordinates of a particle and \f$
-!! \mathrm{P2M} \f$ is a particle-to-multipole operation from a particle with a
-!! unit charge at the location \f$ c \f$ to multipole expansion at the origin
-!! with a convergence radius \f$ r \f$.
+!! where \f$ M \f$ is a vector of coefficients of input harmonics of
+!! a degree up to \f$ p \f$ inclusively with a convergence radius \f$ r \f$
+!! located at the origin, \f$ \alpha \f$ and \f$ \beta \f$ are scaling factors
+!! and \f$ c \f$ is a location of a particle.
+!!
 !! Based on normalized real spherical harmonics \f$ Y_\ell^m \f$, scaled by \f$
-!! r^{\ell+1} \f$. It means corresponding coefficients are simply scaled by an
-!! additional factor \f$ r^{-l-1} \f$.
-!! This function is not needed by ddX, but it is used for testing purposes.
+!! r^{-\ell} \f$. It means corresponding coefficients are simply scaled by an
+!! additional factor \f$ r^\ell \f$.
 !!
 !! @param[in] c: Coordinates of a particle (relative to center of harmonics)
 !! @param[in] r: Radius of spherical harmonics
 !! @param[in] p: Maximal degree of multipole basis functions
 !! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
 !!      is `(p+1)**2`
-!! @param[in] m: Multipole coefficients. Dimension is `(p+1)**2`
-!! @param[in] alpha:
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole coefficients. Dimension is `(p+1)**2`
+!! @param[in] beta: Scalar multiplier for `v`
 !! @param[inout] v: Value of induced potential
-subroutine fmm_m2p(c, r, p, vscales, alpha, m, beta, v)
+subroutine fmm_m2p(c, r, p, vscales, alpha, src_m, beta, v)
     ! Inputs
     real(dp), intent(in) :: c(3), r, vscales((p+1)*(p+1)), alpha, &
-        & m((p+1)*(p+1)), beta
+        & src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: v
@@ -2108,53 +2106,227 @@ subroutine fmm_m2p(c, r, p, vscales, alpha, m, beta, v)
     real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
     real(dp) :: vylm((p+1)**2), vplm((p+1)**2), rcoef, t, tmp
     integer :: n, ind
-    ! In case of zero alpha just do scaling
-    if (alpha .eq. zero) then
-        ! Zero scaling factor case
-        if (beta .eq. zero) then
-            v = zero
-        ! Non-zero case
-        else
-            v = beta * v
-        end if
-        return
-    end if
-    ! Get radius and values of spherical harmonics
-    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
-        & vcos, vsin)
-    ! In case of singularity output potential shall only be scaled
-    if (rho .eq. 0) then
-        ! Zero scaling factor case
-        if (beta .eq. zero) then
-            v = zero
-        ! Non-zero case
-        else
-            v = beta * v
-        end if
-        return
-    end if
-    ! Compute actual potential
-    rcoef = r / rho
-    t = alpha
+    ! Scale output
     if (beta .eq. zero) then
         v = zero
     else
         v = beta * v
     end if
+    ! In case of zero alpha nothing else is required no matter what is the
+    ! value of the induced potential
+    if (alpha .eq. zero) then
+        return
+    end if
+    ! Get radius and values of spherical harmonics
+    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
+        & vcos, vsin)
+    ! In case of a singularity (rho=zero) induced potential is infinite and is
+    ! not taken into account.
+    if (rho .eq. zero) then
+        return
+    end if
+    ! Compute the actual induced potential
+    rcoef = r / rho
+    t = alpha
     do n = 0, p
         t = t * rcoef
         ind = n*n + n + 1
-        tmp = dot_product(vylm(ind-n:ind+n), m(ind-n:ind+n))
+        tmp = dot_product(vylm(ind-n:ind+n), src_m(ind-n:ind+n))
         ! Here vscales(ind)**2 is 4*pi/sqrt(2n+1)
         v = v + t*tmp/vscales(ind)**2
     end do
 end subroutine fmm_m2p
 
-!> Transform spherical harmonics to a new cartesion system of coordinates
+!> Accumulate a local expansion induced by a particle of a given charge
+!!
+!! Computes the following sums:
+!! \f[
+!!      \forall \ell=0, \ldots, p, \quad \forall m=-\ell, \ldots, \ell : \quad
+!!      M_\ell^m = \beta M_\ell^m + \frac{q \|c\|^\ell}{r^{\ell+1}}
+!!      Y_\ell^m \left( \frac{c}{\|c\|} \right),
+!! \f]
+!! where \f$ M \f$ is a vector of coefficients of output harmonics of
+!! a degree up to \f$ p \f$ inclusively with a convergence radius \f$ r \f$
+!! located at the origin, \f$ \beta \f$ is a scaling factor, \f$ q \f$ and \f$
+!! c \f$ are a charge and coordinates of a particle.
+!!
+!! Based on normalized real spherical harmonics \f$ Y_\ell^m \f$, scaled by \f$
+!! r^{\ell+1} \f$. It means corresponding coefficients are simply scaled by an
+!! additional factor \f$ r^{-\ell-1} \f$.
+!!
+!! @param[in] c: Radius-vector from the particle to the center of harmonics
+!! @param[in] src_q: Charge of the source particle
+!! @param[in] dst_r: Radius of output local spherical harmonics
+!! @param[in] p: Maximal degree of output local spherical harmonics
+!! @param[in] vscales: Normalization constants for spherical harmonics
+!! @param[in] beta: Scaling factor for `dst_l`
+!! @param[inout] dst_l: Local coefficients
+!!
+!! @sa fmm_l2p
+subroutine fmm_p2l(c, src_q, dst_r, p, vscales, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_q, dst_r, vscales((p+1)**2), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_l((p+1)**2)
+    ! Local variables
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
+    real(dp) :: vylm((p+1)**2), vplm((p+1)**2), t, rcoef
+    integer :: n, ind
+    ! Get radius and values of spherical harmonics
+    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
+        & vcos, vsin)
+    ! Local expansion represents potential from the outside of the sphere of
+    ! the given radius `dst_r`. In case `rho=zero` source particle is inside of
+    ! the sphere no matter what radius `r` is, so we just ignore such a case.
+    if (rho .eq. zero) then
+        if (beta .eq. zero) then
+            dst_l = zero
+        else
+            dst_l = beta * dst_l
+        end if
+        return
+    end if
+    rcoef = dst_r / rho
+    t = src_q / rho
+    ! Ignore input `m` in case of zero scaling factor
+    if (beta .eq. zero) then
+        do n = 0, p
+            ind = n*n + n + 1
+            dst_l(ind-n:ind+n) = t * vylm(ind-n:ind+n)
+            t = t * rcoef
+        end do
+    ! Update `m` otherwise
+    else
+        do n = 0, p
+            ind = n*n + n + 1
+            dst_l(ind-n:ind+n) = beta*dst_l(ind-n:ind+n) + t*vylm(ind-n:ind+n)
+            t = t * rcoef
+        end do
+    end if
+end subroutine fmm_p2l
+
+!> Accumulate potential, induced by local spherical harmonics
+!!
+!! Computes the following sum:
+!! \f[
+!!      v = \beta v + \alpha \sum_{\ell=0}^p \frac{4\pi}{\sqrt{2\ell+1}}
+!!      \left( \frac{\|c\|}{r} \right)^\ell \sum_{m=-\ell}^\ell
+!!      L_\ell^m Y_\ell^m \left( \frac{c}{\|c\|} \right),
+!! \f]
+!! where \f$ L \f$ is a vector of coefficients of input harmonics of
+!! a degree up to \f$ p \f$ inclusively with a convergence radius \f$ r \f$
+!! located at the origin, \f$ \alpha \f$ and \f$ \beta \f$ are scaling factors
+!! and \f$ c \f$ is a location of a particle.
+!! Based on normalized real spherical harmonics \f$ Y_\ell^m \f$, scaled by \f$
+!! r^{-\ell} \f$. It means corresponding coefficients are simply scaled by an
+!! additional factor \f$ r^\ell \f$.
+!!
+!! @param[in] c: Coordinates of a particle (relative to center of harmonics)
+!! @param[in] src_r: Radius of spherical harmonics
+!! @param[in] p: Maximal degree of local basis functions
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
+!!      is `(p+1)**2`
+!! @param[in] alpha: Scalar multiplier for `src_l`
+!! @param[in] src_l: Local coefficients. Dimension is `(p+1)**2`
+!! @param[in] beta: Scalar multiplier for `dst_v`
+!! @param[inout] dst_v: Value of induced potential
+subroutine fmm_l2p(c, src_r, p, vscales, alpha, src_l, beta, dst_v)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, vscales((p+1)*(p+1)), alpha, &
+        & src_l((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_v
+    ! Local variables
+    real(dp) :: tmp, tmp1, tmp2
+    real(dp) :: rho, t, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
+    real(dp) :: vplm((p+1)**2), vylm((p+1)**2), rcoef
+    integer :: n, k, ind
+    ! Scale output
+    if (beta .eq. zero) then
+        dst_v = zero
+    else
+        dst_v = beta * dst_v
+    end if
+    ! In case of zero alpha nothing else is required no matter what is the
+    ! value of the induced potential
+    if (alpha .eq. zero) then
+        return
+    end if
+    ! Get radius and values of spherical harmonics
+    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
+        & vcos, vsin)
+    ! In case `rho=zero` values of spherical harmonics make no sense and only
+    ! spherical harmonic of degree 0 shall be taken into account
+    if (rho .eq. zero) then
+        dst_v = dst_v + alpha*src_l(1)/vscales(1)
+    ! Compute the actual induced potential otherwise
+    else
+        rcoef = rho / src_r
+        t = alpha
+        do n = 0, p
+            ind = n*n + n + 1
+            tmp = dot_product(vylm(ind-n:ind+n), src_l(ind-n:ind+n))
+            dst_v = dst_v + t*tmp/(vscales(ind)**2)
+            t = t * rcoef
+        end do
+    end if
+end subroutine fmm_l2p
+
+!> Transform coefficients of spherical harmonics to a new cartesion system
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha R \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics corresponding to a new cartesion system of coordinates, \f$
+!! \mathrm{src} \f$ is a vector of coefficients of input spherical harmonics
+!! corresponding to the standard cartesian system of coordinates and \f$ R \f$
+!! is a '(p+1)**2'-by-'(p+1)**2' matrix that transforms coefficients of the
+!! source spherical harmonics to the destination spherical harmonics while
+!! preserving values of any function on a unit sphere defined as a linear
+!! combination of the source spherical harmonics.
+!!
+!! Input 3-by-3 matrix `r1` must be an orthogonal matrix \f$ R_1 \f$ of a
+!! transform of new cartesion coordinates \f$ (\widetilde{y}, \widetilde{z},
+!! \widetilde{x}) \f$ into initial cartesian coordinates \f$ (y, z, x) \f$.
+!! This is due to the following equalities:
+!! \f{align}{
+!!      Y_1^{-1} (\theta, \phi) &= \sqrt{\frac{3}{4\pi}} \sin \theta \sin \phi
+!!      = \sqrt{\frac{3}{4\pi}} y, \\ Y_1^0 (\theta, \phi) &=
+!!      \sqrt{\frac{3}{4\pi}} \cos \theta = \sqrt{\frac{3}{4\pi}} z, \\
+!!      Y_1^1 (\theta, \phi) &= \sqrt{\frac{3}{4\pi}} \sin \theta \cos \phi =
+!!      \sqrt{\frac{3}{4\pi}} x.
+!! \f}
+!! So, to find a column-vector \f$ \widetilde{c} \f$ of coefficients of
+!! spherical harmonics \f$ Y_1^{-1}, Y_1^0 \f$ and \f$ Y_1^1 \f$ in a new
+!! system of coordinates \f$ (\widetilde{y}, \widetilde{z}, \widetilde{x}) \f$
+!! the following system needs to be solved:
+!! \f[
+!!      \widetilde{c}^\top \cdot \begin{bmatrix} Y_1^{-1}
+!!      (\widetilde{\theta}, \widetilde{\phi}) \\ Y_1^0 (\widetilde{\theta},
+!!      \widetilde{\phi}) \\ Y_1^1 (\widetilde{\theta}, \widetilde{\phi})
+!!      \end{bmatrix} = c ^\top \cdot \begin{bmatrix} Y_1^{-1} (\theta, \phi)
+!!      \\ Y_1^0 (\theta, \phi) \\ Y_1^1 (\theta, \phi) \end{bmatrix}.
+!! \f]
+!! The solution has the following obvious form:
+!! \f[
+!!      \widetilde{c} = R_1^\top c.
+!! \f]
+!!
+!! Translation of spherical harmonics of all other degrees is computed
+!! recursively as is described in the following source:
+!!      @cite ir-realharms-1996
+!!      @cite ir-realharms-1998
+!!
 !!
 !! @param[in] p: Maximum degree of spherical harmonics
 !! @param[in] r1: Transformation from new to old cartesian coordinates
+!! @param[in] alpha: Scalar multipler for `src`
 !! @param[in] src: Coefficients of initial spherical harmonics
+!! @param[in] beta: Scalar multipler for `dst`
 !! @param[inout] dst: Coefficients of transformed spherical harmonics
 !!
 !! @sa fmm_sph_transform_get_mat, fmm_sph_transform_use_mat
@@ -2177,39 +2349,10 @@ end subroutine fmm_sph_transform
 
 !> Transform spherical harmonics to a new cartesion system of coordinates
 !!
-!! Input A 3-by-3 matrix `r1` must be an orthogonal matrix \f$ R_1 \f$ of a
-!! transform of new cartesion coordinates \f$ (\widetilde{y}, \widetilde{z},
-!! \widetilde{x}) \f$ into initial cartesian coordinates \f$ y, z, x \f$. This
-!! is due to the following equalities:
-!! \f{align}{
-!!      Y_1^{-1} (\theta, \phi) &= \sqrt{\frac{3}{4\pi}} \sin \theta \sin \phi
-!!      = \sqrt{\frac{3}{4\pi}} y, \\ Y_1^0 (\theta, \phi) &=
-!!      \sqrt{\frac{3}{4\pi}} \cos \theta = \sqrt{\frac{3}{4\pi}} z, \\
-!!      Y_1^1 (\theta, \phi) &= \sqrt{\frac{3}{4\pi}} \sin \theta \cos \phi =
-!!      \sqrt{\frac{3}{4\pi}} x.
-!! \f}
-!! So, to find a column-vector \f$ \widetilde{c} \f$ of coefficients of
-!! spherical harmonics \f$ Y_1^{-1}, Y_1^0 \f$ and \f$ Y_1^1 \f$ in a new
-!! system of coordinates \f$ (\widetilde{y}, \widetilde{z}, \widetilde{x}) \f$
-!! the following system needs to be solved:
-!! \f[
-!!      \widetilde{c}^\top \cdot \begin{bmatrix} Y_1^{-1}
-!!      (\widetilde{\theta}, \widetilde{\phi}) \\ Y_1^0 (\widetilde{\theta},
-!!      \widetilde{\phi}) \\ Y_1^1 (\widetilde{\theta}, \widetilde{\phi})
-!!      \end{bmatrix} = c ^\top \cdot \begin{bmatrix} Y_1^{-1} (\theta, \phi)
-!!      \\ Y_1^0 (\theta, \phi) \\ Y_1^1 (\theta, \phi) \end{bmatrix}.
-!! \f]
-!! Solution is obvious:
-!! \f[
-!!      \widetilde{c} = R_1^\top c.
-!! \f]
-!!
-!! Translation of spherical harmonics of all other degrees is computed
-!! recursively as is described in the following source:
-!!      @cite ir-realharms-1996
-!!      @cite ir-realharms-1998
-!!
+!! This function implements @ref fmm_sph_transform with predefined values of
+!! parameters \p alpha=one and \p beta=zero.
 !! 
+!!
 !! @param[in] p: Maximum degree of spherical harmonics
 !! @param[in] r1: Transformation from new to old cartesian coordinates
 !! @param[in] src: Coefficients of initial spherical harmonics
@@ -2217,9 +2360,12 @@ end subroutine fmm_sph_transform
 !!
 !! @sa fmm_sph_transform_get_mat, fmm_sph_transform_use_mat
 subroutine fmm_sph_transform_out(p, r1, src, dst)
+    ! Inputs
     integer, intent(in) :: p
     real(dp), intent(in) :: r1(-1:1, -1:1), src((p+1)*(p+1))
+    ! Output
     real(dp), intent(out) :: dst((p+1)*(p+1))
+    ! Local variables
     real(dp) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
     real(dp) :: scal_uvw_m(-p:p), scal_u_n(-p:p), scal_v_n(-p:p)
     real(dp) :: scal_w_n(-p:p)
@@ -2509,9 +2655,11 @@ end subroutine fmm_sph_transform_out
 
 !> Save matrix of transformation of spherical harmonics
 !!
-!! This procedure is based on @ref fmm_sph_transform but saves corresponding
-!! transformation matrix in a data-efficient sparse way. For a full description
-!! of an input parameter `r1` please take a look at @ref fmm_sph_transform.
+!! This procedure is based on @ref fmm_sph_transform_out but stores
+!! corresponding transformation matrix in a data-efficient sparse way. For a
+!! full description of the input parameter `r1` please take a look at @ref
+!! fmm_sph_transform.
+!!
 !!
 !! @param[in] p: Maximum degree of spherical harmonics
 !! @param[in] r1: Transformation from new to old cartesian coordinates
@@ -2519,9 +2667,12 @@ end subroutine fmm_sph_transform_out
 !!
 !! @sa fmm_sph_transform, fmm_sph_transform_use_mat
 subroutine fmm_sph_transform_get_mat(p, r1, mat)
+    ! Inputs
     integer, intent(in) :: p
     real(dp), intent(in) :: r1(-1:1, -1:1)
+    ! Output
     real(dp), intent(out) :: mat((p+1)*(2*p+1)*(2*p+3)/3)
+    ! Local variables
     real(dp) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
     real(dp) :: scal_uvw_m(-p:p), scal_u_n(-p:p), scal_v_n(-p:p)
     real(dp) :: scal_w_n(-p:p)
@@ -2822,21 +2973,27 @@ end subroutine fmm_sph_transform_get_mat
 
 !> Apply matrix of transformation of spherical harmonics
 !!
-!! This procedure is based on @ref fmm_sph_transform but uses precomputed
-!! transformation matrix. This version does matrix-vector product without BLAS.
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha \mathrm{mat} \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics corresponding to a new cartesion system of coordinates, \f$
+!! \mathrm{src} \f$ is a vector of coefficients of input spherical harmonics
+!! corresponding to the standard cartesian system of coordinates and \f$
+!! \mathrm{mat} \f$ is a matrix of transformation of spherical harmonics
+!! precomputed by @ref fmm_sph_transform_get_mat.
+!!
 !!
 !! @param[in] p: Maximum degree of spherical harmonics
 !! @param[in] mat: Transformation matrix in a sparse storage
+!! @param[in] alpha: Scalar multiplier for `src`
 !! @param[in] src: Coefficients of initial spherical harmonics
-!! @param[out] dst: Coefficients of transformed spherical harmonics
+!! @param[in] beta: Scalar multiplier for `dst`
+!! @param[inout] dst: Coefficients of transformed spherical harmonics
 !!
 !! @sa fmm_sph_transform, fmm_sph_transform_get_mat
 subroutine fmm_sph_transform_use_mat(p, mat, alpha, src, beta, dst)
-! Parameters:
-!   p: maximum order of spherical harmonics
-!   mat: matrices of reflections for all degrees of spherical harmnics
-!   src: coefficients of initial spherical harmonics
-!   dst: coefficients of output (rotated) spherical harmonics
     ! Inputs
     integer, intent(in) :: p
     real(dp), intent(in) :: mat((p+1)*(2*p+1)*(2*p+3)/3), alpha, &
@@ -2862,7 +3019,6 @@ subroutine fmm_sph_transform_use_mat(p, mat, alpha, src, beta, dst)
         ! offset for current spherical harmonics
         indl = l*l + l + 1
         do m = -l, l
-            !dst(indl+m) = 0
             do n = -l, l
                 dst(indl+m) = dst(indl+m) + &
                     & alpha*mat(ind+m*(2*l+1)+n)*src(indl+n)
@@ -2873,14 +3029,25 @@ end subroutine fmm_sph_transform_use_mat
 
 !> Rotate spherical harmonics around OZ axis
 !!
-!! Rotate on angle \f$ \phi \f$, presented by \f$ \cos(m \phi) \f$ and \f$
-!! \sin(m \phi) \f$
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha R \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics corresponding to a new cartesion system of coordinates, \f$
+!! \mathrm{src} \f$ is a vector of coefficients of input spherical harmonics
+!! corresponding to the standard cartesian system of coordinates and \f$
+!! R \f$ is a matrix of rotation of coordinates around OZ axis on angle \f$
+!! \phi \f$, presented by \f$ \cos(m \phi) \f$ and \f$ \sin(m \phi) \f$.
 !!
-!! @param[in] p: maximum order of spherical harmonics
-!! @param[in] vcos: values of \f$ \cos(m \phi) \f$
-!! @param[in] vsin: values of \f$ \sin(m \phi) \f$
-!! @param[in] src: coefficients of initial spherical harmonics
-!! @param[out] dst: coefficients of rotated spherical harmonics
+!!
+!! @param[in] p: Maximal order of spherical harmonics
+!! @param[in] vcos: Vector \f$ \{ \cos(m \phi) \}_{m=0}^p \f$
+!! @param[in] vsin: Vector \f$ \{ \sin(m \phi) \}_{m=0}^p \f$
+!! @param[in] alpha: Scalar multiplier for `src`
+!! @param[in] src: Coefficients of initial spherical harmonics
+!! @param[in] beta: Scalar multipler for `dst`
+!! @param[out] dst: Coefficients of rotated spherical harmonics
 subroutine fmm_sph_rotate_oz(p, vcos, vsin, alpha, src, beta, dst)
     ! Inputs
     integer, intent(in) :: p
@@ -2895,13 +3062,19 @@ subroutine fmm_sph_rotate_oz(p, vcos, vsin, alpha, src, beta, dst)
     else
         dst = beta * dst
     end if
+    ! l = 0
     dst(1) = dst(1) + alpha*src(1)
+    ! l > 0
     do l = 1, p
         ind = l*l + l + 1
+        ! m = 0
         dst(ind) = dst(ind) + alpha*src(ind)
+        ! m != 0
         do m = 1, l
+            ! m > 0
             dst(ind+m) = dst(ind+m) + &
                 & alpha*(src(ind+m)*vcos(1+m) - src(ind-m)*vsin(1+m))
+            ! m < 0
             dst(ind-m) = dst(ind-m) + &
                 & alpha*(src(ind+m)*vsin(1+m) + src(ind-m)*vcos(1+m))
         end do
@@ -2909,23 +3082,17 @@ subroutine fmm_sph_rotate_oz(p, vcos, vsin, alpha, src, beta, dst)
 end subroutine fmm_sph_rotate_oz
 
 !> Transform spherical harmonics in the OXZ plane
-subroutine fmm_sph_transform_oxz(p, r1xz, alpha, src, beta, dst)
-    ! Inputs
-    integer, intent(in) :: p
-    real(dp), intent(in) :: r1xz(2, 2), alpha, src((p+1)**2), beta
-    ! Output
-    real(dp), intent(inout) :: dst((p+1)**2)
-    ! Local variables
-    real(dp) :: tmp((p+1)**2)
-    if (beta .eq. zero) then
-        call fmm_sph_transform_oxz_out(p, r1xz, alpha*src, dst)
-    else
-        call fmm_sph_transform_oxz_out(p, r1xz, src, tmp)
-        dst = beta*dst + alpha*tmp
-    end if
-end subroutine fmm_sph_transform_oxz
-
-!> Transform spherical harmonics in the OXZ plane
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha R \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics corresponding to a new cartesion system of coordinates, \f$
+!! \mathrm{src} \f$ is a vector of coefficients of input spherical harmonics
+!! corresponding to the standard cartesian system of coordinates and \f$
+!! R \f$ is a matrix of transformation of coordinates in the OXZ plane (y
+!! coordinate remains the same) presented by 2-by-2 matrix `r1xz`.
 !!
 !! Based on @ref fmm_sph_transform
 !! by assuming `r1(-1, 0) = r1(-1, 1) = r1(0, -1) = r1(1, -1) = 0` and
@@ -2939,14 +3106,47 @@ end subroutine fmm_sph_transform_oxz
 !!      R_1^{xz} = \begin{bmatrix} a & b \\ c & d \end{bmatrix}.
 !! \f]
 !!
+!!
+!! @param[in] p: Maximal order of spherical harmonics
+!! @param[in] r1xz: Transformation from new to old coordinates in the OXZ plane
+!! @param[in] alpha: Scalar multiplier for `src`
+!! @param[in] src: Coefficients of initial spherical harmonics
+!! @param[in] beta: Scalar multipler for `dst`
+!! @param[out] dst: Coefficients of transformed spherical harmonics
+subroutine fmm_sph_transform_oxz(p, r1xz, alpha, src, beta, dst)
+    ! Inputs
+    integer, intent(in) :: p
+    real(dp), intent(in) :: r1xz(2, 2), alpha, src((p+1)**2), beta
+    ! Output
+    real(dp), intent(inout) :: dst((p+1)**2)
+    ! Local variables
+    real(dp) :: tmp((p+1)**2)
+    ! Call corresponding routine with built-in alpha=one and beta=zero
+    if (beta .eq. zero) then
+        call fmm_sph_transform_oxz_out(p, r1xz, alpha*src, dst)
+    else
+        call fmm_sph_transform_oxz_out(p, r1xz, src, tmp)
+        dst = beta*dst + alpha*tmp
+    end if
+end subroutine fmm_sph_transform_oxz
+
+!> Transform spherical harmonics in the OXZ plane
+!!
+!! This function implements @ref fmm_sph_transform_oxz with predefined values
+!! of parameters \p alpha=one and \p beta=zero.
+!! 
+!!
 !! @param[in] p: maximum order of spherical harmonics
 !! @param[in] r1xz: 2D transformation matrix in the OXZ plane
 !! @param[in] src: coefficients of initial spherical harmonics
 !! @param[out] dst: coefficients of rotated spherical harmonics
 subroutine fmm_sph_transform_oxz_out(p, r1xz, src, dst)
+    ! Inputs
     integer, intent(in) :: p
     real(dp), intent(in) :: r1xz(0:1, 0:1), src((p+1)**2)
+    ! Output
     real(dp), intent(out) :: dst((p+1)*(p+1))
+    ! Local variables
     real(dp) :: u, v, w, r_prev(-p:p, -p:p), r(-p:p, -p:p)
     real(dp) :: scal_uvw_m(-p:p), scal_u_n(-p:p), scal_v_n(-p:p)
     real(dp) :: scal_w_n(-p:p)
@@ -3206,27 +3406,38 @@ subroutine fmm_sph_transform_oxz_out(p, r1xz, src, dst)
     end do
 end subroutine fmm_sph_transform_oxz_out
 
-!> M2M translation over OZ axis
+!> Direct M2M translation over OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M \f$ is a matrix of multipole-to-multipole
+!! translation over OZ axis.
+!!
 !!
 !! @param[in] z: OZ coordinate from new to old centers of harmonics
-!! @param[in] src_r: radius of old harmonics
-!! @param[in] dst_r: radius of new harmonics
-!! @parma[in] p: maximum degree of spherical harmonics
-!! @param[in] vscales: normalization constants for harmonics
-!! @param[in] src_m: expansion in old harmonics
-!! @param[out] dst_m: expansion in new harmonics
-!!
-!! TODO: use precomputed square roots of factorials instead of computing it
-subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, alpha, src_m, &
-        & beta, dst_m)
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @parma[in] p: Maximal degree of spherical harmonics
+!! @param[in] vscales: Normalization constants for harmonics
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multipler for `alpha`
+!! @param[in] src_m: Expansion in old harmonics
+!! @param[in] beta: Scalar multipler for `dst_m`
+!! @param[inout] dst_m: Expansion in new harmonics
+subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), alpha, &
-        & src_m((p+1)*(p+1)), beta
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Local variables
-    real(dp) :: r1, r2, fact(2*p+1), tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    real(dp) :: r1, r2, tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
     integer :: j, k, n, indj, indn, indjn
     ! Init output
     if (beta .eq. zero) then
@@ -3234,6 +3445,7 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, alpha, src_m, &
     else
         dst_m = beta * dst_m
     end if
+    ! If harmonics have different centers
     if (z .ne. 0) then
         r1 = src_r / dst_r
         r2 = z / dst_r
@@ -3243,21 +3455,16 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, alpha, src_m, &
             pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
         end do
-        ! Fill square roots of factorials
-        fact(1) = 1
-        do j = 2, 2*p+1
-            fact(j) = sqrt(dble(j-1)) * fact(j-1)
-        end do
         do j = 0, p
             indj = j*j + j + 1
             do k = 0, j
-                tmp1 = alpha * vscales(indj) * fact(j-k+1) * fact(j+k+1)
+                tmp1 = alpha * vscales(indj) * vfact(j-k+1) * vfact(j+k+1)
                 do n = 0, j-k
                     indn = n*n + n + 1
                     indjn = (j-n)**2 + (j-n) + 1
                     tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
-                        & vscales(indjn) / fact(n+1) / fact(n+1) / &
-                        & fact(j-n-k+1) / fact(j-n+k+1)
+                        & vscales(indjn) / vfact(n+1) / vfact(n+1) / &
+                        & vfact(j-n-k+1) / vfact(j-n+k+1)
                     if (k .eq. 0) then
                         dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
                     else
@@ -3267,6 +3474,7 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, alpha, src_m, &
                 end do
             end do
         end do
+    ! If harmonics are located at the same point
     else
         r1 = src_r / dst_r
         tmp1 = alpha * r1
@@ -3280,10 +3488,93 @@ subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, alpha, src_m, &
     end if
 end subroutine fmm_m2m_ztranslate
 
+!> Adjoint M2M translation over OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M^\top \f$ is an adjoint matrix of
+!! multipole-to-multipole translation over OZ axis.
+!!
+!!
+!! @param[in] z: OZ coordinate from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @parma[in] p: Maximal degree of spherical harmonics
+!! @param[in] vscales: Normalization constants for harmonics
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multipler for `alpha`
+!! @param[in] src_m: Expansion in old harmonics
+!! @param[in] beta: Scalar multipler for `dst_m`
+!! @param[inout] dst_m: Expansion in new harmonics
+subroutine fmm_m2m_ztranslate_adj(z, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    real(dp) :: r1, r2, tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    integer :: j, k, n, indj, indn, indjn
+    ! Init output
+    if (beta .eq. zero) then
+        dst_m = zero
+    else
+        dst_m = beta * dst_m
+    end if
+    ! If harmonics have different centers
+    if (z .ne. 0) then
+        r1 = dst_r / src_r
+        r2 = -z / src_r
+        pow_r1(1) = r1
+        pow_r2(1) = 1
+        do j = 2, p+1
+            pow_r1(j) = pow_r1(j-1) * r1
+            pow_r2(j) = pow_r2(j-1) * r2
+        end do
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = 0, j
+                tmp1 = alpha * vscales(indj) * vfact(j-k+1) * vfact(j+k+1)
+                do n = 0, j-k
+                    indn = n*n + n + 1
+                    indjn = (j-n)**2 + (j-n) + 1
+                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
+                        & vscales(indjn) / vfact(n+1) / vfact(n+1) / &
+                        & vfact(j-n-k+1) / vfact(j-n+k+1)
+                    if (k .eq. 0) then
+                        dst_m(indjn) = dst_m(indjn) + tmp2*src_m(indj)
+                    else
+                        dst_m(indjn+k) = dst_m(indjn+k) + tmp2*src_m(indj+k)
+                        dst_m(indjn-k) = dst_m(indjn-k) + tmp2*src_m(indj-k)
+                    end if
+                end do
+            end do
+        end do
+    ! If harmonics are located at the same point
+    else
+        r1 = dst_r / src_r
+        tmp1 = alpha * r1
+        do j = 0, p
+            indj = j*j + j + 1
+            do k = indj-j, indj+j
+                dst_m(k) = dst_m(k) + src_m(k)*tmp1
+            end do
+            tmp1 = tmp1 * r1
+        end do
+    end if
+end subroutine fmm_m2m_ztranslate_adj
+
 !> Save matrix of M2M translation along OZ axis
 !!
 !! In a case input `z` is zero no translation matrix is computed, as @ref
 !! fmm_m2m_scale shall be used in this case without any precomputed matrices
+!!
 !!
 !! @param[in] z: the OZ coordinate of the radius-vector from new to old centers
 !!      of harmonics
@@ -3291,12 +3582,16 @@ end subroutine fmm_m2m_ztranslate
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
 !! @param[in] mat: Translation matrix for spherical harmonics
-subroutine fmm_m2m_ztranslate_get_mat(z, src_r, dst_r, p, vscales, mat)
-    real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1))
+subroutine fmm_m2m_ztranslate_get_mat(z, src_r, dst_r, p, vscales, vfact, mat)
+    ! Inputs
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), vfact(2*p+1)
     integer, intent(in) :: p
+    ! Output
     real(dp), intent(out) :: mat((p+1)*(p+2)*(p+3)/6)
-    real(dp) :: r1, r2, fact(2*p+1), tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
+    ! Local variables
+    real(dp) :: r1, r2, tmp1, tmp2, pow_r1(p+1), pow_r2(p+1)
     integer :: j, k, n, indj, indn, indjn, indmat
     if (z .eq. 0) then
         ! Fill matrix with NaNs
@@ -3312,34 +3607,39 @@ subroutine fmm_m2m_ztranslate_get_mat(z, src_r, dst_r, p, vscales, mat)
         pow_r1(j) = pow_r1(j-1) * r1
         pow_r2(j) = pow_r2(j-1) * r2
     end do
-    ! Fill square roots of factorials
-    fact(1) = 1
-    do j = 2, 2*p+1
-        fact(j) = sqrt(dble(j-1)) * fact(j-1)
-    end do
     indmat = 1
     do j = 0, p
         indj = j*j + j + 1
         do k = 0, j
-            tmp1 = vscales(indj) * fact(j-k+1) * fact(j+k+1)
+            tmp1 = vscales(indj) * vfact(j-k+1) * vfact(j+k+1)
             do n = 0, j-k
                 indn = n*n + n + 1
                 indjn = (j-n)**2 + (j-n) + 1
                 mat(indmat) = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
-                    & vscales(indjn) / fact(n+1) / fact(n+1) / &
-                    & fact(j-n-k+1) / fact(j-n+k+1)
+                    & vscales(indjn) / vfact(n+1) / vfact(n+1) / &
+                    & vfact(j-n-k+1) / vfact(j-n+k+1)
                 indmat = indmat + 1
             end do
         end do
     end do
 end subroutine fmm_m2m_ztranslate_get_mat
 
-!> Apple matrix of M2M translation along OZ axis
+!> Apply matrix of M2M translation along OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M \f$ is an matrix of multipole-to-multipole
+!! translation over OZ axis.
 !!
 !! This function shall not be used in case if centers of spherical harmonics
 !! are identical. The OZ translation matrix is not computed by @ref
 !! fmm_m2m_ztranslate_get_mat in this case as @ref fmm_m2m_scale is intended to
 !! treat the case.
+!!
 !!
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] mat: The OZ translation matrix for spherical harmonics
@@ -3393,7 +3693,86 @@ subroutine fmm_m2m_ztranslate_use_mat(p, mat, alpha, src_m, beta, dst_m)
     end do
 end subroutine fmm_m2m_ztranslate_use_mat
 
+!> Apply adjoint matrix of M2M translation along OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M^\top \f$ is an adjoint matrix of a
+!! multipole-to-multipole translation over OZ axis.
+!!
+!! This function shall not be used in case if centers of spherical harmonics
+!! are identical. The OZ translation matrix is not computed by @ref
+!! fmm_m2m_ztranslate_get_mat in this case as @ref fmm_m2m_scale is intended to
+!! treat the case.
+!!
+!!
+!! @param[in] p: Maximal degree of spherical harmonics
+!! @param[in] mat: The OZ translation matrix for spherical harmonics
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: Multipole expansion in new harmonics
+!!
+!!
+!! TODO: improve performance
+subroutine fmm_m2m_ztranslate_use_mat_adj(p, mat, alpha, src_m, beta, dst_m)
+    ! Inputs
+    integer, intent(in) :: p
+    real(dp), intent(in) :: mat((p+1)*(p+2)*(p+3)/6), alpha, &
+        & src_m((p+1)*(p+1)), beta
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    integer :: indmat, j, indj, n, indn, indjn, k
+    real(dp) :: tmp1, tmp2
+    ! Init output properly
+    if (beta .eq. zero) then
+        dst_m = zero
+    else
+        dst_m = beta * dst_m
+    end if
+    ! Cycle over matrix elements stored in a sparse way
+    indmat = 1
+    do j = 0, p
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, j
+            indn = n*n + n + 1
+            indjn = (j-n)**2 + (j-n) + 1
+            dst_m(indjn) = dst_m(indjn) + alpha*mat(indmat)*src_m(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = 0, j-k
+                indn = n*n + n + 1
+                indjn = (j-n)**2 + (j-n) + 1
+                dst_m(indjn+k) = dst_m(indjn+k) + &
+                    & alpha*mat(indmat)*src_m(indj+k)
+                dst_m(indjn-k) = dst_m(indjn-k) + &
+                    & alpha*mat(indmat)*src_m(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2m_ztranslate_use_mat_adj
+
 !> Scale M2M, when spherical harmonics are centered in the same point
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M \f$ is a matrix of a multipole-to-multipole
+!! translation when harmonics are centered in the same point. Adjoint to this
+!! is the function itself, as this corresponds to a diagonal scaling.
+!!
 !!
 !! @param[in] src_r: Radius of old harmonics
 !! @param[in] dst_r: Radius of new harmonics
@@ -3430,21 +3809,32 @@ end subroutine fmm_m2m_scale
 
 !> M2M translation by 4 rotations and 1 translation
 !!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M \f$ is a matrix of a multipole-to-multipole
+!! translation.
+!!
 !! Rotates around OZ and OY axes, translates over OZ and then rotates back
 !! around OY and OZ axes.
+!!
 !!
 !! @param[in] c: Radius-vector from new to old centers of harmonics
 !! @param[in] src_r: Radius of old harmonics
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
 !! @param[in] src_m: expansion in old harmonics
 !! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, alpha, src_m, beta, &
-        & dst_m)
+subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, vfact, alpha, src_m, &
+        & beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), alpha, &
-        & src_m((p+1)*(p+1)), beta
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
@@ -3455,8 +3845,8 @@ subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, alpha, src_m, beta, &
     call carttosph(c, rho, ctheta, stheta, cphi, sphi)
     ! If no need for rotations, just do translation along z
     if (stheta .eq. 0) then
-        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, alpha, src_m, &
-            & beta, dst_m)
+        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
+            & src_m, beta, dst_m)
         return
     end if
     ! Compute arrays of cos and sin that are needed for rotations of harmonics
@@ -3471,8 +3861,8 @@ subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, alpha, src_m, beta, &
     r1xz(2, 2) = ctheta
     call fmm_sph_transform_oxz(p, r1xz, one, tmp_m, zero, tmp_m2)
     ! OZ translation
-    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, one, tmp_m2, zero, &
-        & tmp_m)
+    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, &
+        & tmp_m2, zero, tmp_m)
     ! Backward rotation in the OXZ plane
     r1xz(1, 2) = stheta
     r1xz(2, 1) = -stheta
@@ -3480,6 +3870,70 @@ subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, alpha, src_m, beta, &
     ! Backward rotation around OZ axis
     call fmm_sph_rotate_oz(p, vcos, vsin, one, tmp_m2, beta, dst_m)
 end subroutine fmm_m2m_rotation
+
+!> Adjoint M2M translation by 4 rotations and 1 translation
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha M_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ M_M^\top \f$ is aa adjoint matrix of a
+!! multipole-to-multipole translation.
+!!
+!! Rotates around OZ and OY axes, translates over OZ and then rotates back
+!! around OY and OZ axes.
+!!
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] p: Maximal degree of spherical harmonics
+!! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] src_m: expansion in old harmonics
+!! @param[inout] dst_m: expansion in new harmonics
+subroutine fmm_m2m_rotation_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1), &
+        & vmsin(p+1), tmp_m((p+1)*(p+1)), r1xz(2, 2), tmp_m2((p+1)*(p+1))
+    ! Covert Cartesian coordinates into spherical
+    call carttosph(c, rho, ctheta, stheta, cphi, sphi)
+    ! If no need for rotations, just do translation along z
+    if (stheta .eq. 0) then
+        call fmm_m2m_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
+            & alpha, src_m, beta, dst_m)
+        return
+    end if
+    ! Compute arrays of cos and sin that are needed for rotations of harmonics
+    call trgev(cphi, sphi, p, vcos, vsin)
+    ! Rotate around OZ axis
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(p, vcos, vmsin, alpha, src_m, zero, tmp_m)
+    ! Perform rotation in the OXZ plane
+    r1xz(1, 1) = ctheta
+    r1xz(1, 2) = -stheta
+    r1xz(2, 1) = stheta
+    r1xz(2, 2) = ctheta
+    call fmm_sph_transform_oxz(p, r1xz, one, tmp_m, zero, tmp_m2)
+    ! OZ translation
+    call fmm_m2m_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
+        & tmp_m2, zero, tmp_m)
+    ! Backward rotation in the OXZ plane
+    r1xz(1, 2) = stheta
+    r1xz(2, 1) = -stheta
+    call fmm_sph_transform_oxz(p, r1xz, one, tmp_m, zero, tmp_m2)
+    ! Backward rotation around OZ axis
+    call fmm_sph_rotate_oz(p, vcos, vsin, one, tmp_m2, beta, dst_m)
+end subroutine fmm_m2m_rotation_adj
 
 !> Compute reflection that aligns given vector along OZ axis
 !!
@@ -3544,13 +3998,14 @@ end subroutine coord_reflect_get_mat
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
 !! @param[in] src_m: expansion in old harmonics
 !! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, alpha, src_m, &
-        & beta, dst_m)
+subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), alpha, &
-        & src_m((p+1)*(p+1)), beta
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
@@ -3560,8 +4015,8 @@ subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, alpha, src_m, &
     integer :: m, n
     ! If no need for transformation, just do translation along z
     if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, alpha, src_m, &
-            & beta, dst_m)
+        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
+            & src_m, beta, dst_m)
         return
     end if
     ! Compute rho, c(1:2) != zero already
@@ -3597,10 +4052,76 @@ subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, alpha, src_m, &
         end do
     end do
     call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, one, tmp_m, zero, &
-        & tmp_m2)
+    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_m, &
+        & zero, tmp_m2)
     call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
 end subroutine fmm_m2m_reflection
+
+!> Adjoint M2M translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] p: Maximal degree of spherical harmonics
+!! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] src_m: expansion in old harmonics
+!! @param[inout] dst_m: expansion in new harmonics
+subroutine fmm_m2m_reflection_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
+        & tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
+    integer :: m, n
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2m_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
+            & alpha, src_m, beta, dst_m)
+        return
+    end if
+    ! Compute rho, c(1:2) != zero already
+    if (abs(c(1)) .gt. abs(c(2))) then
+        max123 = abs(c(1))
+        ssq123 = one + (c(2)/c(1))**2
+    else
+        max123 = abs(c(2))
+        ssq123 = one + (c(1)/c(2))**2
+    end if
+    if (abs(c(3)) .gt. max123) then
+        rho = one + ssq123*(max123/c(3))**2
+        rho = abs(c(3)) * sqrt(rho)
+    else
+        rho = ssq123 + (c(3)/max123)**2
+        rho = max123 * sqrt(rho)
+    end if
+    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
+    if (c(3) .ge. zero) rho = -rho
+    c1(1) = c(2)
+    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
+    c1(3) = c(1)
+    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
+    max123 = abs(c1(2))
+    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
+    c1_norm = max123 * sqrt(ssq123)
+    c1 = c1 / c1_norm
+    r1 = 0
+    do m = 1, 3
+        r1(m, m) = 1
+        do n = 1, 3
+            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
+        end do
+    end do
+    call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
+    call fmm_m2m_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
+        & tmp_m, zero, tmp_m2)
+    call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
+end subroutine fmm_m2m_reflection_adj
 
 !> M2M translation by 2 reflections and 1 translation
 !!
@@ -3611,15 +4132,16 @@ end subroutine fmm_m2m_reflection
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Multipole expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: Multipole expansion in new harmonics
-subroutine fmm_m2m_reflection2(c, src_r, dst_r, p, vscales, alpha, src_m, &
-        & beta, dst_m)
+subroutine fmm_m2m_reflection2(c, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), alpha, &
-        & src_m((p+1)*(p+1)), beta
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
@@ -3627,16 +4149,53 @@ subroutine fmm_m2m_reflection2(c, src_r, dst_r, p, vscales, alpha, src_m, &
     real(dp) :: rho, r1(3, 3), tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
     ! If no need for transformation, just do translation along z
     if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, alpha, src_m, &
-            & beta, dst_m)
+        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
+            & src_m, beta, dst_m)
         return
     end if
     call coord_reflect_get_mat(c, rho, r1)
     call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, one, tmp_m, &
+    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_m, &
         & zero, tmp_m2)
     call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
 end subroutine fmm_m2m_reflection2
+
+!> Adjoint M2M translation by 2 reflections and 1 translation
+!!
+!! Slightly shorter implementation of @ref fmm_m2m_reflection
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] p: Maximal degree of spherical harmonics
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: Multipole expansion in new harmonics
+subroutine fmm_m2m_reflection2_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
+        & src_m, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    real(dp) :: rho, r1(3, 3), tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2m_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
+            & alpha, src_m, beta, dst_m)
+        return
+    end if
+    call coord_reflect_get_mat(c, rho, r1)
+    call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
+    call fmm_m2m_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
+        & tmp_m, zero, tmp_m2)
+    call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
+end subroutine fmm_m2m_reflection2_adj
 
 !> Save matrices of M2M operation by 2 reflections and 1 translation
 !!
@@ -3645,12 +4204,14 @@ end subroutine fmm_m2m_reflection2
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
 !! @param[out] transform_mat: Matrix of reflection
 !! @param[out] ztranslate_mat: Matrix of OZ translation
-subroutine fmm_m2m_reflection_get_mat(c, src_r, dst_r, p, vscales, &
+subroutine fmm_m2m_reflection_get_mat(c, src_r, dst_r, p, vscales, vfact, &
         & transform_mat, ztranslate_mat)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1))
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
+        & vfact(2*p+1)
     integer, intent(in) :: p
     ! Outputs
     real(dp), intent(out) :: transform_mat((p+1)*(2*p+1)*(2*p+3)/6)
@@ -3663,13 +4224,13 @@ subroutine fmm_m2m_reflection_get_mat(c, src_r, dst_r, p, vscales, &
         ! simple scaling
         if (c(3) .ne. zero) then
             call fmm_m2m_ztranslate_get_mat(c(3), src_r, dst_r, p, vscales, &
-                & ztranslate_mat)
+                & vfact, ztranslate_mat)
         end if
         return
     end if
     call coord_reflect_get_mat(c, rho, r1)
     call fmm_sph_transform_get_mat(p, r1, transform_mat)
-    call fmm_m2m_ztranslate_get_mat(rho, src_r, dst_r, p, vscales, &
+    call fmm_m2m_ztranslate_get_mat(rho, src_r, dst_r, p, vscales, vfact, &
         & ztranslate_mat)
 end subroutine fmm_m2m_reflection_get_mat
 
@@ -3715,6 +4276,129 @@ subroutine fmm_m2m_reflection_use_mat(c, src_r, dst_r, p, transform_mat, &
         & tmp_m2)
     call fmm_sph_transform_use_mat(p, transform_mat, one, tmp_m2, beta, dst_m)
 end subroutine fmm_m2m_reflection_use_mat
+
+!> Apply matrices of M2M translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] p: Maximal degree of spherical harmonics
+!! @param[in] transform_mat: Matrix of a reflection
+!! @param[in] ztranslate_mat: Matrix of an OZ translation
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion of old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: Multipole expansion of new harmonics
+subroutine fmm_m2m_reflection_use_mat_adj(c, src_r, dst_r, p, transform_mat, &
+        & ztranslate_mat, alpha, src_m, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, &
+        & transform_mat((p+1)*(2*p+1)*(2*p+3)/3), &
+        & ztranslate_mat((p+1)*(p+2)*(p+3)/6), &
+        & alpha, src_m((p+1)*(p+1)), beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
+    ! Local variables
+    real(dp) :: tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        ! If centers are the same just scale
+        if (c(3) .eq. 0) then
+            call fmm_m2m_scale(dst_r, src_r, p, alpha, src_m, beta, dst_m)
+        ! Otherwise apply ztranslate matrix
+        else
+            call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, alpha, &
+                & src_m, beta, dst_m)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_transform_use_mat(p, transform_mat, alpha, src_m, zero, tmp_m)
+    call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, one, tmp_m, zero, &
+        & tmp_m2)
+    call fmm_sph_transform_use_mat(p, transform_mat, one, tmp_m2, beta, dst_m)
+end subroutine fmm_m2m_reflection_use_mat_adj
+
+!> Direct M2L translation over OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M \f$ is a matrix of multipole-to-local
+!! translation over OZ axis.
+!!
+!!
+!! @param[in] z: OZ coordinate from new to old centers of harmonics
+!! @param[in] src_r: Radius of old (multipole) harmonics
+!! @param[in] dst_r: Radius of new (local) harmonics
+!! @parma[in] pm: Maximal degree of multipole spherical harmonics
+!! @parma[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: Normalization constants for harmonics
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multipler for `src_m`
+!! @param[in] src_m: Expansion in old (multipole) harmonics
+!! @param[in] beta: Scalar multipler for `dst_l`
+!! @param[inout] dst_l: Expansion in new (local) harmonics
+subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
+        & src_m, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
+        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+    integer, intent(in) :: pm, pl
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    real(dp) :: tmp1, tmp2, pow_r1(pm+1), pow_r2(pl+1), r1, r2
+    integer :: j, k, n, indj, indn
+    ! Init output
+    if (beta .eq. zero) then
+        dst_l = zero
+    else
+        dst_l = beta * dst_l
+    end if
+    ! z cannot be zero, as input sphere (multipole) must not intersect with
+    ! output sphere (local)
+    if (z .eq. 0) then
+        return
+    end if
+    r1 = src_r / z
+    r2 = dst_r / z
+    ! This abs(r1) makes it possible to work with negative z to avoid
+    ! unnecessary rotation to positive z
+    pow_r1(1) = abs(r1)
+    pow_r2(1) = 1
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = alpha * vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
+                & vfact(j+k+1)
+            do n = k, pm
+                indn = n*n + n + 1
+                tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / vfact(n-k+1) / &
+                    & vfact(n+k+1) * (vfact(j+n+1)**2)
+                if (mod(n+k, 2) .eq. 1) then
+                    tmp2 = -tmp2
+                end if
+                if (k .eq. 0) then
+                    dst_l(indj) = dst_l(indj) + tmp2*src_m(indn)
+                else
+                    dst_l(indj+k) = dst_l(indj+k) + tmp2*src_m(indn+k)
+                    dst_l(indj-k) = dst_l(indj-k) + tmp2*src_m(indn-k)
+                end if
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate
 
 end module dd_core
 

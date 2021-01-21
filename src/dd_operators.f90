@@ -451,8 +451,8 @@ subroutine apply_repsx_prec(dd_data, x, y)
             & dd_data % rx_prc(:, :, isph), dd_data % nbasis, x(:, isph), &
             dd_data % nbasis, zero, y(:, isph), dd_data % nbasis)
     end do
-  call prtsph("rx_prec x", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, x)
-  call prtsph("rx_prec y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
+    !call prtsph("rx_prec x", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, x)
+    !call prtsph("rx_prec y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
 end subroutine apply_repsx_prec
 
 !> Apply preconditioner for 
