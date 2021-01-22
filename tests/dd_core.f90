@@ -51,7 +51,7 @@ grsph(9) = grsph(1) + dnrm2(3, gcsph(:, 9)-gcsph(:, 1), 1)
 gcsph(:, 10) = (/-4d-1, 1.1d0, 0d0/)
 grsph(10) = grsph(1) + dnrm2(3, gcsph(:, 10)-gcsph(:, 1), 1)
 ! Check correctness of info for valid and invalid input parameters of ddinit
-!call check_ddinit_args()
+call check_ddinit_args()
 
 ! Check P2M and M2P operations of the FMM
 do i = 1, size(alpha)
@@ -67,11 +67,18 @@ do i = 1, size(alpha)
     call check_p2l_l2p(p, alpha(i), iprint, 120*epsilon(zero))
 end do
 
-! Check P2M and M2P operations of the FMM
+! Check M2M operations of the FMM
 do i = 1, size(alpha)
     call check_m2m(0, alpha(i), iprint, 10d0*epsilon(zero))
     call check_m2m(1, alpha(i), iprint, 10d0*epsilon(zero))
     call check_m2m(p, alpha(i), iprint, 10d0*epsilon(zero))
+end do
+
+! Check L2L operations of the FMM
+do i = 1, size(alpha)
+    call check_l2l(0, alpha(i), iprint, 10d0*epsilon(zero))
+    call check_l2l(1, alpha(i), iprint, 10d0*epsilon(zero))
+    call check_l2l(p, alpha(i), iprint, 30d0*epsilon(zero))
 end do
 
 
@@ -358,36 +365,15 @@ subroutine check_ddinit_args()
     call ddfree(dd_data)
 end subroutine check_ddinit_args
 
-! Check P2M, M2M and M2P for spherical harmonics
+! Check P2M and M2P for spherical harmonics
 ! List of explicitly checked functions:
 !       fmm_p2m
 !       fmm_m2p
-!       coord_reflect_get_mat
-!       fmm_sph_transform
-!       fmm_sph_transform_get_mat
-!       fmm_sph_transform_use_mat
-!       fmm_m2m_ztranslate
-!       fmm_m2m_ztranslate_adj
-!       fmm_m2m_ztranslate_get_mat
-!       fmm_m2m_ztranslate_use_mat
-!       fmm_m2m_ztranslate_use_mat_adj
-!       fmm_m2m_reflection
-!       fmm_m2m_reflection2
-!       fmm_m2m_rotation
-!       fmm_m2m_reflection_adj
-!       fmm_m2m_reflection2_adj
-!       fmm_m2m_rotation_adj
-!       fmm_m2m_reflection_get_mat
-!       fmm_m2m_reflection_use_mat
-!       fmm_m2m_reflection_use_mat_adj
 ! List of implicitly checked functions:
 !       ylmscale
 !       ylmbas
 !       trgev
 !       polleg
-! TODO explicitly:
-!       fmm_sph_rotate_oz
-!       fmm_sph_transform_oxz
 subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     ! Inputs
     integer, intent(in) :: p, iprint
@@ -539,6 +525,15 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     end do
 end subroutine check_p2m_m2p
 
+! Check transformation of spherical harmonics
+! List of explicitly checked functions:
+!       coord_reflect_get_mat
+!       fmm_sph_transform
+!       fmm_sph_transform_get_mat
+!       fmm_sph_transform_use_mat
+! TODO explicitly:
+!       fmm_sph_rotate_oz
+!       fmm_sph_transform_oxz
 !subroutine check_sph_transform(p, alpha, iprint, threshold)
 !    !! Check reflection of coordinates
 !    if (iprint .gt. 0) then
@@ -652,6 +647,10 @@ end subroutine check_p2m_m2p
 !    end do
 !end subroutine check_sph_transform
 
+! Check P2L and L2P for spherical harmonics
+! List of explicitly checked functions:
+!       fmm_p2l
+!       fmm_l2p
 subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     ! Inputs
     integer, intent(in) :: p, iprint
@@ -817,6 +816,22 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     end do
 end subroutine check_p2l_l2p
 
+! Check M2M for spherical harmonics
+! List of explicitly checked functions:
+!       fmm_m2m_ztranslate
+!       fmm_m2m_ztranslate_adj
+!       fmm_m2m_ztranslate_get_mat
+!       fmm_m2m_ztranslate_use_mat
+!       fmm_m2m_ztranslate_use_mat_adj
+!       fmm_m2m_reflection
+!       fmm_m2m_reflection2
+!       fmm_m2m_rotation
+!       fmm_m2m_reflection_adj
+!       fmm_m2m_reflection2_adj
+!       fmm_m2m_rotation_adj
+!       fmm_m2m_reflection_get_mat
+!       fmm_m2m_reflection_use_mat
+!       fmm_m2m_reflection_use_mat_adj
 subroutine check_m2m(p, alpha, iprint, threshold)
     ! Inputs
     integer, intent(in) :: p, iprint
@@ -937,21 +952,24 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         & dnrm2(nbasis, coef(:, 6), 1)
     if (iprint .gt. 0) then
         write(*, "(A,ES24.16E3)") &
-            & "|| P2M(1) + M(1)2M(6) - P2M(6) ||  /  || P2M(6) || =", v(i)
+            & "|| P2M(1) + M(1)2M(6) - P2M(6) ||  /  || P2M(6) || =", v(6)
     end if
+    if (v(6) .gt. threshold) stop 1
     call fmm_m2m_scale(rsph(1), rsph(6), p, -one, coef(:, 1), two, &
         & coef2(:, 6))
     v(6) = dnrm2(nbasis, coef2(:, 6)-coef(:, 6), 1) / &
         & dnrm2(nbasis, coef(:, 6), 1)
     if (iprint .gt. 0) then
         write(*, "(A,ES24.16E3)") &
-            & "|| P2M(1) + M(1)2M(6) - P2M(6) ||  /  || P2M(6) || =", v(i)
+            & "|| P2M(1) + M(1)2M(6) - P2M(6) ||  /  || P2M(6) || =", v(6)
     end if
+    if (v(6) .gt. threshold) stop 1
     !! Check adjoint M2M OZ translation by precomputed matrices of direct M2M
     !! OZ translation. Spheres 2 and 3 are explicitly aligned along OZ axis.
     if (iprint .gt. 0) then
         write(*, *)
         write(*, "(A,I0)") "Check fmm_m2m_ztranslate_use_mat_adj for p=", p
+        write(*, "(A,I0)") "Check fmm_m2m_scale_adj for p=", p
         write(*, "(A)") "================================"
         write(*, *) "threshold=", threshold
     end if
@@ -977,11 +995,44 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         v(i) = diff_norm / full_norm
         if (iprint .gt. 0) then
             write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
+                & "|| M(1)2M(", i, ") - [adj M(1)2M(", i, ")]^T ||  /  ", &
                 & "|| M(1)2M(", i, ") || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
+        call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, one, &
+            & coef(:, 1), zero, full_mat(:, 1))
+        full_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, -two, &
+            & coef(:, 1), two, full_mat(:, 1))
+        diff_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        v(i) = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
     end do
+    ! Check fmm_m2m_scale_adj. Sphere 6 is intended for this. Result is the
+    ! same as with direct fmm_m2m_scale.
+    call fmm_m2m_scale_adj(rsph(6), rsph(1), p, one, coef(:, 1), zero, &
+        & coef2(:, 6))
+    v(6) = dnrm2(nbasis, coef2(:, 6)-coef(:, 6), 1) / &
+        & dnrm2(nbasis, coef(:, 6), 1)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| [adj M(1)2M(6)] - M(1)2M(6) ||  /  || M(1)2M(6) || =", v(6)
+    end if
+    if (v(6) .gt. threshold) stop 1
+    call fmm_m2m_scale_adj(rsph(6), rsph(1), p, -one, coef(:, 1), two, &
+        & coef2(:, 6))
+    v(6) = dnrm2(nbasis, coef2(:, 6)-coef(:, 6), 1) / &
+        & dnrm2(nbasis, coef(:, 6), 1)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| [adj M(1)2M(6)] - M(1)2M(6) ||  /  || M(1)2M(6) || =", v(6)
+    end if
+    if (v(6) .gt. threshold) stop 1
     !! Check adjoint M2M OZ translation without precomputed matrices. Spheres 2
     !! and 3 are explicitly aligned along OZ axis.
     if (iprint .gt. 0) then
@@ -993,6 +1044,19 @@ subroutine check_m2m(p, alpha, iprint, threshold)
     do i = 2, 3
         call fmm_m2m_ztranslate_get_mat(-csph(3, i), rsph(1), rsph(i), p, &
             & vscales, vfact, ztranslate_mat)
+        call fmm_m2m_ztranslate_adj(csph(3, i), rsph(i), rsph(1), p, &
+            & vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
+        full_norm = dnrm2((p+1)**2, coef2(:, i), 1)
+        call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, -one, &
+            & coef(:, 1), one, coef2(:, i))
+        diff_norm = dnrm2((p+1)**2, coef2(:, i), 1)
+        v(i) = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
         call fmm_m2m_ztranslate_use_mat_adj(p, ztranslate_mat, one, &
             & coef(:, 1), zero, coef2(:, i))
         full_norm = dnrm2((p+1)**2, coef2(:, i), 1)
@@ -1001,9 +1065,9 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         diff_norm = dnrm2((p+1)**2, coef2(:, i), 1)
         v(i) = diff_norm / full_norm
         if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
@@ -1019,8 +1083,18 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         & dnrm2(nbasis, coef(:, 6), 1)
     if (iprint .gt. 0) then
         write(*, "(A,A,ES24.16E3)") &
-            & "|| M(1)2M(6) - [adjoint M(1)2M(6)]^T ||  /  ", &
-            & "|| M(1)2M(6) || =", v(6)
+            & "|| [adj M(1)2M(6)] - M(1)2M(6) ||  /  ", &
+            & "|| [adj M(1)2M(6)] || =", v(6)
+    end if
+    if (v(6) .gt. threshold) stop 1
+    call fmm_m2m_ztranslate_adj(zero, rsph(6), rsph(1), p, vscales, vfact, &
+        & -one, coef(:, 1), two, coef2(:, 6))
+    v(6) = dnrm2(nbasis, coef2(:, 6)-coef(:, 6), 1) / &
+        & dnrm2(nbasis, coef(:, 6), 1)
+    if (iprint .gt. 0) then
+        write(*, "(A,A,ES24.16E3)") &
+            & "|| [adj M(1)2M(6)] - M(1)2M(6) ||  /  ", &
+            & "|| [adj M(1)2M(6)] || =", v(6)
     end if
     if (v(6) .gt. threshold) stop 1
     !! Check M2M by reflection
@@ -1101,8 +1175,8 @@ subroutine check_m2m(p, alpha, iprint, threshold)
             coef2(:, i) = zero
             coef2(j, i) = one
             call fmm_m2m_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
-                & rsph(i), p, transform_mat, ztranslate_mat, one, coef2(:, i), &
-                & zero, full_mat(:, j))
+                & rsph(i), p, transform_mat, ztranslate_mat, one, &
+                & coef2(:, i), zero, full_mat(:, j))
         end do
         full_norm = dnrm2((p+1)**4, full_mat, 1)
         ! Subtract transpose of an adjoint M2M translation matrix
@@ -1117,8 +1191,23 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         v(i) = diff_norm / full_norm
         if (iprint .gt. 0) then
             write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
+                & "|| M(1)2M(", i, ") - [adj M(1)2M(", i, ")]^T ||  /  ", &
                 & "|| M(1)2M(", i, ") || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
+        call fmm_m2m_reflection_use_mat_adj(csph(:, i)-csph(:, 1), rsph(i), &
+            & rsph(1), p, transform_mat, ztranslate_mat, one, coef2(:, i), &
+            & zero, full_mat(:, 1))
+        full_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        call fmm_m2m_reflection_use_mat_adj(csph(:, i)-csph(:, 1), rsph(i), &
+            & rsph(1), p, transform_mat, ztranslate_mat, -two, coef2(:, i), &
+            & two, full_mat(:, 1))
+        diff_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        v(i) = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
@@ -1133,6 +1222,20 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         ! Check with help of fmm_m2m_reflection_use_mat that is checked already
         call fmm_m2m_reflection_get_mat(csph(:, 1)-csph(:, i), rsph(1), &
             & rsph(i), p, vscales, vfact, transform_mat, ztranslate_mat)
+        ! Check with beta=zero
+        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
+        ! Subtract reference value
+        call fmm_m2m_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
+            & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, -one, &
+            & coef(:, 1), one, coef2(:, i))
+        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
         ! Get reference value
         call fmm_m2m_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
             & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, one, &
@@ -1143,23 +1246,9 @@ subroutine check_m2m(p, alpha, iprint, threshold)
             & p, vscales, vfact, -two, coef(:, 1), two, coef2(:, i))
         v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
         if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
-        end if
-        if (v(i) .gt. threshold) stop 1
-        ! Check with beta=zero
-        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
-            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
-        ! Subtract reference value
-        call fmm_m2m_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
-            & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, -one, &
-            & coef(:, 1), one, coef2(:, i))
-        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
-        if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
@@ -1200,6 +1289,19 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, *) "threshold=", threshold
     end if
     do i = 1, nsph
+        ! Check with beta=zero
+        call fmm_m2m_reflection2_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
+        ! Subtract reference value
+        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -one, coef(:, 1), one, coef2(:, i))
+        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
         ! Get reference value
         call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
             & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
@@ -1209,22 +1311,9 @@ subroutine check_m2m(p, alpha, iprint, threshold)
             & p, vscales, vfact, -two, coef(:, 1), two, coef2(:, i))
         v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
         if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
-        end if
-        if (v(i) .gt. threshold) stop 1
-        ! Check with beta=zero
-        call fmm_m2m_reflection2_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
-            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
-        ! Subtract reference value
-        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
-            & p, vscales, vfact, -one, coef(:, 1), one, coef2(:, i))
-        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
-        if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
@@ -1265,6 +1354,19 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, *) "threshold=", threshold
     end if
     do i = 1, nsph
+        ! Check with beta=zero
+        call fmm_m2m_rotation_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
+        ! Subtract reference value
+        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -one, coef(:, 1), one, coef2(:, i))
+        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
+        end if
+        if (v(i) .gt. threshold) stop 1
         ! Get reference value
         call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
             & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
@@ -1274,26 +1376,617 @@ subroutine check_m2m(p, alpha, iprint, threshold)
             & p, vscales, vfact, -two, coef(:, 1), two, coef2(:, i))
         v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
         if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
-        end if
-        if (v(i) .gt. threshold) stop 1
-        ! Check with beta=zero
-        call fmm_m2m_rotation_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
-            & p, vscales, vfact, one, coef(:, 1), zero, coef2(:, i))
-        ! Subtract reference value
-        call fmm_m2m_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
-            & p, vscales, vfact, -one, coef(:, 1), one, coef2(:, i))
-        v(i) = dnrm2((p+1)**2, coef2(:, i), 1) / full_norm
-        if (iprint .gt. 0) then
-            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
-                & "|| M(1)2M(", i, ") - [adjoint M(1)2M(", i, ")]^T ||  /  ", &
-                & "|| M(1)2M(", i, ") || =", v(i)
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj M(1)2M(", i, ")] - [adj M(1)2M(", i, &
+                & ")] ||  /  || [adj M(1)2M(", i, ")] || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
 end subroutine check_m2m
+
+! Check L2L for spherical harmonics
+! List of explicitly checked functions:
+!       fmm_l2l_ztranslate
+!       fmm_l2l_ztranslate_adj
+!       fmm_l2l_ztranslate_get_mat
+!       fmm_l2l_ztranslate_use_mat
+!       fmm_l2l_ztranslate_use_mat_adj
+!       fmm_l2l_reflection
+!       fmm_l2l_reflection2
+!       fmm_l2l_rotation
+!       fmm_l2l_reflection_adj
+!       fmm_l2l_reflection2_adj
+!       fmm_l2l_rotation_adj
+!       fmm_l2l_reflection_get_mat
+!       fmm_l2l_reflection_use_mat
+!       fmm_l2l_reflection_use_mat_adj
+subroutine check_l2l(p, alpha, iprint, threshold)
+    ! Inputs
+    integer, intent(in) :: p, iprint
+    real(dp), intent(in) :: alpha, threshold
+    ! Local variables
+    integer :: nbasis, i, j
+    real(dp) :: vscales((p+1)**2), vfact(2*p+1)
+    real(dp) :: dst0(3), dst(3), src(3), csph(3, nsph), rsph(nsph), v0, v1
+    real(dp), dimension((p+1)**2, nsph) :: coef
+    real(dp) :: ztranslate_mat((p+1)*(p+2)*(p+3)/6)
+    real(dp) :: transform_mat((p+1)*(2*p+1)*(2*p+3)/3)
+    real(dp) :: full_mat((p+1)**2, (p+1)**2)
+    real(dp) :: z, r1(3, 3), dst1(3), full_norm, diff_norm
+    logical :: ok
+    real(dp), external :: dnrm2
+    !! Scale inputs
+    dst0 = gsrc0
+    dst = alpha * gsrc
+    src = alpha * gdst
+    csph = alpha * gcsph
+    rsph = alpha * grsph
+    !! Preliminaries
+    nbasis = (p+1) * (p+1)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics
+    call ylmscale(p, vscales)
+    vfact(1) = one
+    do i = 2, 2*p+1
+        vfact(i) = vfact(i-1) * sqrt(dble(i-1))
+    end do
+    !! Get local coefficients of the main sphere (source of L2L) and
+    !! corresponding potential
+    call fmm_p2l(src-csph(:, 1), one, rsph(1), p, vscales, zero, coef(:, 1))
+    call fmm_l2p(dst-csph(:, 1), rsph(1), p, vscales, one, coef(:, 1), zero, &
+        & v0)
+    !! Check L2L OZ translation by fmm_l2l_ztranslate. Spheres 2 and 3 are
+    !! explicitly aligned along OZ axis.
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_ztranslate for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    do i = 2, 3
+        call fmm_l2l_ztranslate(-csph(3, i), rsph(1), rsph(i), p, vscales, &
+            & vfact, one, coef(:, 1), zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_ztranslate(-csph(3, i), rsph(1), rsph(i), p, vscales, &
+            & vfact, -one, coef(:, 1), two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check L2L with zero OZ translation. Sphere 6 is explicitly set for this
+    call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, one, &
+        & coef(:, 1), zero, coef(:, 6))
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), zero, &
+        & v1)
+    v1 = abs(v1/v0 - one)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| L(1)2L(6) + L(6)2P - L(1)2P ||  /  || L(1)2P || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, -one, &
+        & coef(:, 1), two, coef(:, 6))
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), zero, &
+        & v1)
+    v1 = abs(v1/v0 - one)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| L(1)2L(6) + L(6)2P - L(1)2P ||  /  || L(1)2P || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    !! Check L2L OZ translation by precomputed matrices. Spheres 2 and 3 are
+    !! explicitly aligned along OZ axis.
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_ztranslate_get_mat for p=", p
+        write(*, "(A,I0)") "Check fmm_l2l_ztranslate_use_mat for p=", p
+        write(*, "(A,I0)") "Check fmm_l2l_scale for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    do i = 2, 3
+        call fmm_l2l_ztranslate_get_mat(-csph(3, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, ztranslate_mat)
+        call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, one, coef(:, 1), &
+            & zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, -one, coef(:, 1), &
+            & two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    ! L2L with 0 shift is simply scaling
+    call fmm_l2l_scale(rsph(1), rsph(6), p, one, coef(:, 1), zero, coef(:, 6))
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), &
+        & zero, v1)
+    v1 = abs(v1/v0 - one)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| L(1)2L(6) + L(6)2P - L(1)2P ||  /  || L(1)2P || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    call fmm_l2l_scale(rsph(1), rsph(6), p, -one, coef(:, 1), two, &
+        & coef(:, 6))
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), &
+        & zero, v1)
+    v1 = abs(v1/v0 - one)
+    if (iprint .gt. 0) then
+        write(*, "(A,ES24.16E3)") &
+            & "|| L(1)2L(6) + L(6)2P - L(1)2P ||  /  || L(1)2P || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    !! Check adjoint L2L OZ translation by precomputed matrices of direct L2L
+    !! OZ translation. Spheres 2 and 3 are explicitly aligned along OZ axis.
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_ztranslate_use_mat_adj for p=", p
+        write(*, "(A,I0)") "Check fmm_l2l_scale_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    do i = 2, 3
+        ! Generate entire matrix of a direct L2L OZ translation
+        call fmm_l2l_ztranslate_get_mat(-csph(3, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, ztranslate_mat)
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, one, &
+                & coef(:, i), zero, full_mat(:, j))
+        end do
+        full_norm = dnrm2((p+1)**4, full_mat, 1)
+        ! Subtract transpose of an adjoint L2L OZ translation matrix
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_l2l_ztranslate_use_mat_adj(p, ztranslate_mat, -two, &
+                & coef(:, i), two, full_mat(j, :))
+        end do
+        diff_norm = dnrm2((p+1)**4, full_mat, 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| L(1)2L(", i, ") - [adj L(1)2L(", i, ")]^T ||  /  ", &
+                & "|| L(1)2L(", i, ") || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_ztranslate_use_mat_adj(p, ztranslate_mat, one, &
+            & coef(:, 1), zero, full_mat(:, 1))
+        full_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        call fmm_l2l_ztranslate_use_mat_adj(p, ztranslate_mat, -two, &
+            & coef(:, 1), two, full_mat(:, 1))
+        diff_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ")] - [adj L(1)2L(", i, &
+                & ")] ||  /  || [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    ! Check fmm_l2l_scale_adj. Sphere 6 is intended for this. Result is the
+    ! same as with direct fmm_l2l_scale.
+    call fmm_l2l_scale_adj(rsph(6), rsph(1), p, one, coef(:, 1), zero, &
+        & coef(:, 6))
+    full_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    call fmm_l2l_scale(rsph(1), rsph(6), p, -one, coef(:, 1), one, coef(:, 6))
+    diff_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    v1 = diff_norm / full_norm
+    if (iprint .gt. 0) then
+        write(*, "(A,A,ES24.16E3)") &
+            & "|| [adj L(1)2L(6)] - L(1)2L(6) ||  /  ", &
+            & "|| [adj L(1)2L(6)] || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    call fmm_l2l_scale(rsph(1), rsph(6), p, one, coef(:, 1), zero, coef(:, 6))
+    full_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    call fmm_l2l_scale_adj(rsph(6), rsph(1), p, one, coef(:, 1), -one, &
+        & coef(:, 6))
+    diff_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    v1 = diff_norm / full_norm
+    if (iprint .gt. 0) then
+        write(*, "(A,A,ES24.16E3)") &
+            & "|| [adj L(1)2L(6)] - L(1)2L(6) ||  /  ", &
+            & "|| L(1)2L(6) || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    !! Check adjoint L2L OZ translation without precomputed matrices. Spheres 2
+    !! and 3 are explicitly aligned along OZ axis.
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_ztranslate_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    do i = 2, 3
+        call fmm_l2l_ztranslate_get_mat(-csph(3, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, ztranslate_mat)
+        call fmm_l2l_ztranslate_adj(csph(3, i), rsph(i), rsph(1), p, &
+            & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        full_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        call fmm_l2l_ztranslate_use_mat_adj(p, ztranslate_mat, -two, &
+            & coef(:, 1), two, coef(:, i))
+        diff_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_ztranslate_use_mat_adj(p, ztranslate_mat, one, &
+            & coef(:, 1), zero, coef(:, i))
+        full_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        call fmm_l2l_ztranslate_adj(csph(3, i), rsph(i), rsph(1), p, &
+            & vscales, vfact, -two, coef(:, 1), two, coef(:, i))
+        diff_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check that attempt to use L2L matrix with 0 shift raises NaNs
+    call fmm_l2l_ztranslate_get_mat(zero, rsph(1), rsph(6), p, vscales, &
+        & vfact, ztranslate_mat)
+    call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, one, coef(:, 1), zero, &
+        & coef(:, 6))
+    ! Adjoint with zero translation is the same as direct with zero translation
+    call fmm_l2l_ztranslate_adj(zero, rsph(6), rsph(1), p, vscales, vfact, &
+        & one, coef(:, 1), zero, coef(:, 6))
+    full_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, &
+        & one, coef(:, 1), -one, coef(:, 6))
+    diff_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    v1 = diff_norm / full_norm
+    if (iprint .gt. 0) then
+        write(*, "(A,A,ES24.16E3)") &
+            & "|| [adj L(1)2L(6)] - L(1)2L(6) ||  /  ", &
+            & "|| [adj L(1)2L(6)] || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, &
+        & one, coef(:, 1), zero, coef(:, 6))
+    full_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    call fmm_l2l_ztranslate_adj(zero, rsph(6), rsph(1), p, vscales, vfact, &
+        & one, coef(:, 1), -one, coef(:, 6))
+    diff_norm = dnrm2((p+1)**2, coef(:, 6), 1)
+    v1 = diff_norm / full_norm
+    if (iprint .gt. 0) then
+        write(*, "(A,A,ES24.16E3)") &
+            & "|| [adj L(1)2L(6)] - L(1)2L(6) ||  /  ", &
+            & "|| L(1)2L(6) || =", v1
+    end if
+    if (v1 .gt. threshold) stop 1
+    !! Check L2L by reflection
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        call fmm_l2l_reflection(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_reflection(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check L2L by reflection with help of matrices
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection_get_mat for p=", p
+        write(*, "(A,I0)") "Check fmm_l2l_reflection_use_mat for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        call fmm_l2l_reflection_get_mat(csph(:, 1)-csph(:, i), rsph(1), &
+            & rsph(i), p, vscales, vfact, transform_mat, ztranslate_mat)
+        call fmm_l2l_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
+            & rsph(i), p, transform_mat, ztranslate_mat, one, coef(:, 1), &
+            & zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
+            & rsph(i), p, transform_mat, ztranslate_mat, -one, coef(:, 1), &
+            & two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check adjoint L2L by reflection with help of matrices
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection_use_mat_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        ! Generate entire matrix of a direct L2L translation
+        call fmm_l2l_reflection_get_mat(csph(:, 1)-csph(:, i), rsph(1), &
+            & rsph(i), p, vscales, vfact, transform_mat, ztranslate_mat)
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_l2l_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
+                & rsph(i), p, transform_mat, ztranslate_mat, one, coef(:, i), &
+                & zero, full_mat(:, j))
+        end do
+        full_norm = dnrm2((p+1)**4, full_mat, 1)
+        ! Subtract transpose of an adjoint L2L translation matrix
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_l2l_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
+                & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, -two, &
+                & coef(:, i), two, full_mat(j, :))
+        end do
+        diff_norm = dnrm2((p+1)**4, full_mat, 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| L(1)2L(", i, ") - [adj L(1)2L(", i, ")]^T ||  /  ", &
+                & "|| L(1)2L(", i, ") || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_reflection_use_mat_adj(csph(:, i)-csph(:, 1), rsph(i), &
+            & rsph(1), p, transform_mat, ztranslate_mat, one, coef(:, i), &
+            & zero, full_mat(:, 1))
+        full_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        call fmm_l2l_reflection_use_mat_adj(csph(:, i)-csph(:, 1), rsph(i), &
+            & rsph(1), p, transform_mat, ztranslate_mat, -two, coef(:, i), &
+            & two, full_mat(:, 1))
+        diff_norm = dnrm2((p+1)**2, full_mat(:, 1), 1)
+        v1 = diff_norm / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ")] - [adj L(1)2L(", i, &
+                & ")] ||  /  || [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check adjoint L2L by reflection
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        ! Check with help of fmm_l2l_reflection_use_mat that is checked already
+        call fmm_l2l_reflection_get_mat(csph(:, 1)-csph(:, i), rsph(1), &
+            & rsph(i), p, vscales, vfact, transform_mat, ztranslate_mat)
+        ! Get reference value
+        call fmm_l2l_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
+            & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, one, &
+            & coef(:, 1), zero, coef(:, i))
+        full_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        ! Subtract value to be checked
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -two, coef(:, 1), two, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ")] - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        ! Check with beta=zero
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        ! Subtract reference value
+        call fmm_l2l_reflection_use_mat_adj(csph(:, i)-csph(:, 1), &
+            & rsph(i), rsph(1), p, transform_mat, ztranslate_mat, -one, &
+            & coef(:, 1), one, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ")] - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check L2L by reflection (another implementation)
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection2 for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        call fmm_l2l_reflection2(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_reflection2(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check adjoint L2L by reflection (another implementation)
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_reflection2_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        ! Get reference value
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        full_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        ! Subtract value to be checked
+        call fmm_l2l_reflection2_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -two, coef(:, 1), two, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        ! Check with beta=zero
+        call fmm_l2l_reflection2_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        ! Subtract reference value
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -one, coef(:, 1), one, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check L2L by rotation
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_rotation for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        call fmm_l2l_rotation(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        call fmm_l2l_rotation(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
+            & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
+            & zero, v1)
+        v1 = abs(v1/v0 - one)
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,ES24.16E3)") "|| L(1)2L(", i, &
+                & ") + L(", i, ")2P - L(1)2P ||  /  || L(1)2P || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+    !! Check adjoint L2L by rotation
+    if (iprint .gt. 0) then
+        write(*, *)
+        write(*, "(A,I0)") "Check fmm_l2l_rotation_adj for p=", p
+        write(*, "(A)") "================================"
+        write(*, *) "threshold=", threshold
+    end if
+    ! ignore i=1 since coef(:, 1) would be overwritten while read -- this is
+    ! an undefined behaviour
+    do i = 2, nsph
+        ! Get reference value
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        full_norm = dnrm2((p+1)**2, coef(:, i), 1)
+        ! Subtract value to be checked
+        call fmm_l2l_rotation_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -two, coef(:, 1), two, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+        ! Check with beta=zero
+        call fmm_l2l_rotation_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, one, coef(:, 1), zero, coef(:, i))
+        ! Subtract reference value
+        call fmm_l2l_reflection_adj(csph(:, i)-csph(:, 1), rsph(i), rsph(1), &
+            & p, vscales, vfact, -one, coef(:, 1), one, coef(:, i))
+        v1 = dnrm2((p+1)**2, coef(:, i), 1) / full_norm
+        if (iprint .gt. 0) then
+            write(*, "(A,I0,A,I0,A,A,I0,A,ES24.16E3)") &
+                & "|| [adj L(1)2L(", i, ") - [adj L(1)2L(", i, ")] ||  /  ", &
+                & "|| [adj L(1)2L(", i, ")] || =", v1
+        end if
+        if (v1 .gt. threshold) stop 1
+    end do
+end subroutine check_l2l
 
 end program test_dd_core
 
