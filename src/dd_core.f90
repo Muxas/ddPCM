@@ -5331,7 +5331,7 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
     ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
     pow_r1(1) = abs(r1)
-    pow_r2(1) = 1
+    pow_r2(1) = one
     do j = 2, pm+1
         pow_r1(j) = pow_r1(j-1) * r1
     end do
@@ -5360,6 +5360,760 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
         end do
     end do
 end subroutine fmm_m2l_ztranslate
+
+!> Adjoint M2L translation over OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M^\top \f$ is an adjoint matrix of
+!! multipole-to-local translation over OZ axis.
+!!
+!!
+!! @param[in] z: OZ coordinate from new to old centers of harmonics
+!! @param[in] src_r: Radius of old (local) harmonics
+!! @param[in] dst_r: Radius of new (multipole) harmonics
+!! @parma[in] pl: Maximal degree of local spherical harmonics
+!! @parma[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] vscales: Normalization constants for harmonics
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multipler for `src_l`
+!! @param[in] src_l: Expansion in old (local) harmonics
+!! @param[in] beta: Scalar multipler for `dst_m`
+!! @param[inout] dst_m: Expansion in new (multipole) harmonics
+subroutine fmm_m2l_ztranslate_adj(z, src_r, dst_r, pl, pm, vscales, vfact, &
+        & alpha, src_l, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
+        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+    integer, intent(in) :: pl, pm
+    ! Output
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    real(dp) :: tmp1, tmp2, pow_r1(pm+1), pow_r2(pl+1), r1, r2
+    integer :: j, k, n, indj, indn
+    ! Init output
+    if (beta .eq. zero) then
+        dst_m = zero
+    else
+        dst_m = beta * dst_m
+    end if
+    ! z cannot be zero, as input sphere (multipole) must not intersect with
+    ! output sphere (local)
+    if (z .eq. 0) then
+        return
+    end if
+    r1 = -dst_r / z
+    r2 = -src_r / z
+    ! This abs(r1) makes it possible to work with negative z to avoid
+    ! unnecessary rotation to positive z
+    pow_r1(1) = abs(r1)
+    pow_r2(1) = one
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = alpha * vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
+                & vfact(j+k+1)
+            do n = k, pm
+                indn = n*n + n + 1
+                tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / vfact(n-k+1) / &
+                    & vfact(n+k+1) * (vfact(j+n+1)**2)
+                if (mod(n+k, 2) .eq. 1) then
+                    tmp2 = -tmp2
+                end if
+                if (k .eq. 0) then
+                    dst_m(indn) = dst_m(indn) + tmp2*src_l(indj)
+                else
+                    dst_m(indn+k) = dst_m(indn+k) + tmp2*src_l(indj+k)
+                    dst_m(indn-k) = dst_m(indn-k) + tmp2*src_l(indj-k)
+                end if
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate_adj
+
+!> Save matrix of M2L translation along OZ axis
+!!
+!! In a case input `z` is zero no translation matrix is computed, as @ref
+!! fmm_m2m_scale shall be used in this case without any precomputed matrices
+!!
+!!
+!! @param[in] z: the OZ coordinate of the radius-vector from new to old centers
+!!      of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] mat: Translation matrix for spherical harmonics
+subroutine fmm_m2l_ztranslate_get_mat(z, src_r, dst_r, pm, pl, vscales, &
+        & vfact, mat)
+    ! Inputs
+    real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
+        & vfact(2*(pm+pl)+1)
+    integer, intent(in) :: pm, pl
+    ! Output
+    real(dp), intent(out) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6)
+    ! Local variables
+    real(dp) :: r1, r2, tmp1, pow_r1(pm+1), pow_r2(pl+1)
+    integer :: j, k, n, indj, indn, indjn, indmat
+    if (z .eq. zero) then
+        ! M and L cannot be located in the same place
+        return
+    end if
+    r1 = src_r / z
+    r2 = dst_r / z
+    ! This abs(r1) makes it possible to work with negative z to avoid
+    ! unnecessary rotation to positive z
+    pow_r1(1) = abs(r1)
+    pow_r2(1) = one
+    do j = 2, pm+1
+        pow_r1(j) = pow_r1(j-1) * r1
+    end do
+    do j = 2, pl+1
+        pow_r2(j) = pow_r2(j-1) * r2
+    end do
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        do k = 0, j
+            tmp1 = vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / vfact(j+k+1)
+            do n = k, pm
+                indn = n*n + n + 1
+                mat(indmat) = tmp1 * pow_r1(n+1) / vscales(indn) / &
+                    & vfact(n-k+1) / vfact(n+k+1) * vfact(j+n+1) * vfact(j+n+1)
+                if (mod(n+k, 2) .eq. 1) then
+                    mat(indmat) = -mat(indmat)
+                end if
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate_get_mat
+
+!> Apply matrix of M2L translation along OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M \f$ is a matrix of multipole-to-multipole
+!! translation over OZ axis.
+!!
+!! This function shall not be used in case if centers of spherical harmonics
+!! are identical. The OZ translation matrix is not computed by @ref
+!! fmm_m2l_ztranslate_get_mat in this case as @ref fmm_m2l_scale is intended to
+!! treat the case.
+!!
+!!
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] mat: The OZ translation matrix for spherical harmonics
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_l: Expansion in new harmonics
+subroutine fmm_m2l_ztranslate_use_mat(pm, pl, mat, alpha, src_m, beta, dst_l)
+    ! Inputs
+    integer, intent(in) :: pm, pl
+    real(dp), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6), alpha, src_m((pm+1)*(pm+1)), beta
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    integer :: j, k, n, indj, indn, indjn, indmat
+    real(dp) :: tmp1, tmp2
+    ! Cycle over matrix elements stored in a sparse way
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        ! Init output properly
+        if (beta .eq. zero) then
+            dst_l(indj-j:indj+j) = zero
+        else
+            dst_l(indj-j:indj+j) = beta * dst_l(indj-j:indj+j)
+        end if
+        ! k = 0
+        tmp1 = zero
+        do n = 0, pm
+            indn = n*n + n + 1
+            tmp1 = tmp1 + mat(indmat)*src_m(indn)
+            indmat = indmat + 1
+        end do
+        dst_l(indj) = dst_l(indj) + alpha*tmp1
+        ! k > 0
+        do k = 1, j
+            tmp1 = zero
+            tmp2 = zero
+            do n = k, pm
+                indn = n*n + n + 1
+                tmp1 = tmp1 + mat(indmat)*src_m(indn+k)
+                tmp2 = tmp2 + mat(indmat)*src_m(indn-k)
+                indmat = indmat + 1
+            end do
+            dst_l(indj+k) = dst_l(indj+k) + alpha*tmp1
+            dst_l(indj-k) = dst_l(indj-k) + alpha*tmp2
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate_use_mat
+
+!> Apply adjoint matrix of M2L translation along OZ axis
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M^\top \f$ is an adjoint matrix of a
+!! multipole-to-local translation over OZ axis.
+!!
+!! This function shall not be used in case if centers of spherical harmonics
+!! are identical. The OZ translation matrix is not computed by @ref
+!! fmm_m2l_ztranslate_get_mat in this case as @ref fmm_m2l_scale_adj is
+!! intended to treat the case.
+!!
+!!
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] mat: The OZ translation matrix for spherical harmonics
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_m: Multipole expansion in new harmonics
+!!
+!!
+!! TODO: improve performance
+subroutine fmm_m2l_ztranslate_use_mat_adj(pl, pm, mat, alpha, src_l, beta, &
+        & dst_m)
+    ! Inputs
+    integer, intent(in) :: pl, pm
+    real(dp), intent(in) :: mat((min(pm,pl)+1) * (min(pm,pl)+2) &
+        & * (3*max(pm,pl)+3-min(pm,pl)) / 6), alpha, src_l((pl+1)*(pl+1)), &
+        & beta
+    ! Output
+    real(dp), intent(out) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    integer :: j, k, n, indj, indn, indjn, indmat
+    ! Init output properly
+    if (beta .eq. zero) then
+        dst_m = zero
+    else
+        dst_m = beta * dst_m
+    end if
+    ! Cycle over matrix elements stored in a sparse way
+    indmat = 1
+    do j = 0, pl
+        indj = j*j + j + 1
+        ! k = 0
+        do n = 0, pm
+            indn = n*n + n + 1
+            dst_m(indn) = dst_m(indn) + alpha*mat(indmat)*src_l(indj)
+            indmat = indmat + 1
+        end do
+        ! k > 0
+        do k = 1, j
+            do n = k, pm
+                indn = n*n + n + 1
+                dst_m(indn+k) = dst_m(indn+k) + alpha*mat(indmat)*src_l(indj+k)
+                dst_m(indn-k) = dst_m(indn-k) + alpha*mat(indmat)*src_l(indj-k)
+                indmat = indmat + 1
+            end do
+        end do
+    end do
+end subroutine fmm_m2l_ztranslate_use_mat_adj
+
+!> Direct M2L translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] p: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_l: expansion in new harmonics
+subroutine fmm_m2l_reflection(c, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
+        & src_m, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+    integer, intent(in) :: pm, pl
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
+        & tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    integer :: m, n
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, vfact, &
+            & alpha, src_m, beta, dst_l)
+        return
+    end if
+    ! Compute rho, c(1:2) != zero already
+    if (abs(c(1)) .gt. abs(c(2))) then
+        max123 = abs(c(1))
+        ssq123 = one + (c(2)/c(1))**2
+    else
+        max123 = abs(c(2))
+        ssq123 = one + (c(1)/c(2))**2
+    end if
+    if (abs(c(3)) .gt. max123) then
+        rho = one + ssq123*(max123/c(3))**2
+        rho = abs(c(3)) * sqrt(rho)
+    else
+        rho = ssq123 + (c(3)/max123)**2
+        rho = max123 * sqrt(rho)
+    end if
+    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
+    if (c(3) .ge. zero) rho = -rho
+    c1(1) = c(2)
+    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
+    c1(3) = c(1)
+    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
+    max123 = abs(c1(2))
+    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
+    c1_norm = max123 * sqrt(ssq123)
+    c1 = c1 / c1_norm
+    r1 = 0
+    do m = 1, 3
+        r1(m, m) = 1
+        do n = 1, 3
+            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
+        end do
+    end do
+    call fmm_sph_transform(pm, r1, alpha, src_m, zero, tmp_m)
+    call fmm_m2l_ztranslate(rho, src_r, dst_r, pm, pl, vscales, vfact, one, &
+        & tmp_m, zero, tmp_l)
+    call fmm_sph_transform(pl, r1, one, tmp_l, beta, dst_l)
+end subroutine fmm_m2l_reflection
+
+!> Adjoint M2L translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_l`
+!! @param[in] src_l: expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: expansion in new harmonics
+subroutine fmm_m2l_reflection_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
+        & alpha, src_l, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+    integer, intent(in) :: pl, pm
+    ! Output
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
+        & tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    integer :: m, n
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2l_ztranslate_adj(c(3), src_r, dst_r, pl, pm, vscales, &
+            & vfact, alpha, src_l, beta, dst_m)
+        return
+    end if
+    ! Compute rho, c(1:2) != zero already
+    if (abs(c(1)) .gt. abs(c(2))) then
+        max123 = abs(c(1))
+        ssq123 = one + (c(2)/c(1))**2
+    else
+        max123 = abs(c(2))
+        ssq123 = one + (c(1)/c(2))**2
+    end if
+    if (abs(c(3)) .gt. max123) then
+        rho = one + ssq123*(max123/c(3))**2
+        rho = abs(c(3)) * sqrt(rho)
+    else
+        rho = ssq123 + (c(3)/max123)**2
+        rho = max123 * sqrt(rho)
+    end if
+    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
+    if (c(3) .ge. zero) rho = -rho
+    c1(1) = c(2)
+    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
+    c1(3) = c(1)
+    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
+    max123 = abs(c1(2))
+    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
+    c1_norm = max123 * sqrt(ssq123)
+    c1 = c1 / c1_norm
+    r1 = 0
+    do m = 1, 3
+        r1(m, m) = 1
+        do n = 1, 3
+            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
+        end do
+    end do
+    call fmm_sph_transform(pl, r1, alpha, src_l, zero, tmp_l)
+    call fmm_m2l_ztranslate_adj(rho, src_r, dst_r, pl, pm, vscales, vfact, &
+        & one, tmp_l, zero, tmp_m)
+    call fmm_sph_transform(pm, r1, one, tmp_m, beta, dst_m)
+end subroutine fmm_m2l_reflection_adj
+
+!> Direct M2L translation by 2 reflections and 1 translation
+!!
+!! Slightly shorter implementation of @ref fmm_m2l_reflection
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_l: Local expansion in new harmonics
+subroutine fmm_m2l_reflection2(c, src_r, dst_r, pm, pl, vscales, vfact, &
+        & alpha, src_m, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+    integer, intent(in) :: pm, pl
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    real(dp) :: rho, r1(3, 3), tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, vfact, &
+            & alpha, src_m, beta, dst_l)
+        return
+    end if
+    call coord_reflect_get_mat(c, rho, r1)
+    call fmm_sph_transform(pm, r1, alpha, src_m, zero, tmp_m)
+    call fmm_m2l_ztranslate(rho, src_r, dst_r, pm, pl, vscales, vfact, one, &
+        & tmp_m, zero, tmp_l)
+    call fmm_sph_transform(pl, r1, one, tmp_l, beta, dst_l)
+end subroutine fmm_m2l_reflection2
+
+!> Adjoint M2L translation by 2 reflections and 1 translation
+!!
+!! Slightly shorter implementation of @ref fmm_m2l_reflection
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_l`
+!! @param[in] src_l: Multipole expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: Multipole expansion in new harmonics
+subroutine fmm_m2l_reflection2_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
+        & alpha, src_l, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+    integer, intent(in) :: pl, pm
+    ! Output
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    real(dp) :: rho, r1(3, 3), tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        call fmm_m2l_ztranslate_adj(c(3), src_r, dst_r, pl, pm, vscales, &
+            & vfact, alpha, src_l, beta, dst_m)
+        return
+    end if
+    call coord_reflect_get_mat(c, rho, r1)
+    call fmm_sph_transform(pl, r1, alpha, src_l, zero, tmp_l)
+    call fmm_m2l_ztranslate_adj(rho, src_r, dst_r, pl, pm, vscales, vfact, &
+        & one, tmp_l, zero, tmp_m)
+    call fmm_sph_transform(pm, r1, one, tmp_m, beta, dst_m)
+end subroutine fmm_m2l_reflection2_adj
+
+!> Save matrices of M2L operation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: Normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[out] transform_mat: Matrix of reflection
+!! @param[out] ztranslate_mat: Matrix of OZ translation
+subroutine fmm_m2l_reflection_get_mat(c, src_r, dst_r, pm, pl, vscales, &
+        & vfact, transform_mat, ztranslate_mat)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1)
+    integer, intent(in) :: pm, pl
+    ! Outputs
+    real(dp), intent(out) :: transform_mat((max(pm,pl)+1)*(2*max(pm,pl)+1)* &
+        & (2*max(pm,pl)+3)/6)
+    real(dp), intent(out) :: ztranslate_mat((min(pm,pl)+1)*(min(pm,pl)+2)* &
+        & (3*max(pm,pl)+3-min(pm,pl))/6)
+    ! Local variables
+    real(dp) :: rho, r1(3, 3)
+    ! If no need for transformation, just generate translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        ! If M and L harmonics are at the same place ignore M2L completely
+        if (c(3) .ne. zero) then
+            call fmm_m2l_ztranslate_get_mat(c(3), src_r, dst_r, pm, pl, &
+                & vscales, vfact, ztranslate_mat)
+        end if
+        return
+    end if
+    call coord_reflect_get_mat(c, rho, r1)
+    call fmm_sph_transform_get_mat(max(pm,pl), r1, transform_mat)
+    call fmm_m2l_ztranslate_get_mat(rho, src_r, dst_r, pm, pl, vscales, &
+        & vfact, ztranslate_mat)
+end subroutine fmm_m2l_reflection_get_mat
+
+!> Apply matrices of M2L translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] transform_mat: Matrix of a reflection
+!! @param[in] ztranslate_mat: Matrix of an OZ translation
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole expansion of old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_l: Multipole expansion of new harmonics
+subroutine fmm_m2l_reflection_use_mat(c, src_r, dst_r, pm, pl, transform_mat, &
+        & ztranslate_mat, alpha, src_m, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, alpha, src_m((pm+1)*(pm+1)), &
+        & beta
+    integer, intent(in) :: pm, pl
+    real(dp), intent(in) :: &
+        & transform_mat((max(pm,pl)+1)*(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3), &
+        & ztranslate_mat((min(pm,pl)+1)*(min(pm,pl)+2)* &
+        & (3*max(pm,pl)+3-min(pm,pl))/6)
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    real(dp) :: tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        ! Only apply ztranslate matrix if c is non-zero
+        if (c(3) .ne. 0) then
+            call fmm_m2l_ztranslate_use_mat(pm, pl, ztranslate_mat, alpha, &
+                & src_m, beta, dst_l)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_transform_use_mat(pm, transform_mat, alpha, src_m, zero, &
+        & tmp_m)
+    call fmm_m2l_ztranslate_use_mat(pm, pl, ztranslate_mat, one, tmp_m, zero, &
+        & tmp_l)
+    call fmm_sph_transform_use_mat(pl, transform_mat, one, tmp_l, beta, dst_l)
+end subroutine fmm_m2l_reflection_use_mat
+
+!> Adjoint apply matrices of M2L translation by 2 reflections and 1 translation
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] transform_mat: Matrix of a reflection
+!! @param[in] ztranslate_mat: Matrix of an OZ translation
+!! @param[in] alpha: Scalar multiplier for `src_l`
+!! @param[in] src_l: Local expansion of old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: Multipole expansion of new harmonics
+subroutine fmm_m2l_reflection_use_mat_adj(c, src_r, dst_r, pl, pm, &
+        & transform_mat, ztranslate_mat, alpha, src_l, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, alpha, src_l((pl+1)*(pl+1)), &
+        & beta
+    integer, intent(in) :: pl, pm
+    real(dp), intent(in) :: &
+        & transform_mat((max(pm,pl)+1)*(2*max(pm,pl)+1)*(2*max(pm,pl)+3)/3), &
+        & ztranslate_mat((min(pm,pl)+1)*(min(pm,pl)+2)* &
+        & (3*max(pm,pl)+3-min(pm,pl))/6)
+    ! Output
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    real(dp) :: tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
+    ! If no need for transformation, just do translation along z
+    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
+        ! If centers are the same ignore M2L completely
+        if (c(3) .ne. 0) then
+            call fmm_m2l_ztranslate_use_mat_adj(pl, pm, ztranslate_mat, &
+                & alpha, src_l, beta, dst_m)
+        end if
+        return
+    end if
+    ! Apply reflection->translation->reflection
+    call fmm_sph_transform_use_mat(pl, transform_mat, alpha, src_l, zero, &
+        & tmp_l)
+    call fmm_m2l_ztranslate_use_mat_adj(pl, pm, ztranslate_mat, one, tmp_l, &
+        & zero, tmp_m)
+    call fmm_sph_transform_use_mat(pm, transform_mat, one, tmp_m, beta, dst_m)
+end subroutine fmm_m2l_reflection_use_mat_adj
+
+!> Direct M2L translation by 4 rotations and 1 translation
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M \f$ is a matrix of a multipole-to-local
+!! translation.
+!!
+!! Rotates around OZ and OY axes, translates over OZ and then rotates back
+!! around OY and OZ axes.
+!!
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] vscales: Normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_l`
+!! @param[inout] dst_l: Expansion in new harmonics
+subroutine fmm_m2l_rotation(c, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
+        & src_m, beta, dst_l)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+    integer, intent(in) :: pm, pl
+    ! Output
+    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
+    ! Local variables
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(max(pm,pl)+1), &
+        & vsin(max(pm,pl)+1), vmsin(max(pm,pl)+1), tmp_m((pm+1)*(pm+1)), &
+        & tmp_m2((pm+1)*(pm+1)), r1xz(2, 2), tmp_l((pl+1)*(pl+1)), &
+        & tmp_l2((pl+1)*(pl+1))
+    ! Covert Cartesian coordinates into spherical
+    call carttosph(c, rho, ctheta, stheta, cphi, sphi)
+    ! If no need for rotations, just do translation along z
+    if (stheta .eq. zero) then
+        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, vfact, &
+            & alpha, src_m, beta, dst_l)
+        return
+    end if
+    ! Compute arrays of cos and sin that are needed for rotations of harmonics
+    call trgev(cphi, sphi, max(pm,pl), vcos, vsin)
+    ! Rotate around OZ axis
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(pm, vcos, vmsin, alpha, src_m, zero, tmp_m)
+    ! Perform rotation in the OXZ plane
+    r1xz(1, 1) = ctheta
+    r1xz(1, 2) = -stheta
+    r1xz(2, 1) = stheta
+    r1xz(2, 2) = ctheta
+    call fmm_sph_transform_oxz(pm, r1xz, one, tmp_m, zero, tmp_m2)
+    ! OZ translation
+    call fmm_m2l_ztranslate(rho, src_r, dst_r, pm, pl, vscales, vfact, one, &
+        & tmp_m2, zero, tmp_l)
+    ! Backward rotation in the OXZ plane
+    r1xz(1, 2) = stheta
+    r1xz(2, 1) = -stheta
+    call fmm_sph_transform_oxz(pl, r1xz, one, tmp_l, zero, tmp_l2)
+    ! Backward rotation around OZ axis
+    call fmm_sph_rotate_oz(pl, vcos, vsin, one, tmp_l2, beta, dst_l)
+end subroutine fmm_m2l_rotation
+
+!> Adjoint M2L translation by 4 rotations and 1 translation
+!!
+!! Compute the following matrix-vector product:
+!! \f[
+!!      \mathrm{dst} = \beta \mathrm{dst} + \alpha L_M^\top \mathrm{src},
+!! \f]
+!! where \f$ \mathrm{dst} \f$ is a vector of coefficients of output spherical
+!! harmonics, \f$ \mathrm{src} \f$ is a vector of coefficients of input
+!! spherical harmonics and \f$ L_M^\top \f$ is an adjoint matrix of a
+!! multipole-to-local translation.
+!!
+!! Rotates around OZ and OY axes, translates over OZ and then rotates back
+!! around OY and OZ axes.
+!!
+!!
+!! @param[in] c: Radius-vector from new to old centers of harmonics
+!! @param[in] src_r: Radius of old harmonics
+!! @param[in] dst_r: Radius of new harmonics
+!! @param[in] pl: Maximal degree of local spherical harmonics
+!! @param[in] pm: Maximal degree of multipole spherical harmonics
+!! @param[in] vscales: normalization constants for Y_lm
+!! @param[in] vfact: Square roots of factorials
+!! @param[in] alpha: Scalar multiplier for `src_l`
+!! @param[in] src_l: expansion in old harmonics
+!! @param[in] beta: Scalar multiplier for `dst_m`
+!! @param[inout] dst_m: expansion in new harmonics
+subroutine fmm_m2l_rotation_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
+        & alpha, src_l, beta, dst_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+    integer, intent(in) :: pl, pm
+    ! Output
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
+    ! Local variables
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(max(pm,pl)+1), &
+        & vsin(max(pm,pl)+1), vmsin(max(pm,pl)+1), tmp_m((pm+1)*(pm+1)), &
+        & tmp_m2((pm+1)*(pm+1)), r1xz(2, 2), tmp_l((pl+1)*(pl+1)), &
+        & tmp_l2((pl+1)*(pl+1))
+    ! Covert Cartesian coordinates into spherical
+    call carttosph(c, rho, ctheta, stheta, cphi, sphi)
+    ! If no need for rotations, just do translation along z
+    if (stheta .eq. 0) then
+        call fmm_m2l_ztranslate_adj(c(3), src_r, dst_r, pl, pm, vscales, &
+            & vfact, alpha, src_l, beta, dst_m)
+        return
+    end if
+    ! Compute arrays of cos and sin that are needed for rotations of harmonics
+    call trgev(cphi, sphi, max(pm,pl), vcos, vsin)
+    ! Rotate around OZ axis
+    vmsin = -vsin
+    call fmm_sph_rotate_oz(pl, vcos, vmsin, alpha, src_l, zero, tmp_l)
+    ! Perform rotation in the OXZ plane
+    r1xz(1, 1) = ctheta
+    r1xz(1, 2) = -stheta
+    r1xz(2, 1) = stheta
+    r1xz(2, 2) = ctheta
+    call fmm_sph_transform_oxz(pl, r1xz, one, tmp_l, zero, tmp_l2)
+    ! OZ translation
+    call fmm_m2l_ztranslate_adj(rho, src_r, dst_r, pl, pm, vscales, vfact, &
+        & one, tmp_l2, zero, tmp_m)
+    ! Backward rotation in the OXZ plane
+    r1xz(1, 2) = stheta
+    r1xz(2, 1) = -stheta
+    call fmm_sph_transform_oxz(pm, r1xz, one, tmp_m, zero, tmp_m2)
+    ! Backward rotation around OZ axis
+    call fmm_sph_rotate_oz(pm, vcos, vsin, one, tmp_m2, beta, dst_m)
+end subroutine fmm_m2l_rotation_adj
 
 end module dd_core
 
