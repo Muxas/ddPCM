@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-01-05
+!! @date 2021-01-31
 
 !> Core routines and parameters of ddX software
 module dd_core
@@ -137,27 +137,27 @@ type dd_data_type
     real(dp), allocatable :: ccav(:, :)
     !> Preconditioner for operator R_eps. Dimension is (nbasis, nbasis, nsph)
     real(dp), allocatable :: rx_prc(:, :, :)
-    ! Maximum degree of spherical harmonics for M (multipole) expansion
+    !> Maximum degree of spherical harmonics for M (multipole) expansion
     integer :: pm
-    ! Maximum degree of spherical harmonics for L (local) expansion
+    !> Maximum degree of spherical harmonics for L (local) expansion
     integer :: pl
     !! Cluster tree information
-    ! Reordering of spheres for better locality
-    integer, allocatable :: ind(:)
-    ! First and last spheres, corresponding to given node of cluster tree
-    integer, allocatable :: cluster(:, :)
-    ! Children of each cluster
-    integer, allocatable :: children(:, :)
-    ! Parent of each cluster
-    integer, allocatable :: parent(:)
-    ! Center of bounding sphere of each cluster
-    real(dp), allocatable :: cnode(:, :)
-    ! Radius of bounding sphere of each cluster
-    real(dp), allocatable :: rnode(:)
-    ! Which leaf node contains only given input sphere
-    integer, allocatable :: snode(:)
-    ! Number of nodes (subclusters)
+    !> Reordering of spheres for better locality of dimension (nsph)
+    integer, allocatable :: order(:)
+    !> Number of clusters
     integer :: nclusters
+    !> The first and the last spheres of each node. Dimension is (2, nclusters)
+    integer, allocatable :: cluster(:, :)
+    !> Children of each cluster. Dimension is (2, nclusters)
+    integer, allocatable :: children(:, :)
+    !> Parent of each cluster. Dimension is (nclusters)
+    integer, allocatable :: parent(:)
+    !> Center of bounding sphere of each cluster. Dimension is (3, nclusters)
+    real(dp), allocatable :: cnode(:, :)
+    !> Radius of bounding sphere of each cluster. Dimension is (nclusters)
+    real(dp), allocatable :: rnode(:)
+    !> Which leaf node contains only given input sphere. Dimension is (nsph)
+    integer, allocatable :: snode(:)
     ! Height of a tree
     integer :: height
     ! Total number of far and near admissible pairs
@@ -171,12 +171,35 @@ type dd_data_type
     ! External grid points
     integer :: ngrid_ext, ngrid_ext_near
     integer, allocatable :: ngrid_ext_sph(:), grid_ext_ia(:), grid_ext_ja(:)
-    ! Reflection matrices for M2M, M2L and L2L operations
-    real(dp), allocatable :: m2m_reflect_mat(:, :), m2m_ztrans_mat(:, :)
-    real(dp), allocatable :: l2l_reflect_mat(:, :), l2l_ztrans_mat(:, :)
-    real(dp), allocatable :: m2l_reflect_mat(:, :), m2l_ztrans_mat(:, :)
-    ! Far-field L2P and near-field M2P
-    real(dp), allocatable :: l2p_mat(:, :), m2p_mat(:, :)
+    !! Reflection matrices for M2M, M2L and L2L operations
+    !> Size of each M2M reflection matrix
+    integer :: m2m_reflect_mat_size
+    !> Array of M2M reflection matrices
+    real(dp), allocatable :: m2m_reflect_mat(:, :)
+    !> Size of each M2M OZ translation matrices
+    integer :: m2m_ztranslate_mat_size
+    !> Array of M2M OZ translation matrices
+    real(dp), allocatable :: m2m_ztranslate_mat(:, :)
+    !> Size of each L2L reflection matrix
+    integer :: l2l_reflect_mat_size
+    !> Array of L2L reflection matrices
+    real(dp), allocatable :: l2l_reflect_mat(:, :)
+    !> Size of each L2L OZ translation matrices
+    integer :: l2l_ztranslate_mat_size
+    !> Array of L2L OZ translation matrices
+    real(dp), allocatable :: l2l_ztranslate_mat(:, :)
+    !> Size of each M2L reflection matrix
+    integer :: m2l_reflect_mat_size
+    !> Array of M2L reflection matrices
+    real(dp), allocatable :: m2l_reflect_mat(:, :)
+    !> Size of each M2L OZ translation matrices
+    integer :: m2l_ztranslate_mat_size
+    !> Array of M2L OZ translation matrices
+    real(dp), allocatable :: m2l_ztranslate_mat(:, :)
+    !> Far-field L2P matrices
+    real(dp), allocatable :: l2p_mat(:, :)
+    !> Near-field M2P matrices
+    real(dp), allocatable :: m2p_mat(:, :)
 
 end type dd_data_type
 
@@ -580,6 +603,53 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         end do
         write(6, *)
     end if
+    !! Prepare FMM structures if needed
+    if (fmm .eq. 1) then
+        ! Allocate space for a cluster tree
+        allocate(dd_data % order(n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [13] allocation failed!'
+            info = 13
+            return
+        endif
+        dd_data % nclusters = 2*n - 1
+        allocate(dd_data % cluster(2, dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [14] allocation failed!'
+            info = 14
+            return
+        endif
+        allocate(dd_data % children(2, dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [15] allocation failed!'
+            info = 15
+            return
+        endif
+        allocate(dd_data % parent(dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [16] allocation failed!'
+            info = 16
+            return
+        endif
+        allocate(dd_data % cnode(3, dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [17] allocation failed!'
+            info = 17
+            return
+        endif
+        allocate(dd_data % rnode(dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [18] allocation failed!'
+            info = 18
+            return
+        endif
+        allocate(dd_data % snode(dd_data % nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [19] allocation failed!'
+            info = 19
+            return
+        endif
+    end if
 end subroutine ddinit
 
 !> Deallocate object with corresponding data
@@ -694,6 +764,55 @@ subroutine ddfree(dd_data)
             write(*, *) "ddfree: [15] deallocation failed!"
             stop 1
         end if
+    end if
+    if (allocated(dd_data % order)) then
+        deallocate(dd_data % order, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [16] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % cluster)) then
+        deallocate(dd_data % cluster, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [17] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % children)) then
+        deallocate(dd_data % children, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [18] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % parent)) then
+        deallocate(dd_data % parent, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [19] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % cnode)) then
+        deallocate(dd_data % cnode, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [20] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % rnode)) then
+        deallocate(dd_data % rnode, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [21] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % snode)) then
+        deallocate(dd_data % snode, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [22] deallocation failed!"
+            stop 1
+        endif
     end if
 end subroutine ddfree
 
@@ -6114,6 +6233,207 @@ subroutine fmm_m2l_rotation_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
     ! Backward rotation around OZ axis
     call fmm_sph_rotate_oz(pm, vcos, vsin, one, tmp_m2, beta, dst_m)
 end subroutine fmm_m2l_rotation_adj
+
+!> Build a recursive inertial binary tree
+!!
+!! Uses inertial bisection in a recursive manner until each leaf node has only
+!! one input sphere inside. Number of tree nodes is always 2*nsph-1.
+!!
+!!
+!! @param[in] nsph: Number of input spheres
+!! @param[in] csph: Centers of input spheres
+!! @param[in] rsph: Radii of input spheres
+!! @param[out] order: Ordering of input spheres to make spheres of one cluster
+!!      contiguous.
+!! @param[out] cluster: Indexes in `order` array of the first and the last
+!!      spheres of each cluster
+!! @param[out] children: Indexes of the first and the last children nodes. If
+!!      both indexes are equal this means there is only 1 child node and if
+!!      value of the first child node is 0, there are no children nodes.
+!! @param[out] parent: Parent of each cluster. Value 0 means there is no parent
+!!      node which corresponds to the root node (with index 1).
+!! @param[out] cnode: Center of a bounding sphere of each node
+!! @param[out] rnode: Radius of a bounding sphere of each node
+!! @param[out] snode: Array of leaf nodes containing input spheres
+subroutine tree_rib_build(nsph, csph, rsph, order, cluster, children, parent, &
+        & cnode, rnode, snode)
+    ! Inputs
+    integer, intent(in) :: nsph
+    real(dp), intent(in) :: csph(3, nsph), rsph(nsph)
+    ! Outputs
+    integer, intent(out) :: order(nsph), cluster(2, 2*nsph-1), &
+        & children(2, 2*nsph-1), parent(2*nsph-1), snode(nsph)
+    real(dp), intent(out) :: cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    ! Local variables
+    integer :: nclusters, i, j, n, s, e, div
+    real(dp) :: r, r1, r2, c(3), c1(3), c2(3), d, maxc, ssqc
+    !! At first construct the tree
+    nclusters = 2*nsph - 1
+    ! Init the root node
+    cluster(1, 1) = 1
+    cluster(2, 1) = nsph
+    parent(1) = 0
+    ! Index of the first unassigned node
+    j = 2
+    ! Init spheres ordering
+    do i = 1, nsph
+        order(i) = i
+    end do
+    ! Divide nodes until a single spheres
+    do i = 1, nclusters
+        ! The first sphere in i-th node
+        s = cluster(1, i)
+        ! The last sphere in i-th node
+        e = cluster(2, i)
+        ! Number of spheres in i-th node
+        n = e - s + 1
+        ! Divide only if there are 2 or more spheres
+        if (n .gt. 1) then
+            ! Use inertial bisection to reorder spheres and cut into 2 halfs
+            call tree_rib_node_bisect(nsph, csph, n, order(s:e), div)
+            ! Assign the first half to the j-th node
+            cluster(1, j) = s
+            cluster(2, j) = s + div - 1
+            ! Assign the second half to the (j+1)-th node
+            cluster(1, j+1) = s + div
+            cluster(2, j+1) = e
+            ! Update list of children of i-th node
+            children(1, i) = j
+            children(2, i) = j + 1
+            ! Set parents of new j-th and (j+1)=th node
+            parent(j) = i
+            parent(j+1) = i
+            ! Shift index of the first unassigned node
+            j = j + 2
+        ! Set information for a leaf node
+        else
+            ! No children nodes
+            children(:, i) = 0
+            ! i-th node contains sphere ind(s)
+            snode(order(s)) = i
+        end if
+    end do
+    !! Compute bounding spheres of each node of the tree
+    ! Bottom-to-top pass over all nodes of the tree
+    do i = nclusters, 1, -1
+        ! In case of a leaf node just use corresponding input sphere as a
+        ! bounding sphere of the node
+        if (children(1, i) .eq. 0) then
+            ! Get correct index of the corresponding input sphere
+            j = order(cluster(1, i))
+            ! Get corresponding center and radius
+            cnode(:, i) = csph(:, j)
+            rnode(i) = rsph(j)
+        ! In case of a non-leaf node get minimal sphere that contains bounding
+        ! spheres of children nodes
+        else
+            ! The first child
+            j = children(1, i)
+            c1 = cnode(:, j)
+            r1 = rnode(j)
+            ! The second child
+            j = children(2, i)
+            c2 = cnode(:, j)
+            r2 = rnode(j)
+            ! Distance between centers of bounding spheres of children nodes
+            c = c1 - c2
+            ! Compute distance by scale and sum of scaled squares
+            maxc = max(abs(c(1)), abs(c(2)), abs(c(3)))
+            if (maxc .eq. zero) then
+                d = zero
+            else
+                d = (c(1)/maxc)**2 + (c(2)/maxc)**2 + (c(3)/maxc)**2
+                d = maxc * sqrt(d)
+            end if
+            ! If sphere #2 is completely inside sphere #1 use the first sphere
+            if (r1 .ge. (r2+d)) then
+                c = c1
+                r = r1
+            ! If sphere #1 is completely inside sphere #2 use the second sphere
+            else if(r2 .ge. (r1+d)) then
+                c = c2
+                r = r2
+            ! Otherwise use special formula to find a minimal sphere
+            else
+                r = (r1+r2+d) / 2
+                c = c2 + c/d*(r-r2)
+            end if
+            ! Assign computed bounding sphere
+            cnode(:, i) = c
+            rnode(i) = r
+        end if
+    end do
+end subroutine tree_rib_build
+
+!> Divide given cluster of spheres into two subclusters by inertial bisection
+!!
+!! @param[in] nsph: Number of all input spheres
+!! @param[in] csph: Centers of all input spheres
+!! @param[in] n: Number of spheres in a given cluster
+!! @param[inout] order: Indexes of spheres in a given cluster. On exit, indexes
+!!      `order(1:div)` correspond to the first subcluster and indexes
+!!      `order(div+1:n)` correspond to the second subcluster.
+!! @param[out] div: Break point of `order` array between two clusters.
+subroutine tree_rib_node_bisect(nsph, csph, n, order, div)
+    ! Inputs
+    integer, intent(in) :: nsph, n
+    real(dp), intent(in) :: csph(3, nsph)
+    ! Outputs
+    integer, intent(inout) :: order(n)
+    integer, intent(out) :: div
+    ! Local variables
+    real(dp) :: c(3), tmp_csph(3, n), s(3)
+    real(dp), allocatable :: work(:)
+    external :: dgemm, dsyev, dgemv
+    integer :: i, l, r, lwork, info, tmp_order(n), istat
+    ! Get average coordinate
+    c = zero
+    do i = 1, n
+        c = c + csph(:, order(i))
+    end do
+    c = c / n
+    ! Get coordinates minus average in a contiguous array
+    do i = 1, n
+        tmp_csph(:, i) = csph(:, order(i)) - c
+    end do
+    !! Find right singular vectors
+    ! Get proper size of temporary workspace
+    lwork = -1
+    call dgesvd('N', 'O', 3, n, tmp_csph, 3, s, tmp_csph, 3, tmp_csph, 3, &
+        & s, lwork, info)
+    lwork = s(1)
+    allocate(work(lwork), stat=istat)
+    if (istat .ne. 0) stop "allocation failed"
+    ! Get right singular vectors
+    call dgesvd('N', 'O', 3, n, tmp_csph, 3, s, tmp_csph, 3, tmp_csph, 3, &
+        & work, lwork, info)
+    if (info .ne. 0) stop "dgesvd did not converge"
+    deallocate(work, stat=istat)
+    if (istat .ne. 0) stop "deallocation failed"
+    !! Sort spheres by sign of the above scalar product, which is equal to
+    !! the leading right singular vector scaled by the leading singular value.
+    !! However, we only care about sign, so we take into account only the
+    !! leading right singular vector.
+    ! First empty index from the left
+    l = 1
+    ! First empty index from the right
+    r = n
+    ! Cycle over values of the singular vector
+    do i = 1, n
+        ! Positive scalar products are moved to the beginning of `order`
+        if (tmp_csph(1, i) .ge. 0) then
+            tmp_order(l) = order(i)
+            l = l + 1
+        ! Negative scalar products are moved to the end of `order`
+        else
+            tmp_order(r) = order(i)
+            r = r - 1
+        end if
+    end do
+    ! Set divider and update order
+    div = r
+    order = tmp_order
+end subroutine tree_rib_node_bisect
 
 end module dd_core
 

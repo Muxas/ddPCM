@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2020-12-17
+!! @date 2021-01-31
 
 program test_dd_core
 use dd_core
@@ -18,7 +18,7 @@ integer :: argc, iprint=1
 integer :: p=10, i
 
 ! Input points and spheres
-integer ,parameter :: nsph = 10
+integer, parameter :: nsph = 10
 real(dp) :: gsrc0(3), gsrc(3), gdst(3, 2), gcsph(3, nsph), grsph(nsph), &
     & gdst_csph(3, 2), gdst_rsph(2)
 ! Some implementation do not work for alpha=1d-307, so range of test values is
@@ -103,6 +103,10 @@ do i = 1, size(alpha)
     call check_m2l(p, p, alpha(i), iprint, 20d0*epsilon(zero))
 end do
 
+! Check recursive inertial tree
+do i = 1, size(alpha)
+    call check_tree_rib(alpha(i))
+end do
 
 contains
 
@@ -2832,6 +2836,37 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         end if
     end do
 end subroutine
+
+subroutine check_tree_rib(alpha)
+    real(dp), intent(in) :: alpha
+    integer, parameter :: nsph = 10
+    real(dp) :: csph(3, nsph), rsph(nsph), csph2(3, nsph), rsph2(nsph), &
+        & cnode(3, 2*nsph-1), rnode(2*nsph-1)
+    integer :: order(nsph), i, reorder(nsph), cluster(2*nsph-1), &
+        & children(2, 2*nsph-1), parent(2*nsph-1), snode(nsph), tmporder(nsph)
+    ! Scale inputs
+    csph(:, 1) = alpha * (/1d0, 1d0, 1d0/)
+    csph(:, 2) = alpha * (/2d0, 2d0, 2d0/)
+    csph(:, 3) = alpha * (/1d0, 1d0, 3d0/)
+    csph(:, 4) = alpha * (/2d0, 2d0, 4d0/)
+    csph(:, 5) = alpha * (/1d0, 1d0, 5d0/)
+    csph(:, 6) = alpha * (/2d0, 2d0, 6d0/)
+    csph(:, 7) = alpha * (/1d0, 1d0, 7d0/)
+    csph(:, 8) = alpha * (/2d0, 2d0, 8d0/)
+    csph(:, 9) = alpha * (/1d0, 1d0, 9d0/)
+    csph(:, 10) = alpha * (/2d0, 2d0, 10d0/)
+    rsph = abs(alpha) * (/1d-1, 2d-1, 3d-1, 4d-1, 5d-1, 6d-1, 7d-1, 8d-1, &
+        & 9d-1, 1d0/)
+    ! Reorder inputs
+    order = (/4, 2, 8, 5, 7, 1, 9, 6, 10, 3/)
+    do i = 1, nsph
+        csph2(:, i) = csph(:, order(i))
+        rsph2(i) = rsph(order(i))
+    end do
+    ! Build a recursive inertial binary tree
+    call tree_rib_build(nsph, csph2, rsph2, reorder, cluster, children, &
+        & parent, cnode, rnode, snode)
+end subroutine check_tree_rib
 
 end program test_dd_core
 

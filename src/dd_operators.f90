@@ -1,4 +1,4 @@
-!> @copyright (c) 2020-2020 RWTH Aachen. All rights reserved.
+!> @copyright (c) 2020-2021 RWTH Aachen. All rights reserved.
 !!
 !! ddX software
 !!
@@ -7,12 +7,13 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2020-12-17
+!! @date 2021-01-31
 
 !> Operators shared among ddX methods
 module dd_operators
 ! Use underlying core routines
 use dd_core
+implicit none
 
 contains
 
@@ -471,5 +472,315 @@ subroutine apply_rstarepsx_prec(dd_data, x, y)
             dd_data % nbasis, zero, y(:, isph), dd_data % nbasis)
     end do
 end subroutine apply_rstarepsx_prec
+
+!> Transfer multipole coefficients over a tree
+subroutine tree_m2m_rotation(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_rotation(c1-c, r1, r, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_m(:, i), one, node_m(:, j))
+    end do
+end subroutine tree_m2m_rotation
+
+!> Adjoint transfer multipole coefficients over a tree
+subroutine tree_m2m_rotation_adj(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_rotation_adj(c-c1, r, r1, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, node_m(:, j), one, &
+            & node_m(:, i))
+    end do
+end subroutine tree_m2m_rotation_adj
+
+!> Transfer multipole coefficients over a tree
+subroutine tree_m2m_reflection(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_reflection(c1-c, r1, r, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_m(:, i), one, node_m(:, j))
+    end do
+end subroutine tree_m2m_reflection
+
+!> Adjoint transfer multipole coefficients over a tree
+subroutine tree_m2m_reflection_adj(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_reflection_adj(c-c1, r, r1, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, node_m(:, j), one, &
+            & node_m(:, i))
+    end do
+end subroutine tree_m2m_reflection_adj
+
+!> Save M2M matrices for entire tree
+subroutine tree_m2m_reflection_get_mat(dd_data)
+    ! Input/output
+    type(dd_data_type), intent(inout) :: dd_data
+    ! Local variables
+    integer :: i, j, istatus
+    real(dp) :: c1(3), c(3), r1, r
+    ! For each non-root node define m2m matrices
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_reflection_get_mat(c1-c, r1, r, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, &
+            & dd_data % m2m_reflect_mat(:, i-1), &
+            & dd_data % m2m_ztranslate_mat(:, i-1))
+    end do
+end subroutine tree_m2m_reflection_get_mat
+
+!> Transfer multipole coefficients over a tree
+subroutine tree_m2m_reflection_use_mat(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
+            & dd_data % m2m_reflect_mat(:, i-1), &
+            & dd_data % m2m_ztranslate_mat(:, i-1), one, &
+            & node_m(:, i), one, node_m(:, j))
+    end do
+end subroutine tree_m2m_reflection_use_mat
+
+!> Transfer multipole coefficients over a tree
+subroutine tree_m2m_reflection_use_mat_adj(dd_data, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_m2m_reflection_use_mat_adj(c-c1, r, r1, dd_data % pm, &
+            & dd_data % m2m_reflect_mat(:, i-1), &
+            & dd_data % m2m_ztranslate_mat(:, i-1), &
+            & one, node_m(:, j), one, node_m(:, i))
+    end do
+end subroutine tree_m2m_reflection_use_mat_adj
+
+!> Transfer local coefficients over a tree
+subroutine tree_l2l_rotation(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_rotation(c-c1, r, r1, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, j), one, node_l(:, i))
+    end do
+end subroutine tree_l2l_rotation
+
+!> Adjoint transfer local coefficients over a tree
+subroutine tree_l2l_rotation_adj(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_rotation_adj(c1-c, r1, r, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, node_l(:, i), one, &
+            & node_l(:, j))
+    end do
+end subroutine tree_l2l_rotation_adj
+
+!> Transfer local coefficients over a tree
+subroutine tree_l2l_reflection(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_reflection(c-c1, r, r1, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, j), one, node_l(:, i))
+    end do
+end subroutine tree_l2l_reflection
+
+!> Adjoint transfer local coefficients over a tree
+subroutine tree_l2l_reflection_adj(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_reflection_adj(c1-c, r1, r, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, node_l(:, i), one, &
+            & node_l(:, j))
+    end do
+end subroutine tree_l2l_reflection_adj
+
+!> Save L2L matrices for entire tree
+subroutine tree_l2l_reflection_get_mat(dd_data)
+    ! Input/output
+    type(dd_data_type), intent(inout) :: dd_data
+    ! Local variables
+    integer :: i, j, istatus
+    real(dp) :: c1(3), c(3), r1, r
+    ! For each non-root node define m2m matrices
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_reflection_get_mat(c-c1, r, r1, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, &
+            & dd_data % l2l_reflect_mat(:, i-1), &
+            & dd_data % l2l_ztranslate_mat(:, i-1))
+    end do
+end subroutine tree_l2l_reflection_get_mat
+
+!> Transfer local coefficients over a tree
+subroutine tree_l2l_reflection_use_mat(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Top-to-bottom pass
+    do i = 2, dd_data % nclusters
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_reflection_use_mat(c-c1, r, r1, dd_data % pl, &
+            & dd_data % l2l_reflect_mat(:, i-1), &
+            & dd_data % l2l_ztranslate_mat(:, i-1), one, &
+            & node_l(:, j), one, node_l(:, i))
+    end do
+end subroutine tree_l2l_reflection_use_mat
+
+!> Adjoint Transfer local coefficients over a tree
+subroutine tree_l2l_reflection_use_mat_adj(dd_data, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j
+    real(dp) :: c1(3), c(3), r1, r
+    ! Bottom-to-top pass
+    do i = dd_data % nclusters, 2, -1
+        j = dd_data % parent(i)
+        c = dd_data % cnode(:, j)
+        r = dd_data % rnode(j)
+        c1 = dd_data % cnode(:, i)
+        r1 = dd_data % rnode(i)
+        call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, dd_data % pl, &
+            & dd_data % l2l_reflect_mat(:, i-1), &
+            & dd_data % l2l_ztranslate_mat(:, i-1), &
+            & one, node_l(:, i), one, node_l(:, j))
+    end do
+end subroutine tree_l2l_reflection_use_mat_adj
 
 end module dd_operators
