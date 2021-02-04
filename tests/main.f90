@@ -1,4 +1,4 @@
-!> @copyright (c) 2020-2020 RWTH Aachen. All rights reserved.
+!> @copyright (c) 2020-2021 RWTH Aachen. All rights reserved.
 !!
 !! ddX software
 !!
@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2020-12-17
+!! @date 2021-02-04
 
 program main
 use dd_core
@@ -20,7 +20,7 @@ implicit none
 character(len=255) :: fname
 type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
-integer :: nngmax=200, niter, ndiis=25, info
+integer :: niter, ndiis=25, info
 logical :: ok
 real(dp) :: eps, eta, tol, se=zero, kappa
 real(dp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
@@ -72,7 +72,7 @@ force=0
 fmm=0
 kappa=0d0
 call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+    & iprint, se, eta, eps, kappa, dd_data, info)
 allocate(phi(dd_data % ncav), gradphi(3, dd_data % ncav), &
     & psi(dd_data % nbasis,n))
 call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, gradphi, &

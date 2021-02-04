@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-01-31
+!! @date 2021-02-04
 
 program test_dd_core
 use dd_core
@@ -112,8 +112,8 @@ contains
 
 subroutine check_ddinit_args()
     ! Example of correct args
-    integer :: n=0, model=1, lmax=0, ngrid=0, force=1, fmm=1, pm=0, pl=0, &
-        & iprint=0, nngmax=1
+    integer :: n=1, model=1, lmax=0, ngrid=0, force=1, fmm=1, pm=0, pl=0, &
+        & iprint=0
     real(dp) :: x(10), y(10), z(10), rvdw(10), se=zero, eta=zero, eps=zero, &
         & kappa=zero
     type(dd_data_type) :: dd_data
@@ -128,108 +128,108 @@ subroutine check_ddinit_args()
     end do
     ! Check correct input
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check different correct inputs with different n <= 10 (hardcoded value)
     do i = 1, 10
         call ddinit(i, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
-    ! Check incorrect input n = -1
-    i = -1
+    ! Check incorrect input n = 0
+    i = 0
     call ddinit(i, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -1) stop 1
     call ddfree(dd_data)
     ! Check all possible models with other correct inputs
     do i = 1, 3
         call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect models
     i = -1
     call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -6) stop 1
     call ddfree(dd_data)
     i = 4
     call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -6) stop 1
     call ddfree(dd_data)
     ! Check correct lmax
     do i = 1, 6
         call ddinit(n, x, y, z, rvdw, model, i, ngrid, force, fmm, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect lmax < 0
     i = -1
     call ddinit(n, x, y, z, rvdw, model, i, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -7) stop 1
     call ddfree(dd_data)
     ! Check correct ngrid
     do i = 0, 1000, 100
         j = i
         call ddinit(n, x, y, z, rvdw, model, lmax, j, force, fmm, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect ngrid < 0
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, i, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -8) stop 1
     call ddfree(dd_data)
     ! Check correct force
     do i = 0, 1
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect force
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -9) stop 1
     call ddfree(dd_data)
     i = 2
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -9) stop 1
     call ddfree(dd_data)
     ! Check correct fmm
     do i = 0, 1
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect fmm
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -10) stop 1
     call ddfree(dd_data)
     i = 2
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -10) stop 1
     call ddfree(dd_data)
     ! Check correct pm (ignored if fmm=0)
     j = 0
     do i = -2, 2
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
@@ -237,7 +237,7 @@ subroutine check_ddinit_args()
     j = 1
     do i = 0, 20, 5
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-            & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
@@ -245,14 +245,14 @@ subroutine check_ddinit_args()
     j = 1
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-        & pl, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -11) stop 1
     call ddfree(dd_data)
     ! Check correct pl (ignored if fmm=0)
     j = 0
     do i = -2, 2
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-            & i, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & i, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
@@ -260,7 +260,7 @@ subroutine check_ddinit_args()
     j = 1
     do i = 0, 20, 5
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-            & i, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+            & i, iprint, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
@@ -268,126 +268,108 @@ subroutine check_ddinit_args()
     j = 1
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-        & i, iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & i, iprint, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -12) stop 1
     call ddfree(dd_data)
     ! Check correct iprint
     do i = 0, 10
         call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-            & pl, i, nngmax, se, eta, eps, kappa, dd_data, info)
+            & pl, i, se, eta, eps, kappa, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect iprint
     i = -1
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, i, nngmax, se, eta, eps, kappa, dd_data, info)
+        & pl, i, se, eta, eps, kappa, dd_data, info)
     if (info .ne. -13) stop 1
-    call ddfree(dd_data)
-    ! Check correct nngmax
-    do i = 1, 10
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-            & pl, iprint, i, se, eta, eps, kappa, dd_data, info)
-        if (info .ne. 0) stop 1
-        call ddfree(dd_data)
-    end do
-    ! Check incorrect nngmax
-    i = 0
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, i, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -14) stop 1
-    call ddfree(dd_data)
-    i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, i, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -14) stop 1
     call ddfree(dd_data)
     ! Check correct se
     tmp = -one
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, tmp, eta, eps, kappa, dd_data, info)
+        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = zero
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, tmp, eta, eps, kappa, dd_data, info)
+        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, tmp, eta, eps, kappa, dd_data, info)
+        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect se
     tmp = 1.01d0
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, tmp, eta, eps, kappa, dd_data, info)
-    if (info .ne. -15) stop 1
+        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
+    if (info .ne. -14) stop 1
     call ddfree(dd_data)
     tmp = -1.01d0
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, tmp, eta, eps, kappa, dd_data, info)
-    if (info .ne. -15) stop 1
+        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
+    if (info .ne. -14) stop 1
     call ddfree(dd_data)
     ! Check correct eta
     tmp = zero
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, tmp, eps, kappa, dd_data, info)
+        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = pt5
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, tmp, eps, kappa, dd_data, info)
+        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, tmp, eps, kappa, dd_data, info)
+        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect eta
     tmp = 1.01d0
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, tmp, eps, kappa, dd_data, info)
-    if (info .ne. -16) stop 1
+        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
+    if (info .ne. -15) stop 1
     call ddfree(dd_data)
     tmp = -1d-2
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, tmp, eps, kappa, dd_data, info)
-    if (info .ne. -16) stop 1
+        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
+    if (info .ne. -15) stop 1
     call ddfree(dd_data)
     ! Check correct eps
     tmp = zero
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, tmp, kappa, dd_data, info)
+        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = pt5
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, tmp, kappa, dd_data, info)
+        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, tmp, kappa, dd_data, info)
+        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = dble(1000)
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, tmp, kappa, dd_data, info)
+        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect eps
     tmp = -1d-2
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, tmp, kappa, dd_data, info)
-    if (info .ne. -17) stop 1
+        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
+    if (info .ne. -16) stop 1
     call ddfree(dd_data)
     ! Check incorrect kappa
     tmp = -1d-2
     call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, nngmax, se, eta, eps, tmp, dd_data, info)
-    if (info .ne. -18) stop 1
+        & pl, iprint, se, eta, eps, tmp, dd_data, info)
+    if (info .ne. -17) stop 1
     call ddfree(dd_data)
 end subroutine check_ddinit_args
 
@@ -429,7 +411,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     !! Check P2M parameters q and beta
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,I0,A,ES11.4E3)") "Check P2M q and beta params for p=", &
+        write(*, "(A,I0,A,ES12.4E3)") "Check P2M q and beta params for p=", &
             & p, " alpha=", alpha
         write(*, "(A)") "================================"
     end if
@@ -463,7 +445,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     !! Check M2P parameters alpha and beta
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,A,I0,A,ES11.4E3)") "Check M2P alpha and beta params ", &
+        write(*, "(A,A,I0,A,ES12.4E3)") "Check M2P alpha and beta params ", &
             & "for p=", p, " alpha=", alpha
         write(*, "(A)") "================================"
     end if
@@ -509,7 +491,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     !! at the origin
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,I0,A,ES11.4E3)") "Check P2M and M2P for p=", p, &
+        write(*, "(A,I0,A,ES12.4E3)") "Check P2M and M2P for p=", p, &
             & " alpha=", alpha
         write(*, "(A)") "================================"
         write(*, *) "threshold=" , threshold
@@ -703,7 +685,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     !! Check P2L parameters q and beta
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,I0,A,ES11.4E3)") "Check P2L q and beta params for p=", &
+        write(*, "(A,I0,A,ES12.4E3)") "Check P2L q and beta params for p=", &
             & p, " alpha=", alpha
         write(*, "(A)") "================================"
     end if
@@ -740,7 +722,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     !! Check L2P parameters alpha and beta
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,A,I0,A,ES11.4E3)") "Check L2P alpha and beta params ", &
+        write(*, "(A,A,I0,A,ES12.4E3)") "Check L2P alpha and beta params ", &
             & "for p=", p, " alpha=", alpha
         write(*, "(A)") "================================"
     end if
@@ -800,7 +782,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     !! and target particle are at the same point
     if (iprint .gt. 0) then
         write(*, *)
-        write(*, "(A,I0,A,ES11.4E3)") "Check P2L and L2P for p=", p, &
+        write(*, "(A,I0,A,ES12.4E3)") "Check P2L and L2P for p=", p, &
             & " alpha=", alpha
         write(*, "(A)") "================================"
         write(*, *) "threshold=" , threshold
@@ -2309,18 +2291,19 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         call fmm_m2l_ztranslate_get_mat(csph(3, i)-dst_csph(3, 1), rsph(i), &
             & dst_rsph(1), pm, pl, vscales, vfact, ztranslate_mat)
         do j = 1, (pm+1)**2
-            coef2m = zero
+            coef2m(:) = zero
             coef2m(j) = one
             call fmm_m2l_ztranslate_use_mat(pm, pl, ztranslate_mat, one, &
-                & coef2m, zero, full_mat(:, j))
+                & coef2m, zero, coefl)
+            full_mat(:, j) = coefl
         end do
         full_norm = dnrm2(((pm+1)*(pl+1))**2, full_mat, 1)
         ! Subtract transpose of an adjoint M2L OZ translation matrix
         do j = 1, (pl+1)**2
-            coefl = zero
+            coefl(:) = zero
             coefl(j) = one
-            call fmm_m2l_ztranslate_use_mat_adj(pl, pm, ztranslate_mat, -two, &
-                & coefl, two, full_mat(j, :))
+            call fmm_m2l_ztranslate_use_mat_adj(pl, pm, ztranslate_mat, -one, &
+                & coefl, one, full_mat(j, :))
         end do
         diff_norm = dnrm2(((pm+1)*(pl+1))**2, full_mat, 1)
         v1 = diff_norm / full_norm
@@ -2447,8 +2430,8 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
             write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
-            write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, ") - M(i)2L(", &
-                & k, ") || / || M(i)2L(", k, ") ||"
+            write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, &
+                & ") - M(i)2L(", k, ") || / || M(i)2L(", k, ") ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
             write(*, "(A)") repeat("=", 40)
             write(*, "(A)") "  i | ok | err(i)"
@@ -2842,8 +2825,8 @@ subroutine check_tree_rib(alpha)
     integer, parameter :: nsph = 10
     real(dp) :: csph(3, nsph), rsph(nsph), csph2(3, nsph), rsph2(nsph), &
         & cnode(3, 2*nsph-1), rnode(2*nsph-1)
-    integer :: order(nsph), i, reorder(nsph), cluster(2*nsph-1), &
-        & children(2, 2*nsph-1), parent(2*nsph-1), snode(nsph), tmporder(nsph)
+    integer :: order(nsph), i, reorder(nsph), cluster(2, 2*nsph-1), &
+        & children(2, 2*nsph-1), parent(2*nsph-1), snode(nsph)
     ! Scale inputs
     csph(:, 1) = alpha * (/1d0, 1d0, 1d0/)
     csph(:, 2) = alpha * (/2d0, 2d0, 2d0/)

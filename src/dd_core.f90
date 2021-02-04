@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-01-31
+!! @date 2021-02-04
 
 !> Core routines and parameters of ddX software
 module dd_core
@@ -121,9 +121,9 @@ type dd_data_type
     real(dp), allocatable :: vwgrid(:, :)
     !> Maximum number of neighbours per sphere. Input from a user
     integer :: nngmax
-    !> List of intersecting spheres in a CSR format
+    !> List of intersecting spheres in a CSR format. Dimension is (nsph+1)
     integer, allocatable :: inl(:)
-    !> List of intersecting spheres in a CSR format
+    !> List of intersecting spheres in a CSR format. Dimension is (nsph*nngmax)
     integer, allocatable :: nl(:)
     !> Characteristic function f. Dimension is (ngrid, npsh)
     real(dp), allocatable :: fi(:, :)
@@ -158,16 +158,24 @@ type dd_data_type
     real(dp), allocatable :: rnode(:)
     !> Which leaf node contains only given input sphere. Dimension is (nsph)
     integer, allocatable :: snode(:)
-    ! Height of a tree
-    integer :: height
-    ! Total number of far and near admissible pairs
-    integer :: nnfar, nnnear
-    ! Number of admissible pairs for each node
-    integer, allocatable :: nfar(:), nnear(:)
-    ! Arrays of admissible far and near pairs
-    integer, allocatable :: far(:), near(:)
-    ! Index of first element of array of admissible far and near pairs
-    integer, allocatable :: sfar(:), snear(:)
+    !> Total number of far admissible pairs
+    integer :: nnfar
+    !> Total number of near admissible pairs
+    integer :: nnnear
+    !> Number of admissible far pairs for each node. Dimension is nclusters
+    integer, allocatable :: nfar(:)
+    !> Number of admissible near pairs for each node. Dimension is nclusters
+    integer, allocatable :: nnear(:)
+    !> Arrays of admissible far pairs. Dimension is nnfar
+    integer, allocatable :: far(:)
+    !> Arrays of admissible near pairs. Dimension is nnnear
+    integer, allocatable :: near(:)
+    !> Index of first element of array of admissible far pairs. Dimension is
+    !!      nclusters+1
+    integer, allocatable :: sfar(:)
+    !> Index of first element of array of admissible near pairs. Dimension is
+    !!      nclusters+1
+    integer, allocatable :: snear(:)
     ! External grid points
     integer :: ngrid_ext, ngrid_ext_near
     integer, allocatable :: ngrid_ext_sph(:), grid_ext_ia(:), grid_ext_ja(:)
@@ -196,18 +204,15 @@ type dd_data_type
     integer :: m2l_ztranslate_mat_size
     !> Array of M2L OZ translation matrices
     real(dp), allocatable :: m2l_ztranslate_mat(:, :)
-    !> Far-field L2P matrices
-    real(dp), allocatable :: l2p_mat(:, :)
     !> Near-field M2P matrices
     real(dp), allocatable :: m2p_mat(:, :)
-
 end type dd_data_type
 
 contains
 
 !> Initialize ddX input with a full set of parameters
 !!
-!! @param[in] n: Number of atoms
+!! @param[in] n: Number of atoms. n > 0.
 !! @param[in] x: \f$ x \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] y: \f$ y \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] z: \f$ z \f$ coordinates of atoms. Dimension is `(n)`
@@ -221,8 +226,6 @@ contains
 !! @param[in] pm: Maximal degree of multipole spherical harmonics. `pm` >= 0
 !! @param[in] pl: Maximal degree of local spherical harmonics. `pl` >= 0
 !! @param[in] iprint: Level of printing debug info
-!! @param[in] nngmax: Maximal number of neighbours (intersects) for every
-!!      sphere
 !! @param[in] se: Shift of characteristic function. -1 for interior, 0 for
 !!      centered and 1 for outer regularization
 !! @param[in] eta: Regularization parameter
@@ -234,9 +237,9 @@ contains
 !!      < 0: If info=-i then i-th argument had an illegal value
 !!      > 0: Allocation of a buffer for the output dd_data failed
 subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
-        & iprint, nngmax, se, eta, eps, kappa, dd_data, info)
+        & iprint, se, eta, eps, kappa, dd_data, info)
     ! Inputs
-    integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, iprint, nngmax
+    integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, iprint
     real(dp), intent(in):: x(n), y(n), z(n), rvdw(n), se, eta, eps, kappa
     ! Output
     type(dd_data_type), intent(out) :: dd_data
@@ -249,10 +252,12 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
     real(dp), allocatable :: vplm(:), vcos(:), vsin(:)
     real(dp) :: v(3), vv, t, swthr, fac, d2, r2
     double precision, external :: dnrm2
+    integer :: iwork, jwork, lwork, old_lwork, nngmax
+    integer, allocatable :: work(:, :), tmp_work(:, :), tmp_nl(:)
     ! Reset info
     info = 0
     !!! Check input parameters
-    if (n .lt. 0) then
+    if (n .le. 0) then
         !write(*, *) "ddinit: wrong value of parameter `n`"
         info = -1
         return
@@ -307,33 +312,27 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
         return
     end if
     dd_data % iprint = iprint
-    if (nngmax .le. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `nngmax`"
-        info = -14
-        return
-    end if
-    dd_data % nngmax = nngmax
     if ((se .lt. -1) .or. (se .gt. 1)) then
         !write(*, *) "ddinit: wrong value of parameter `se`"
-        info = -15
+        info = -14
         return
     end if
     dd_data % se = se
     if ((eta .lt. 0) .or. (eta .gt. 1)) then
         !write(*, *) "ddinit: wrong value of parameter `eta`"
-        info = -16
+        info = -15
         return
     end if
     dd_data % eta = eta
     if (eps .lt. 0) then
         !write(*, *) "ddinit: wrong value of parameter `eps`"
-        info = -17
+        info = -16
         return
     end if
     dd_data % eps = eps
     if (kappa .lt. 0) then
         !write(*, *) "ddinit: wrong value of parameter `kappa`"
-        info = -18
+        info = -17
         return
     end if
     dd_data % kappa = kappa
@@ -455,13 +454,14 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
     ! Upper bound of switch region. Defines intersection criterion for spheres
     swthr = one + (se+one)*eta/two
     ! Build list of neighbours in CSR format
+    nngmax = 10
     allocate(dd_data % inl(n+1), dd_data % nl(n*nngmax), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) 'ddinit : [8] allocation failed !'
         info = 8
         return
     end if
-    i  = 1
+    i = 1
     lnl = 0
     do isph = 1, n
         dd_data % inl(isph) = lnl + 1
@@ -477,11 +477,42 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
                     dd_data % nl(i) = jsph
                     i  = i + 1
                     lnl = lnl + 1
+                    ! Extend dd_data % nl if needed
+                    if (i .gt. n*nngmax) then
+                        allocate(tmp_nl(n*nngmax), stat=istatus)
+                        if (istatus .ne. 0) then
+                            !write(*, *) 'ddinit : [8] allocation failed!'
+                            info = 8
+                            return
+                        end if
+                        tmp_nl(1:n*nngmax) = dd_data % nl(1:nngmax)
+                        deallocate(dd_data % nl, stat=istatus)
+                        if (istatus .ne. 0) then
+                            ! write(*, *) 'ddinit : [8] deallocation failed!'
+                            info = 8
+                            return
+                        end if
+                        nngmax = nngmax + 10
+                        allocate(dd_data % nl(n*nngmax), stat=istatus)
+                        if (istatus .ne. 0) then
+                            !write(*, *) 'ddinit : [8] allocation failed!'
+                            info = 8
+                            return
+                        end if
+                        dd_data % nl(1:n*(nngmax-10)) = tmp_nl(1:n*(nngmax-10))
+                        deallocate(tmp_nl, stat=istatus)
+                        if (istatus .ne. 0) then
+                            ! write(*, *) 'ddinit : [8] deallocation failed!'
+                            info = 8
+                            return
+                        end if
+                    end if
                 end if
             end if
         end do
     end do
     dd_data % inl(n+1) = lnl+1
+    dd_data % nngmax = nngmax
     ! Some format data that I will throw away as soon as this code works
     1000 format(t3,'neighbours of sphere ',i6)
     1010 format(t5,12i6)
@@ -649,6 +680,101 @@ subroutine ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, pl, &
             info = 19
             return
         endif
+        allocate(dd_data % nfar(dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [20] allocation failed!'
+            info = 20
+            return
+        endif
+        allocate(dd_data % nnear(dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*,*)'ddinit : [21] allocation failed!'
+            info = 21
+            return
+        endif
+        ! Get the tree
+        call tree_rib_build(n, dd_data % csph, dd_data % rsph, &
+            & dd_data % order, dd_data % cluster, dd_data % children, &
+            & dd_data % parent, dd_data % cnode, dd_data % rnode, &
+            & dd_data % snode)
+        ! Get number of far and near admissible pairs
+        iwork = 0
+        jwork = 1
+        lwork = 1
+        allocate(work(3, lwork), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Could not allocate space for workspace"
+            !write(*, *) "Attempted size is", lwork*24, " bytes"
+            !write(*,*)'ddinit : [22] allocation failed!'
+            info = 22
+            return
+        end if
+        do while (iwork .le. jwork)
+            allocate(tmp_work(3, lwork), stat=istatus)
+            if (istatus .ne. 0) then
+                !write(*, *) "Could not allocate space for workspace"
+                !write(*, *) "Attempted size is", lwork*24, " bytes"
+                !write(*,*)'ddinit : [23] allocation failed!'
+                info = 23
+                return
+            end if
+            tmp_work = work
+            deallocate(work, stat=istatus)
+            if (istatus .ne. 0) then
+                !write(*, *) "Error in deallocation of workspace"
+                info = 24
+                return
+            end if
+            old_lwork = lwork
+            lwork = old_lwork + 1000*n
+            allocate(work(3, lwork), stat=istatus)
+            if (istatus .ne. 0) then
+                !write(*, *) "Could not allocate space for workspace"
+                !write(*, *) "Attempted size is", lwork*24, " bytes"
+                info = 25
+                return
+            end if
+            work(:, 1:old_lwork) = tmp_work
+            deallocate(tmp_work, stat=istatus)
+            if (istatus .ne. 0) then
+                !write(*, *) "Error in deallocation of workspace"
+                info = 26
+                return
+            end if
+            call tree_get_farnear_work(dd_data % nclusters, &
+                & dd_data % children, dd_data % cnode, &
+                & dd_data % rnode, lwork, iwork, jwork, work, dd_data % nnfar, &
+                & dd_data % nfar, dd_data % nnnear, dd_data % nnear)
+        end do
+        allocate(dd_data % sfar(dd_data % nclusters+1), &
+            & dd_data % snear(dd_data % nclusters+1), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation"
+            info = 27
+            return
+        end if
+        allocate(dd_data % far(dd_data % nnfar), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation"
+            info = 28
+            return
+        end if
+        allocate(dd_data % near(dd_data % nnnear), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation"
+            info = 29
+            return
+        end if
+        call tree_get_farnear(jwork, lwork, work, dd_data % nclusters, &
+            & dd_data % nnfar, dd_data % nfar, dd_data % sfar, dd_data % far, &
+            & dd_data % nnnear, dd_data % nnear, dd_data % snear, &
+            & dd_data % near)
+        deallocate(work, stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in deallocation of workspace"
+            info = 30
+            return
+        end if
     end if
 end subroutine ddinit
 
@@ -811,6 +937,48 @@ subroutine ddfree(dd_data)
         deallocate(dd_data % snode, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [22] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % nfar)) then
+        deallocate(dd_data % nfar, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [23] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % nnear)) then
+        deallocate(dd_data % nnear, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [24] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % sfar)) then
+        deallocate(dd_data % sfar, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [25] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % snear)) then
+        deallocate(dd_data % snear, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [26] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % far)) then
+        deallocate(dd_data % far, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [27] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % near)) then
+        deallocate(dd_data % near, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
@@ -3166,13 +3334,13 @@ end subroutine fmm_sph_transform_use_mat
 !! @param[in] alpha: Scalar multiplier for `src`
 !! @param[in] src: Coefficients of initial spherical harmonics
 !! @param[in] beta: Scalar multipler for `dst`
-!! @param[out] dst: Coefficients of rotated spherical harmonics
+!! @param[inout] dst: Coefficients of rotated spherical harmonics
 subroutine fmm_sph_rotate_oz(p, vcos, vsin, alpha, src, beta, dst)
     ! Inputs
     integer, intent(in) :: p
     real(dp), intent(in) :: vcos(p+1), vsin(p+1), alpha, src((p+1)*(p+1)), beta
     ! Output
-    real(dp), intent(out) :: dst((p+1)*(p+1))
+    real(dp), intent(inout) :: dst((p+1)*(p+1))
     ! Local variables
     integer :: l, m, ind
     ! Init output
@@ -3231,7 +3399,7 @@ end subroutine fmm_sph_rotate_oz
 !! @param[in] alpha: Scalar multiplier for `src`
 !! @param[in] src: Coefficients of initial spherical harmonics
 !! @param[in] beta: Scalar multipler for `dst`
-!! @param[out] dst: Coefficients of transformed spherical harmonics
+!! @param[inout] dst: Coefficients of transformed spherical harmonics
 subroutine fmm_sph_transform_oxz(p, r1xz, alpha, src, beta, dst)
     ! Inputs
     integer, intent(in) :: p
@@ -5442,7 +5610,7 @@ subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
     end if
     ! z cannot be zero, as input sphere (multipole) must not intersect with
     ! output sphere (local)
-    if (z .eq. 0) then
+    if (z .eq. zero) then
         return
     end if
     r1 = src_r / z
@@ -5522,7 +5690,7 @@ subroutine fmm_m2l_ztranslate_adj(z, src_r, dst_r, pl, pm, vscales, vfact, &
     end if
     ! z cannot be zero, as input sphere (multipole) must not intersect with
     ! output sphere (local)
-    if (z .eq. 0) then
+    if (z .eq. zero) then
         return
     end if
     r1 = -dst_r / z
@@ -5724,14 +5892,14 @@ subroutine fmm_m2l_ztranslate_use_mat_adj(pl, pm, mat, alpha, src_l, beta, &
         & * (3*max(pm,pl)+3-min(pm,pl)) / 6), alpha, src_l((pl+1)*(pl+1)), &
         & beta
     ! Output
-    real(dp), intent(out) :: dst_m((pm+1)*(pm+1))
+    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Local variables
     integer :: j, k, n, indj, indn, indjn, indmat
     ! Init output properly
     if (beta .eq. zero) then
-        dst_m = zero
+        dst_m(:) = zero
     else
-        dst_m = beta * dst_m
+        dst_m(:) = beta * dst_m(:)
     end if
     ! Cycle over matrix elements stored in a sparse way
     indmat = 1
@@ -6270,6 +6438,7 @@ subroutine tree_rib_build(nsph, csph, rsph, order, cluster, children, parent, &
     !! At first construct the tree
     nclusters = 2*nsph - 1
     ! Init the root node
+    cluster = 0
     cluster(1, 1) = 1
     cluster(2, 1) = nsph
     parent(1) = 0
@@ -6300,7 +6469,7 @@ subroutine tree_rib_build(nsph, csph, rsph, order, cluster, children, parent, &
             ! Update list of children of i-th node
             children(1, i) = j
             children(2, i) = j + 1
-            ! Set parents of new j-th and (j+1)=th node
+            ! Set parents of new j-th and (j+1)-th node
             parent(j) = i
             parent(j+1) = i
             ! Shift index of the first unassigned node
@@ -6384,7 +6553,7 @@ subroutine tree_rib_node_bisect(nsph, csph, n, order, div)
     ! Local variables
     real(dp) :: c(3), tmp_csph(3, n), s(3)
     real(dp), allocatable :: work(:)
-    external :: dgemm, dsyev, dgemv
+    external :: dgesvd
     integer :: i, l, r, lwork, info, tmp_order(n), istat
     ! Get average coordinate
     c = zero
@@ -6421,7 +6590,7 @@ subroutine tree_rib_node_bisect(nsph, csph, n, order, div)
     ! Cycle over values of the singular vector
     do i = 1, n
         ! Positive scalar products are moved to the beginning of `order`
-        if (tmp_csph(1, i) .ge. 0) then
+        if (tmp_csph(1, i) .ge. zero) then
             tmp_order(l) = order(i)
             l = l + 1
         ! Negative scalar products are moved to the end of `order`
@@ -6434,6 +6603,172 @@ subroutine tree_rib_node_bisect(nsph, csph, n, order, div)
     div = r
     order = tmp_order
 end subroutine tree_rib_node_bisect
+
+!> Find near and far admissible pairs of tree nodes and store it in work array
+!!
+!! @param[in] n: number of nodes
+!! @param[in] children: first and last children of each cluster. Value 0 means
+!!      no children (leaf node).
+!! @param[in] cnode: center of bounding sphere of each cluster (node) of tree
+!! @param[in] rnode: radius of bounding sphere of each cluster (node) of tree
+!! @param[in] lwork: size of work array in dimension 2
+!! @param[inout] iwork: index of current pair of nodes that needs to be checked
+!!      for admissibility. Must be 0 for the first call of this subroutine. If
+!!      on exit iwork is less or equal to jwork, that means lwork was too
+!!      small, please reallocate work array and copy all the values into new
+!!      array and then run procedure again.
+!! @param[inout] jwork: amount of stored possible admissible pairs of nodes.
+!!      Please read iwork comments.
+!! @param[inout] work: all the far and near pairs will be stored here
+!! @param[out] nnfar: total amount of far admissible pairs. valid only if iwork
+!!      is greater than jwork on exit.
+!! @param[out] nfar: amount of far admissible pairs for each node. valid only
+!!      if iwork is greater than jwork on exit.
+!! @param[out] nnnear: total amount of near admissible pairs. valid only if
+!!      iwork is greater than jwork on exit
+!! @param[out] nnear: amount of near admissible pairs for each node. valid only
+!!      if iwork is greater than jwork on exit
+subroutine tree_get_farnear_work(n, children, cnode, rnode, lwork, iwork, &
+        & jwork, work, nnfar, nfar, nnnear, nnear)
+    ! Inputs
+    integer, intent(in) :: n, children(2, n), lwork
+    real(dp), intent(in) :: cnode(3, n), rnode(n)
+    ! Outputs
+    integer, intent(inout) :: iwork, jwork, work(3, lwork)
+    integer, intent(out) :: nnfar, nfar(n), nnnear, nnear(n)
+    ! Local variables
+    integer :: j(2), npairs, k1, k2
+    real(dp) :: c(3), r, d, dmax, dssq
+    ! iwork is current temporary item in work array to process
+    if (iwork .eq. 0) then
+        work(1, 1) = 1
+        work(2, 1) = 1
+        iwork = 1
+        jwork = 1
+    end if
+    ! jwork is total amount of temporary items in work array
+    do while (iwork .le. jwork)
+        j = work(1:2, iwork)
+        c = cnode(:, j(1)) - cnode(:, j(2))
+        r = rnode(j(1)) + rnode(j(2)) + max(rnode(j(1)), rnode(j(2)))
+        !r = rnode(j(1)) + rnode(j(2))
+        dmax = max(abs(c(1)), abs(c(2)), abs(c(3)))
+        dssq = (c(1)/dmax)**2 + (c(2)/dmax)**2 + (c(3)/dmax)**2
+        d = dmax * sqrt(dssq)
+        !d = sqrt(c(1)**2 + c(2)**2 + c(3)**2)
+        ! If node has no children then assume itself for purpose of finding
+        ! far-field and near-filed interactions with children nodes of another
+        ! node
+        npairs = max(1, children(2, j(1))-children(1, j(1))+1) * &
+            & max(1, children(2, j(2))-children(1, j(2))+1)
+        if (d .ge. r) then
+            ! Mark as far admissible pair
+            !write(*,*) "FAR:", j
+            work(3, iwork) = 1
+        else if (npairs .eq. 1) then
+            ! Mark as near admissible pair if both nodes are leaves
+            !write(*,*) "NEAR:", j
+            work(3, iwork) = 2
+        else if (jwork+npairs .gt. lwork) then
+            ! Exit procedure, since work array was too small
+            !write(*,*) "SMALL LWORK"
+            return
+        else
+            ! Mark as non-admissible pair and check all pairs of children nodes
+            ! or pairs of one node (if it is a leaf node) with children of
+            ! another node
+            work(3, iwork) = 0
+            if (children(1, j(1)) .eq. 0) then
+                k1 = j(1)
+                do k2 = children(1, j(2)), children(2, j(2))
+                    jwork = jwork + 1
+                    work(1, jwork) = k1
+                    work(2, jwork) = k2
+                end do
+            else if(children(1, j(2)) .eq. 0) then
+                k2 = j(2)
+                do k1 = children(1, j(1)), children(2, j(1))
+                    jwork = jwork + 1
+                    work(1, jwork) = k1
+                    work(2, jwork) = k2
+                end do
+            else
+                do k1 = children(1, j(1)), children(2, j(1))
+                    do k2 = children(1, j(2)), children(2, j(2))
+                        jwork = jwork + 1
+                        work(1, jwork) = k1
+                        work(2, jwork) = k2
+                    end do
+                end do
+            end if
+            !write(*,*) "NON:", j
+        end if
+        iwork = iwork + 1
+    end do
+    nfar = 0
+    nnear = 0
+    do iwork = 1, jwork
+        if (work(3, iwork) .eq. 1) then
+            nfar(work(1, iwork)) = nfar(work(1, iwork)) + 1
+        else if (work(3, iwork) .eq. 2) then
+            nnear(work(1, iwork)) = nnear(work(1, iwork)) + 1
+        end if
+    end do
+    iwork = jwork + 1
+    nnfar = sum(nfar)
+    nnnear = sum(nnear)
+end subroutine tree_get_farnear_work
+
+! Get near and far admissible pairs from work array of tree_get_farnear_work
+! Works only for binary tree
+subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
+        & nnnear, nnear, snear, near)
+! Parameters:
+!   jwork: Total number of checked pairs in work array
+!   lwork: Total length of work array
+!   work: Work array itself
+!   n: Number of nodes
+!   nnfar: Total number of all far-field interactions
+!   nfar: Number of far-field interactions of each node
+!   sfar: Index in far array of first far-field node for each node
+!   far: Indexes of far-field nodes
+!   nnnear: Total number of all near-field interactions
+!   nnear: Number of near-field interactions of each node
+!   snear: Index in near array of first near-field node for each node
+!   near: Indexes of near-field nodes
+    integer, intent(in) :: jwork, lwork, work(3, lwork), n, nnfar, nnnear
+    integer, intent(in) :: nfar(n), nnear(n)
+    integer, intent(out) :: sfar(n+1), far(nnfar), snear(n+1), near(nnnear)
+    integer :: i, j
+    integer :: cfar(n+1), cnear(n+1)
+    sfar(1) = 1
+    snear(1) = 1
+    do i = 2, n+1
+        sfar(i) = sfar(i-1) + nfar(i-1)
+        snear(i) = snear(i-1) + nnear(i-1)
+    end do
+    cfar = sfar
+    cnear = snear
+    do i = 1, jwork
+        if (work(3, i) .eq. 1) then
+            ! Far
+            j = work(1, i)
+            if ((j .gt. n) .or. (j .le. 0)) then
+                write(*,*) "ALARM", j
+            end if
+            far(cfar(j)) = work(2, i)
+            cfar(j) = cfar(j) + 1
+        else if (work(3, i) .eq. 2) then
+            ! Near
+            j = work(1, i)
+            if ((j .gt. n) .or. (j .le. 0)) then
+                write(*,*) "ALARM", j
+            end if
+            near(cnear(j)) = work(2, i)
+            cnear(j) = cnear(j) + 1
+        end if
+    end do
+end subroutine tree_get_farnear
 
 end module dd_core
 

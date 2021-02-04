@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-01-31
+!! @date 2021-02-04
 
 !> Operators shared among ddX methods
 module dd_operators
@@ -483,15 +483,26 @@ subroutine tree_m2m_rotation(dd_data, node_m)
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_m2m_rotation(c1-c, r1, r, dd_data % pm, &
             & dd_data % vscales, dd_data % vfact, one, &
-            & node_m(:, i), one, node_m(:, j))
+            & node_m(:, j), zero, node_m(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_m2m_rotation(c1-c, r1, r, dd_data % pm, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_m(:, j), one, node_m(:, i))
+        end do
     end do
 end subroutine tree_m2m_rotation
 
@@ -527,15 +538,26 @@ subroutine tree_m2m_reflection(dd_data, node_m)
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_m2m_reflection(c1-c, r1, r, dd_data % pm, &
             & dd_data % vscales, dd_data % vfact, one, &
-            & node_m(:, i), one, node_m(:, j))
+            & node_m(:, j), zero, node_m(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_m2m_reflection(c1-c, r1, r, dd_data % pm, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_m(:, j), one, node_m(:, i))
+        end do
     end do
 end subroutine tree_m2m_reflection
 
@@ -592,16 +614,28 @@ subroutine tree_m2m_reflection_use_mat(dd_data, node_m)
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_m2m_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
-            & dd_data % m2m_reflect_mat(:, i-1), &
-            & dd_data % m2m_ztranslate_mat(:, i-1), one, &
-            & node_m(:, i), one, node_m(:, j))
+            & dd_data % m2m_reflect_mat(:, j-1), &
+            & dd_data % m2m_ztranslate_mat(:, j-1), one, &
+            & node_m(:, j), zero, node_m(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_m2m_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
+                & dd_data % m2m_reflect_mat(:, j-1), &
+                & dd_data % m2m_ztranslate_mat(:, j-1), one, &
+                & node_m(:, j), one, node_m(:, i))
+        end do
     end do
 end subroutine tree_m2m_reflection_use_mat
 
@@ -660,15 +694,26 @@ subroutine tree_l2l_rotation_adj(dd_data, node_l)
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_l2l_rotation_adj(c1-c, r1, r, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, node_l(:, i), one, &
-            & node_l(:, j))
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, j), zero, node_l(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_l2l_rotation_adj(c1-c, r1, r, dd_data % pl, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_l(:, j), one, node_l(:, i))
+        end do
     end do
 end subroutine tree_l2l_rotation_adj
 
@@ -704,15 +749,26 @@ subroutine tree_l2l_reflection_adj(dd_data, node_l)
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_l2l_reflection_adj(c1-c, r1, r, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, node_l(:, i), one, &
-            & node_l(:, j))
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, j), zero, node_l(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_l2l_reflection_adj(c1-c, r1, r, dd_data % pl, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_l(:, j), one, node_l(:, i))
+        end do
     end do
 end subroutine tree_l2l_reflection_adj
 
@@ -730,7 +786,7 @@ subroutine tree_l2l_reflection_get_mat(dd_data)
         r = dd_data % rnode(j)
         c1 = dd_data % cnode(:, i)
         r1 = dd_data % rnode(i)
-        call fmm_l2l_reflection_get_mat(c-c1, r, r1, dd_data % pm, &
+        call fmm_l2l_reflection_get_mat(c-c1, r, r1, dd_data % pl, &
             & dd_data % vscales, dd_data % vfact, &
             & dd_data % l2l_reflect_mat(:, i-1), &
             & dd_data % l2l_ztranslate_mat(:, i-1))
@@ -770,17 +826,323 @@ subroutine tree_l2l_reflection_use_mat_adj(dd_data, node_l)
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 2, -1
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
+    do i = dd_data % nclusters, 1, -1
+        ! Leaf node does not need any update
+        if (dd_data % children(1, i) == 0) cycle
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! First child initializes output
+        j = dd_data % children(1, i)
+        c1 = dd_data % cnode(:, j)
+        r1 = dd_data % rnode(j)
         call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, dd_data % pl, &
-            & dd_data % l2l_reflect_mat(:, i-1), &
-            & dd_data % l2l_ztranslate_mat(:, i-1), &
-            & one, node_l(:, i), one, node_l(:, j))
+            & dd_data % l2l_reflect_mat(:, j-1), &
+            & dd_data % l2l_ztranslate_mat(:, j-1), &
+            & one, node_l(:, j), zero, node_l(:, i))
+        ! All other children update the same output
+        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
+            c1 = dd_data % cnode(:, j)
+            r1 = dd_data % rnode(j)
+            call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, dd_data % pl, &
+                & dd_data % l2l_reflect_mat(:, j-1), &
+                & dd_data % l2l_ztranslate_mat(:, j-1), &
+                & one, node_l(:, j), one, node_l(:, i))
+        end do
     end do
 end subroutine tree_l2l_reflection_use_mat_adj
+
+!> Transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_rotation(dd_data, node_m, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            node_l(:, i) = zero
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        k = dd_data % far(dd_data % sfar(i))
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_rotation(c1-c, r1, r, dd_data % pm, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_m(:, k), zero, node_l(:, i))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_rotation(c1-c, r1, r, dd_data % pm, dd_data % pl, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_m(:, k), one, node_l(:, i))
+        end do
+    end do
+end subroutine tree_m2l_rotation
+
+!> Adjoint transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_rotation_adj(dd_data, node_l, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    node_m = zero
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        k = dd_data % far(dd_data % sfar(i))
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_rotation_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, i), one, node_m(:, k))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_rotation_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_l(:, i), one, node_m(:, k))
+        end do
+    end do
+end subroutine tree_m2l_rotation_adj
+
+!> Transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_reflection(dd_data, node_m, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            node_l(:, i) = zero
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        k = dd_data % far(dd_data % sfar(i))
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_reflection(c1-c, r1, r, dd_data % pm, dd_data % pl, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_m(:, k), zero, node_l(:, i))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_reflection(c1-c, r1, r, dd_data % pm, dd_data % pl, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_m(:, k), one, node_l(:, i))
+        end do
+    end do
+end subroutine tree_m2l_reflection
+
+!> Adjoint transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_reflection_adj(dd_data, node_l, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    node_m = zero
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        k = dd_data % far(dd_data % sfar(i))
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_reflection_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
+            & dd_data % vscales, dd_data % vfact, one, &
+            & node_l(:, i), one, node_m(:, k))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_reflection_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
+                & dd_data % vscales, dd_data % vfact, one, &
+                & node_l(:, i), one, node_m(:, k))
+        end do
+    end do
+end subroutine tree_m2l_reflection_adj
+
+!> Precompute M2L translations for all nodes
+subroutine tree_m2l_reflection_get_mat(dd_data)
+    ! Input/output
+    type(dd_data_type), intent(inout) :: dd_data
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    do i = 1, dd_data % nclusters
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        do j = dd_data % sfar(i), dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_reflection_get_mat(c1-c, r1, r, dd_data % pm, &
+                & dd_data % pl, dd_data % vscales, dd_data % vfact, &
+                & dd_data % m2l_reflect_mat(:, j), &
+                & dd_data % m2l_ztranslate_mat(:, j))
+        end do
+    end do
+end subroutine tree_m2l_reflection_get_mat
+
+!> Transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_reflection_use_mat(dd_data, node_m, node_l)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            node_l(:, i) = zero
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        j = dd_data % sfar(i)
+        k = dd_data % far(j)
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
+            & dd_data % pl, dd_data % m2l_reflect_mat(:, j), &
+            & dd_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), zero, &
+            & node_l(:, i))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
+                & dd_data % pl, dd_data % m2l_reflect_mat(:, j), &
+                & dd_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), one, &
+                & node_l(:, i))
+        end do
+    end do
+end subroutine tree_m2l_reflection_use_mat
+
+!> Transfer multipole local coefficients into local over a tree
+subroutine tree_m2l_reflection_use_mat_adj(dd_data, node_l, node_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    ! Local variables
+    integer :: i, j, k
+    real(dp) :: c1(3), c(3), r1, r
+    ! Any order of this cycle is OK
+    node_m = zero
+    do i = 1, dd_data % nclusters
+        ! If no far admissible pairs just set output to zero
+        if (dd_data % nfar(i) .eq. 0) then
+            cycle
+        end if
+        c = dd_data % cnode(:, i)
+        r = dd_data % rnode(i)
+        ! Use the first far admissible pair to initialize output
+        j = dd_data % sfar(i)
+        k = dd_data % far(j)
+        c1 = dd_data % cnode(:, k)
+        r1 = dd_data % rnode(k)
+        call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, dd_data % pl, &
+            & dd_data % pm, dd_data % m2l_reflect_mat(:, j), &
+            & dd_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
+            & node_m(:, k))
+        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
+            k = dd_data % far(j)
+            c1 = dd_data % cnode(:, k)
+            r1 = dd_data % rnode(k)
+            call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, dd_data % pl, &
+                & dd_data % pm, dd_data % m2l_reflect_mat(:, j), &
+                & dd_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
+                & node_m(:, k))
+        end do
+    end do
+end subroutine tree_m2l_reflection_use_mat_adj
+
+subroutine tree_l2p(dd_data, alpha, node_l, beta, grid_v)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters), &
+        & alpha, beta
+    ! Output
+    real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
+    ! Local variables
+    real(dp) :: sph_l((dd_data % pl+1)**2, dd_data % nsph)
+    integer :: i
+    external :: dgemm
+    ! Get data from all clusters to spheres
+    do i = 1, dd_data % nsph
+        sph_l(:, i) = node_l(:, dd_data % snode(i))
+    end do
+    ! Get values at grid points
+    call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, &
+        & (dd_data % pl+1)**2, alpha, dd_data % vgrid, &
+        & dd_data % vgrid_nbasis, sph_l, (dd_data % pl+1)**2, beta, grid_v, &
+        & dd_data % ngrid)
+end subroutine tree_l2p
+
+subroutine tree_m2p(dd_data, alpha, sph_m, beta, grid_v)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: sph_m((dd_data % lmax+1)**2, dd_data % nsph), &
+        & alpha, beta
+    ! Output
+    real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
+    ! Local variables
+    integer :: i, i_node, j, j_node
+    ! Cycle over all spheres
+    do i = 1, dd_data % nsph
+        ! Cycle over all near-field admissible pairs of spheres
+        i_node = dd_data % snode(i)
+        do j_node = dd_data % snear(i_node), dd_data % snear(i_node+1)-1
+            ! Near-field interaction are possible only between leaf nodes,
+            ! which must contain only a single input sphere
+            j = dd_data % order(dd_data % cluster(1, j_node))
+        end do
+    end do
+end subroutine tree_m2p
 
 end module dd_operators
