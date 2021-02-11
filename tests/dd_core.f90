@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-04
+!! @date 2021-02-11
 
 program test_dd_core
 use dd_core
@@ -24,7 +24,7 @@ real(dp) :: gsrc0(3), gsrc(3), gdst(3, 2), gcsph(3, nsph), grsph(nsph), &
 ! Some implementation do not work for alpha=1d-307, so range of test values is
 ! reduced. This can be fixed by enforcing proper order of multiplications like
 ! a*b*c into a*(b*c).
-real(dp) :: alpha(4)=(/1d0, -1d0, 1d-300, 1d+300/)
+real(dp) :: alpha(4)=(/1d0, -1d0, 1d-298, 1d+300/)
 
 real(dp), external :: dnrm2
 ! Set inputs
@@ -108,268 +108,514 @@ do i = 1, size(alpha)
     call check_tree_rib(alpha(i))
 end do
 
+! Check tree M2M
+do i = 1, size(alpha)
+    call check_tree_m2m(0, alpha(i), iprint, 10d0*epsilon(one))
+    call check_tree_m2m(1, alpha(i), iprint, 10d0*epsilon(one))
+    call check_tree_m2m(10, alpha(i), iprint, 10d0*epsilon(one))
+end do
+
+! Check tree L2L
+do i = 1, size(alpha)
+    call check_tree_l2l(0, alpha(i), iprint, 10d0*epsilon(one))
+    call check_tree_l2l(1, alpha(i), iprint, 10d0*epsilon(one))
+    call check_tree_l2l(10, alpha(i), iprint, 10d0*epsilon(one))
+end do
+
+! Check tree M2L
+do i = 1, size(alpha)
+    call check_tree_m2l(0, 0, alpha(i), iprint, 6d-2)
+    call check_tree_m2l(1, 0, alpha(i), iprint, 4d-2)
+    call check_tree_m2l(10, 0, alpha(i), iprint, 4d-2)
+    call check_tree_m2l(0, 1, alpha(i), iprint, 3d-2)
+    call check_tree_m2l(1, 1, alpha(i), iprint, 4d-3)
+    call check_tree_m2l(10, 1, alpha(i), iprint, 4d-3)
+    call check_tree_m2l(0, 10, alpha(i), iprint, 3d-2)
+    call check_tree_m2l(1, 10, alpha(i), iprint, 3d-3)
+    call check_tree_m2l(10, 10, alpha(i), iprint, 4d-9)
+    !call check_tree_m2l(20, 20, alpha(i), iprint, 1d-14)
+end do
+
 contains
 
 subroutine check_ddinit_args()
     ! Example of correct args
-    integer :: n=1, model=1, lmax=0, ngrid=0, force=1, fmm=1, pm=0, pl=0, &
-        & iprint=0
-    real(dp) :: x(10), y(10), z(10), rvdw(10), se=zero, eta=zero, eps=zero, &
-        & kappa=zero
+    integer :: n=1, model=1, lmax=0, ngrid=1000, force=1, fmm=1, pm=0, pl=0, &
+        & fmm_precompute=0, iprint=0, itersolver=1, maxiter=10, ndiis=10, &
+        & nproc=2
+    real(dp) :: charge(10), x(10), y(10), z(10), rvdw(10), se=zero, eta=1d-1, &
+        & eps=zero, kappa=zero, tol=1d-6
     type(dd_data_type) :: dd_data
     integer :: info=0, i, j
     real(dp) :: tmp
     ! Generate coordinates and radii
-    rvdw = one
+    rvdw = 4d0
+    charge = one
     do i = 1, 10
         x(i) = dble(2*i)
         y(i) = x(i)
         z(i) = x(i)
     end do
     ! Check correct input
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check different correct inputs with different n <= 10 (hardcoded value)
     do i = 1, 10
-        call ddinit(i, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(i, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
+            & pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, &
+            & itersolver, tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect input n = 0
     i = 0
-    call ddinit(i, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
+    call ddinit(i, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. -1) stop 1
     call ddfree(dd_data)
     ! Check all possible models with other correct inputs
     do i = 1, 3
-        call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
+            & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect models
     i = -1
-    call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -6) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -7) stop 1
     call ddfree(dd_data)
     i = 4
-    call ddinit(n, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -6) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, i, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -7) stop 1
     call ddfree(dd_data)
     ! Check correct lmax
     do i = 1, 6
-        call ddinit(n, x, y, z, rvdw, model, i, ngrid, force, fmm, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, i, ngrid, force, fmm, &
+            & pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, &
+            & itersolver, tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect lmax < 0
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, i, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -7) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, i, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -8) stop 1
     call ddfree(dd_data)
     ! Check correct ngrid
     do i = 0, 1000, 100
         j = i
-        call ddinit(n, x, y, z, rvdw, model, lmax, j, force, fmm, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, j, force, fmm, pm, &
+            & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect ngrid < 0
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, i, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -8) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, i, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -9) stop 1
     call ddfree(dd_data)
     ! Check correct force
     do i = 0, 1
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
+            & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect force
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -9) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -10) stop 1
     call ddfree(dd_data)
     i = 2
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -9) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, i, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -10) stop 1
     call ddfree(dd_data)
     ! Check correct fmm
     do i = 0, 1
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, i, &
+            & pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, &
+            & itersolver, tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect fmm
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -10) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -11) stop 1
     call ddfree(dd_data)
     i = 2
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -10) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, i, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -11) stop 1
     call ddfree(dd_data)
     ! Check correct pm (ignored if fmm=0)
     j = 0
     do i = -2, 2
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, &
+            & i, pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check correct pm (fmm=1)
     j = 1
     do i = 0, 20, 5
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-            & pl, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, &
+            & i, pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect pm (fmm=1)
     j = 1
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
-        & pl, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -11) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, i, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -12) stop 1
     call ddfree(dd_data)
     ! Check correct pl (ignored if fmm=0)
     j = 0
     do i = -2, 2
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-            & i, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, &
+            & pm, i, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check correct pl (fmm=1)
     j = 1
     do i = 0, 20, 5
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-            & i, iprint, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, &
+            & pm, i, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect pl (fmm=1)
     j = 1
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
-        & i, iprint, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -12) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, j, pm, &
+        & i, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -13) stop 1
+    call ddfree(dd_data)
+    ! Check correct fmm_precompute
+    do i = 0, 1
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
+            & pm, pl, i, iprint, se, eta, eps, kappa, itersolver, tol, &
+            & maxiter, ndiis, nproc, dd_data, info)
+        if (info .ne. 0) stop 1
+        call ddfree(dd_data)
+    end do
+    ! Check incorrect fmm_precompute
+    i = -1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, i, iprint, se, eta, eps, kappa, itersolver, tol, maxiter, &
+        & ndiis, nproc, dd_data, info)
+    if (info .ne. -14) stop 1
+    call ddfree(dd_data)
+    i = 2
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, i, iprint, se, eta, eps, kappa, itersolver, tol, maxiter, &
+        & ndiis, nproc, dd_data, info)
+    if (info .ne. -14) stop 1
     call ddfree(dd_data)
     ! Check correct iprint
     do i = 0, 10
-        call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-            & pl, i, se, eta, eps, kappa, dd_data, info)
+        call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
+            & pm, pl, fmm_precompute, i, se, eta, eps, kappa, itersolver, &
+            & tol, maxiter, ndiis, nproc, dd_data, info)
         if (info .ne. 0) stop 1
         call ddfree(dd_data)
     end do
     ! Check incorrect iprint
     i = -1
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, i, se, eta, eps, kappa, dd_data, info)
-    if (info .ne. -13) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, i, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -15) stop 1
     call ddfree(dd_data)
     ! Check correct se
     tmp = -one
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, tmp, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = zero
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, tmp, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, tmp, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect se
     tmp = 1.01d0
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
-    if (info .ne. -14) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, tmp, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -16) stop 1
     call ddfree(dd_data)
     tmp = -1.01d0
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, tmp, eta, eps, kappa, dd_data, info)
-    if (info .ne. -14) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, tmp, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -16) stop 1
     call ddfree(dd_data)
     ! Check correct eta
     tmp = zero
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, tmp, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = pt5
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, tmp, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, tmp, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect eta
     tmp = 1.01d0
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
-    if (info .ne. -15) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, tmp, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -17) stop 1
     call ddfree(dd_data)
     tmp = -1d-2
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, tmp, eps, kappa, dd_data, info)
-    if (info .ne. -15) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, tmp, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -17) stop 1
     call ddfree(dd_data)
     ! Check correct eps
     tmp = zero
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, tmp, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = pt5
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, tmp, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = one
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, tmp, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     tmp = dble(1000)
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, tmp, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
     if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect eps
     tmp = -1d-2
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, tmp, kappa, dd_data, info)
-    if (info .ne. -16) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, tmp, kappa, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -18) stop 1
+    call ddfree(dd_data)
+    ! Check correct kappa
+    tmp = 1d-2
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, tmp, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
     call ddfree(dd_data)
     ! Check incorrect kappa
     tmp = -1d-2
-    call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
-        & pl, iprint, se, eta, eps, tmp, dd_data, info)
-    if (info .ne. -17) stop 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, tmp, itersolver, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -19) stop 1
+    call ddfree(dd_data)
+    ! Check correct itersolver
+    i = 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, i, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    ! Check incorrect itersolver
+    i = 0
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, i, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -20) stop 1
+    call ddfree(dd_data)
+    i = -1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, i, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -20) stop 1
+    call ddfree(dd_data)
+    i = 2
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, i, tol, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -20) stop 1
+    call ddfree(dd_data)
+    ! Check correct tol
+    tmp = 1d-14
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    tmp = 1d-7
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    tmp = one
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    ! Check incorrect tol
+    tmp = 9d-15
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -21) stop 1
+    call ddfree(dd_data)
+    tmp = zero
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -21) stop 1
+    call ddfree(dd_data)
+    tmp = -1d-1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -21) stop 1
+    call ddfree(dd_data)
+    tmp = 1.1d0
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tmp, &
+        & maxiter, ndiis, nproc, dd_data, info)
+    if (info .ne. -21) stop 1
+    call ddfree(dd_data)
+    ! Check correct maxiter
+    i = 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & i, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    i = 1000000
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & i, ndiis, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    ! Check incorrect maxiter
+    i = 0
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & i, ndiis, nproc, dd_data, info)
+    if (info .ne. -22) stop 1
+    call ddfree(dd_data)
+    i = -1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & i, ndiis, nproc, dd_data, info)
+    if (info .ne. -22) stop 1
+    call ddfree(dd_data)
+    ! Check correct ndiis
+    i = 0
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, i, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    i = 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, i, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    i = 1000
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, i, nproc, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    ! Check incorrect ndiis
+    i = -1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, i, nproc, dd_data, info)
+    if (info .ne. -23) stop 1
+    call ddfree(dd_data)
+    ! Check correct nproc
+    i = 1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, i, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    i = 100000
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, i, dd_data, info)
+    if (info .ne. 0) stop 1
+    call ddfree(dd_data)
+    ! Check incorrect nproc
+    i = 0
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, i, dd_data, info)
+    if (info .ne. -24) stop 1
+    call ddfree(dd_data)
+    i = -1
+    call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pm, &
+        & pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, &
+        & maxiter, ndiis, i, dd_data, info)
+    if (info .ne. -24) stop 1
     call ddfree(dd_data)
 end subroutine check_ddinit_args
 
@@ -881,7 +1127,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_m2m_ztranslate"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -937,7 +1183,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2m_ztranslate_use_mat"
         write(*, "(A)") "Check fmm_m2m_scale"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -993,7 +1239,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2m_ztranslate_use_mat_adj"
         write(*, "(A)") "Check fmm_m2m_scale_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || M(1)2M(i) - [adj M(1)2M(i)]^T || ", &
             & "/ || M(1)2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1066,7 +1312,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_m2m_ztranslate_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj M(1)2M(i)] - [adj M(1)2M(i)]", &
             & " || / || [adj M(1)2M(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1132,7 +1378,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_m2m_reflection"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1169,7 +1415,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(A,I0)") "Check fmm_m2m_reflection_get_mat"
         write(*, "(A,I0)") "Check fmm_m2m_reflection_use_mat"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1209,7 +1455,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_m2m_reflection_use_mat_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || M(1)2M(i) - [adj M(1)2M(i)]^T || ", &
             & "/ || M(1)2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1267,7 +1513,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_m2m_reflection_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj M(1)2M(i)] - [adj M(1)2M(i)]", &
             & " || / || [adj M(1)2M(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1315,7 +1561,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_m2m_reflection2"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1351,7 +1597,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_m2m_reflection2_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj M(1)2M(i)] - [adj M(1)2M(i)]", &
             & " || / || [adj M(1)2M(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1394,7 +1640,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_m2m_rotation"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(1) + M(1)2M(i) - P2M(i) || / ", &
             & "|| P2M(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1430,7 +1676,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_m2m_rotation_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj M(1)2M(i)] - [adj M(1)2M(i)]", &
             & " || / || [adj M(1)2M(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1527,7 +1773,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_l2l_ztranslate"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1587,7 +1833,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_l2l_ztranslate_use_mat"
         write(*, "(A)") "Check fmm_l2l_scale"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1645,7 +1891,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_l2l_ztranslate_use_mat_adj"
         write(*, "(A)") "Check fmm_l2l_scale_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) - [adj L(1)2L(i)]^T || ", &
             & "/ || L(1)2L(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1719,7 +1965,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_l2l_ztranslate_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj L(1)2L(i)] - [adj L(1)2L(i)]", &
             & " || / || [adj L(1)2L(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1787,7 +2033,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_l2l_reflection"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1826,7 +2072,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(A,I0)") "Check fmm_l2l_reflection_get_mat"
         write(*, "(A,I0)") "Check fmm_l2l_reflection_use_mat"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1868,7 +2114,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_l2l_reflection_use_mat_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) - [adj L(1)2L(i)]^T || ", &
             & "/ || L(1)2L(i) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1926,7 +2172,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_l2l_reflection_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj L(1)2L(i)] - [adj L(1)2L(i)]", &
             & " || / || [adj L(1)2L(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -1974,7 +2220,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_l2l_reflection2"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2012,7 +2258,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_l2l_reflection2_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj L(1)2L(i)] - [adj L(1)2L(i)]", &
             & " || / || [adj L(1)2L(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2055,7 +2301,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A)") "Check fmm_l2l_rotation"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || L(1)2L(i) + L(i)2P - L(1)2P || / ", &
             & "|| L(1)2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2093,7 +2339,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         write(*, "(/,A)") repeat("=", 40)
         write(*, "(A,I0)") "Check fmm_l2l_rotation_adj"
         write(*, "(4x,A,I0)") "p = ", p
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj L(1)2L(i)] - [adj L(1)2L(i)]", &
             & " || / || [adj L(1)2L(i)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2185,7 +2431,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2l_ztranslate"
         write(*, "(4x,A,I0)") "pm = ", pm
         write(*, "(4x,A,I0)") "pl = ", pl
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || P2M(i) + M(i)2L(1) + L(1)2P - P2P", &
             & " || / || P2P ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2228,7 +2474,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2l_ztranslate_use_mat"
         write(*, "(4x,A,I0)") "pm = ", pm
         write(*, "(4x,A,I0)") "pl = ", pl
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || M(i)2L(1) - M(i)2L(1) || / ", &
             & "|| M(i)2L(1) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2278,7 +2524,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2l_ztranslate_use_mat_adj"
         write(*, "(4x,A,I0)") "pm = ", pm
         write(*, "(4x,A,I0)") "pl = ", pl
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || M(i)2L(1) - [adj M(i)2L(1)]^T || ", &
             & "/ || M(i)2L(1) ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2337,7 +2583,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         write(*, "(A)") "Check fmm_m2l_ztranslate_adj"
         write(*, "(4x,A,I0)") "pm = ", pm
         write(*, "(4x,A,I0)") "pl = ", pl
-        write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
         write(*, "(4x,A,A)") "err(i) = || [adj M(i)2L(1)] - [adj M(i)2L(1)]", &
             & " || / || [adj M(i)2L(1)] ||"
         write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2385,7 +2631,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,A,I0,A,I0,A)") "err(i) = || P2M(i) + M(i)2L(", k, &
                 & ") + L(", k, ")2P - P2P || / || P2P ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
@@ -2429,7 +2675,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection_use_mat"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, &
                 & ") - M(i)2L(", k, ") || / || M(i)2L(", k, ") ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2481,7 +2727,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection_use_mat_adj"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, &
                 & ") - [adj M(i)2L(", k, ")]^T || / || M(i)2L(", k, ") ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2547,7 +2793,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection_adj"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || [adj M(i)2L(", k, &
                 & ")] - [adj M(i)2L(", k, ")] || / || [adj M(i)2L(", k, ")] ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2607,7 +2853,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection2"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, &
                 & ") - M(i)2L(", k, ") || / || M(i)2L(", k, ") ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2656,7 +2902,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_reflection2_adj"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || [adj M(i)2L(", k, &
                 & ")] - [adj M(i)2L(", k, ")] || / || [adj M(i)2L(", k, ")] ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2716,7 +2962,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_rotation"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || M(i)2L(", k, &
                 & ") - M(i)2L(", k, ") || / || M(i)2L(", k, ") ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2765,7 +3011,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             write(*, "(A)") "Check fmm_m2l_rotation_adj"
             write(*, "(4x,A,I0)") "pm = ", pm
             write(*, "(4x,A,I0)") "pl = ", pl
-            write(*, "(4x,A,ES23.16E3)") "alpha = ", alpha
+            write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
             write(*, "(4x,3(A,I0),A)") "err(i) = || [adj M(i)2L(", k, &
                 & ")] - [adj M(i)2L(", k, ")] || / || [adj M(i)2L(", k, ")] ||"
             write(*, "(4x,A,ES23.16E3)") "threshold = ", 10d0*epsilon(one)
@@ -2850,6 +3096,844 @@ subroutine check_tree_rib(alpha)
     call tree_rib_build(nsph, csph2, rsph2, reorder, cluster, children, &
         & parent, cnode, rnode, snode)
 end subroutine check_tree_rib
+
+subroutine check_tree_m2m(p, alpha, iprint, threshold)
+    ! Inputs
+    integer, intent(in) :: p, iprint
+    real(dp), intent(in) :: alpha, threshold
+    ! Local variables
+    integer, parameter :: nsph = 10
+    integer :: i, j, k, order(nsph), istatus
+    real(dp) :: csph(3, nsph), rsph(nsph), src(3, nsph), csph2(3, nsph), &
+        & rsph2(nsph), sph_m((p+1)**2, nsph), node_m((p+1)**2, 2*nsph-1), &
+        & node_m2((p+1)**2, 2*nsph-1), vscales((p+1)**2), vfact(2*p+1), &
+        & rel_err, sph_m2((p+1)**2, nsph), full_norm, diff_norm, &
+        & node_m3((p+1)**2, 2*nsph-1)
+    type(dd_data_type) :: dd_data
+    logical :: ok
+    real(dp), external :: dnrm2
+    real(dp) :: full_mat((p+1)**2, 2*nsph-1, (p+1)**2, nsph)
+    ! Scale inputs
+    csph(:, 1) = alpha * (/1d0, 1d0, 1d0/)
+    csph(:, 2) = alpha * (/2d0, 2d0, 2d0/)
+    csph(:, 3) = alpha * (/1d0, 1d0, 3d0/)
+    csph(:, 4) = alpha * (/2d0, 2d0, 4d0/)
+    csph(:, 5) = alpha * (/1d0, 1d0, 5d0/)
+    csph(:, 6) = alpha * (/2d0, 2d0, 6d0/)
+    csph(:, 7) = alpha * (/1d0, 1d0, 7d0/)
+    csph(:, 8) = alpha * (/2d0, 2d0, 8d0/)
+    csph(:, 9) = alpha * (/1d0, 1d0, 9d0/)
+    csph(:, 10) = alpha * (/2d0, 2d0, 10d0/)
+    rsph = abs(alpha) * (/2d-1, 3d-1, 4d-1, 5d-1, 6d-1, 7d-1, 8d-1, 9d-1, &
+        & 1d0, 1.1d0/)
+    src(:, 1) = alpha * (/1.1d0, 0.9d0, 1d0/)
+    src(:, 2) = alpha * (/2.1d0, 1.9d0, 2.1d0/)
+    src(:, 3) = alpha * (/1.1d0, 1.1d0, 3.1d0/)
+    src(:, 4) = alpha * (/1.9d0, 1.9d0, 4.1d0/)
+    src(:, 5) = alpha * (/1.1d0, 0.9d0, 5d0/)
+    src(:, 6) = alpha * (/1.9d0, 2.1d0, 5.9d0/)
+    src(:, 7) = alpha * (/1.1d0, 0.9d0, 7d0/)
+    src(:, 8) = alpha * (/2.1d0, 2.1d0, 8d0/)
+    src(:, 9) = alpha * (/1.1d0, 0.9d0, 9d0/)
+    src(:, 10) = alpha * (/2.1d0, 1.9d0, 9.9d0/)
+    ! Reorder inputs
+    order = (/4, 2, 8, 5, 7, 1, 9, 6, 10, 3/)
+    do i = 1, nsph
+        csph2(:, i) = csph(:, order(i))
+        rsph2(i) = rsph(order(i))
+    end do
+    dd_data % nclusters = 2*nsph-1
+    dd_data % pl = -1
+    dd_data % pm = p
+    dd_data % nsph = nsph
+    ! Allocate space for a tree
+    allocate(dd_data % cluster(2, 2*nsph-1), dd_data % children(2, 2*nsph-1), &
+        & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
+        & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
+        & dd_data % order(nsph), dd_data % vscales((p+1)**2), &
+        & dd_data % vfact(2*p+1))
+    ! Build a recursive inertial binary tree
+    call tree_rib_build(nsph, csph2, rsph2, dd_data % order, &
+        & dd_data % cluster, dd_data % children, dd_data % parent, &
+        & dd_data % cnode, dd_data % rnode, dd_data % snode)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics
+    call ylmscale(p, dd_data % vscales)
+    dd_data % vfact(1) = one
+    do i = 2, 2*p+1
+        dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
+    end do
+    ! Init input harmonics
+    do i = 1, nsph
+        call fmm_p2m(src(:, i)-csph(:, i), one, rsph(i), p, &
+            & dd_data % vscales, zero, sph_m(:, i))
+    end do
+    ! Get reference result of M2M operation
+    do i = 1, 2*nsph-1
+        node_m(:, i) = zero
+        do j = dd_data % cluster(1, i), dd_data % cluster(2, i)
+            k = dd_data % order(j)
+            call fmm_m2m_rotation(csph2(:, k)-dd_data % cnode(:, i), &
+                & rsph2(k), dd_data % rnode(i), p, dd_data % vscales, &
+                & dd_data % vfact, one, sph_m(:, k), one, node_m(:, i))
+        end do
+    end do
+    ! Check tree_m2m_rotation
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_rotation"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_m2 = one
+    do i = 1, nsph
+        node_m2(:, dd_data % snode(i)) = sph_m(:, i)
+    end do
+    call tree_m2m_rotation(dd_data, node_m2)
+    rel_err = dnrm2(((p+1)**2)*(2*nsph-1), node_m-node_m2, 1) / &
+        & dnrm2(((p+1)**2)*(2*nsph-1), node_m, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2m_reflection
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_reflection"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_m2 = one
+    do i = 1, nsph
+        node_m2(:, dd_data % snode(i)) = sph_m(:, i)
+    end do
+    call tree_m2m_reflection(dd_data, node_m2)
+    rel_err = dnrm2(((p+1)**2)*(2*nsph-1), node_m-node_m2, 1) / &
+        & dnrm2(((p+1)**2)*(2*nsph-1), node_m, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Allocate space for transfer matrices
+    dd_data % m2m_reflect_mat_size = (p+1)*(2*p+1)*(2*p+3)/3
+    dd_data % m2m_ztranslate_mat_size = (p+1)*(p+2)*(p+3)/6
+    allocate(dd_data % m2m_reflect_mat(dd_data % m2m_reflect_mat_size, &
+        & dd_data % nclusters-1), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    allocate(dd_data % m2m_ztranslate_mat(dd_data % m2m_ztranslate_mat_size, &
+        & dd_data % nclusters-1), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    ! Compute transfer matrices
+    call tree_m2m_reflection_get_mat(dd_data)
+    ! Check tree_m2m_reflection_use_mat
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_reflection_get_mat"
+        write(*, "(A)") "Check tree_m2m_reflection_use_mat"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_m2 = one
+    do i = 1, nsph
+        node_m2(:, dd_data % snode(i)) = sph_m(:, i)
+    end do
+    call tree_m2m_reflection_use_mat(dd_data, node_m2)
+    rel_err = dnrm2(((p+1)**2)*(2*nsph-1), node_m-node_m2, 1) / &
+        & dnrm2(((p+1)**2)*(2*nsph-1), node_m, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2m_reflection_use_mat_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_reflection_use_mat_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    do i = 1, nsph
+        do j = 1, (p+1)**2
+            node_m2 = zero
+            node_m2(j, dd_data % snode(i)) = one
+            call tree_m2m_reflection_use_mat(dd_data, node_m2)
+            full_mat(:, :, j, i) = node_m2
+        end do
+    end do
+    full_norm = dnrm2((2*nsph-1)*nsph*((p+1)**4), full_mat, 1)
+    do i = 1, 2*nsph-1
+        do j = 1, (p+1)**2
+            node_m2 = zero
+            node_m2(j, i) = one
+            call tree_m2m_reflection_use_mat_adj(dd_data, node_m2)
+            do k = 1, nsph
+                full_mat(j, i, :, k) = full_mat(j, i, :, k) - &
+                    & node_m2(:, dd_data % snode(k))
+            end do
+        end do
+    end do
+    diff_norm = dnrm2((2*nsph-1)*nsph*((p+1)**4), full_mat, 1)
+    rel_err = diff_norm / full_norm
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2m_rotation_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_rotation_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_m2 = node_m
+    call tree_m2m_reflection_use_mat_adj(dd_data, node_m2)
+    node_m3 = node_m
+    call tree_m2m_rotation_adj(dd_data, node_m3)
+    rel_err = dnrm2((2*nsph-1)*((p+1)**2), node_m2-node_m3, 1) / &
+        dnrm2((2*nsph-1)*((p+1)**2), node_m2, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2m_reflection_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2m_reflection_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2M] - [plain M2M] ||", &
+            & " / || [plain M2M] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_m3 = node_m
+    call tree_m2m_reflection_adj(dd_data, node_m3)
+    rel_err = dnrm2((2*nsph-1)*((p+1)**2), node_m2-node_m3, 1) / &
+        dnrm2((2*nsph-1)*((p+1)**2), node_m2, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Deallocate tree
+    call ddfree(dd_data)
+end subroutine check_tree_m2m
+
+subroutine check_tree_l2l(p, alpha, iprint, threshold)
+    ! Inputs
+    integer, intent(in) :: p, iprint
+    real(dp), intent(in) :: alpha, threshold
+    ! Local variables
+    integer, parameter :: nsph = 10
+    integer :: i, j, k, order(nsph), istatus
+    real(dp) :: csph(3, nsph), rsph(nsph), src(3, nsph), csph2(3, nsph), &
+        & rsph2(nsph), sph_l((p+1)**2, nsph), node_l((p+1)**2, 2*nsph-1), &
+        & node_l2((p+1)**2, 2*nsph-1), vscales((p+1)**2), vfact(2*p+1), &
+        & rel_err, sph_l2((p+1)**2, nsph), full_norm, diff_norm, &
+        & node_l3((p+1)**2, 2*nsph-1)
+    type(dd_data_type) :: dd_data
+    logical :: ok
+    real(dp), external :: dnrm2
+    real(dp) :: full_mat((p+1)**2, nsph, (p+1)**2, 2*nsph-1)
+    ! Scale inputs
+    csph(:, 1) = alpha * (/1d0, 1d0, 1d0/)
+    csph(:, 2) = alpha * (/2d0, 2d0, 2d0/)
+    csph(:, 3) = alpha * (/1d0, 1d0, 3d0/)
+    csph(:, 4) = alpha * (/2d0, 2d0, 4d0/)
+    csph(:, 5) = alpha * (/1d0, 1d0, 5d0/)
+    csph(:, 6) = alpha * (/2d0, 2d0, 6d0/)
+    csph(:, 7) = alpha * (/1d0, 1d0, 7d0/)
+    csph(:, 8) = alpha * (/2d0, 2d0, 8d0/)
+    csph(:, 9) = alpha * (/1d0, 1d0, 9d0/)
+    csph(:, 10) = alpha * (/2d0, 2d0, 10d0/)
+    rsph = abs(alpha) * (/2d-1, 3d-1, 4d-1, 5d-1, 6d-1, 7d-1, 8d-1, 9d-1, &
+        & 1d0, 1.1d0/)
+    src(:, 1) = alpha * (/1.1d0, 0.9d0, 1d0/)
+    src(:, 2) = alpha * (/2.1d0, 1.9d0, 2.1d0/)
+    src(:, 3) = alpha * (/1.1d0, 1.1d0, 3.1d0/)
+    src(:, 4) = alpha * (/1.9d0, 1.9d0, 4.1d0/)
+    src(:, 5) = alpha * (/1.1d0, 0.9d0, 5d0/)
+    src(:, 6) = alpha * (/1.9d0, 2.1d0, 5.9d0/)
+    src(:, 7) = alpha * (/1.1d0, 0.9d0, 7d0/)
+    src(:, 8) = alpha * (/2.1d0, 2.1d0, 8d0/)
+    src(:, 9) = alpha * (/1.1d0, 0.9d0, 9d0/)
+    src(:, 10) = alpha * (/2.1d0, 1.9d0, 9.9d0/)
+    ! Reorder inputs
+    order = (/4, 2, 8, 5, 7, 1, 9, 6, 10, 3/)
+    do i = 1, nsph
+        csph2(:, i) = csph(:, order(i))
+        rsph2(i) = rsph(order(i))
+    end do
+    dd_data % nclusters = 2*nsph-1
+    dd_data % pl = p
+    dd_data % pm = p
+    dd_data % nsph = nsph
+    ! Allocate space for a tree
+    allocate(dd_data % cluster(2, 2*nsph-1), dd_data % children(2, 2*nsph-1), &
+        & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
+        & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
+        & dd_data % order(nsph), dd_data % vscales((p+1)**2), &
+        & dd_data % vfact(2*p+1))
+    ! Build a recursive inertial binary tree
+    call tree_rib_build(nsph, csph2, rsph2, dd_data % order, &
+        & dd_data % cluster, dd_data % children, dd_data % parent, &
+        & dd_data % cnode, dd_data % rnode, dd_data % snode)
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics
+    call ylmscale(p, dd_data % vscales)
+    dd_data % vfact(1) = one
+    do i = 2, 2*p+1
+        dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
+    end do
+    ! Init input harmonics
+    node_l = zero
+    do i = 1, nsph
+        call fmm_p2m(src(:, i)-csph(:, i), one, rsph(i), p, &
+            & dd_data % vscales, zero, node_l(:, dd_data % snode(i)))
+    end do
+    call tree_m2m_rotation(dd_data, node_l)
+    dd_data % pm = -1
+    ! Get reference result of L2L operation
+    sph_l = zero
+    do i = 1, 2*nsph-1
+        do j = dd_data % cluster(1, i), dd_data % cluster(2, i)
+            k = dd_data % order(j)
+            call fmm_l2l_rotation(dd_data % cnode(:, i)-csph2(:, k), &
+                & dd_data % rnode(i), rsph2(k), p, dd_data % vscales, &
+                & dd_data % vfact, one, node_l(:, i), one, sph_l(:, k))
+        end do
+    end do
+    ! Check tree_l2l_rotation
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_rotation"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_l2 = node_l
+    call tree_l2l_rotation(dd_data, node_l2)
+    do i = 1, nsph
+        sph_l2(:, i) = node_l2(:, dd_data % snode(i))
+    end do
+    rel_err = dnrm2(((p+1)**2)*nsph, sph_l-sph_l2, 1) / &
+        & dnrm2(((p+1)**2)*nsph, sph_l, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_l2l_reflection
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_reflection"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_l2 = node_l
+    call tree_l2l_reflection(dd_data, node_l2)
+    do i = 1, nsph
+        sph_l2(:, i) = node_l2(:, dd_data % snode(i))
+    end do
+    rel_err = dnrm2(((p+1)**2)*nsph, sph_l-sph_l2, 1) / &
+        & dnrm2(((p+1)**2)*nsph, sph_l, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Allocate space for transfer matrices
+    dd_data % l2l_reflect_mat_size = (p+1)*(2*p+1)*(2*p+3)/3
+    dd_data % l2l_ztranslate_mat_size = (p+1)*(p+2)*(p+3)/6
+    allocate(dd_data % l2l_reflect_mat(dd_data % l2l_reflect_mat_size, &
+        & dd_data % nclusters-1), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    allocate(dd_data % l2l_ztranslate_mat(dd_data % l2l_ztranslate_mat_size, &
+        & dd_data % nclusters-1), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    ! Compute transfer matrices
+    call tree_l2l_reflection_get_mat(dd_data)
+    ! Check tree_l2l_reflection_use_mat
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_reflection_get_mat"
+        write(*, "(A)") "Check tree_l2l_reflection_use_mat"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_l2 = node_l
+    call tree_l2l_reflection_use_mat(dd_data, node_l2)
+    do i = 1, nsph
+        sph_l2(:, i) = node_l2(:, dd_data % snode(i))
+    end do
+    rel_err = dnrm2(((p+1)**2)*nsph, sph_l-sph_l2, 1) / &
+        & dnrm2(((p+1)**2)*nsph, sph_l, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_l2l_reflection_use_mat_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_reflection_use_mat_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    do i = 1, 2*nsph-1
+        do j = 1, (p+1)**2
+            node_l2 = zero
+            node_l2(j, i) = one
+            call tree_l2l_reflection_use_mat(dd_data, node_l2)
+            do k = 1, nsph
+                full_mat(:, k, j, i) = node_l2(:, dd_data % snode(k))
+            end do
+        end do
+    end do
+    full_norm = dnrm2((2*nsph-1)*nsph*((p+1)**4), full_mat, 1)
+    do i = 1, nsph
+        do j = 1, (p+1)**2
+            node_l2 = one
+            do k = 1, nsph
+                node_l2(:, dd_data % snode(k)) = zero
+            end do
+            node_l2(j, dd_data % snode(i)) = one
+            call tree_l2l_reflection_use_mat_adj(dd_data, node_l2)
+            full_mat(j, i, :, :) = full_mat(j, i, :, :) - node_l2
+        end do
+    end do
+    diff_norm = dnrm2((2*nsph-1)*nsph*((p+1)**4), full_mat, 1)
+    rel_err = diff_norm / full_norm
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_l2l_rotation_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_rotation_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_l2 = zero
+    do i = 1, nsph
+        node_l2(:, dd_data % snode(i)) = node_l(:, dd_data % snode(i))
+    end do
+    call tree_l2l_reflection_use_mat_adj(dd_data, node_l2)
+    node_l3 = zero
+    do i = 1, nsph
+        node_l3(:, dd_data % snode(i)) = node_l(:, dd_data % snode(i))
+    end do
+    call tree_l2l_rotation_adj(dd_data, node_l3)
+    rel_err = dnrm2((2*nsph-1)*((p+1)**2), node_l2-node_l3, 1) / &
+        dnrm2((2*nsph-1)*((p+1)**2), node_l2, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_l2l_reflection_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_l2l_reflection_adj"
+        write(*, "(4x,A,I0)") "p = ", p
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree L2L] - [plain L2L] ||", &
+            & " / || [plain L2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    node_l3 = zero
+    do i = 1, nsph
+        node_l3(:, dd_data % snode(i)) = node_l(:, dd_data % snode(i))
+    end do
+    call tree_l2l_reflection_adj(dd_data, node_l3)
+    rel_err = dnrm2((2*nsph-1)*((p+1)**2), node_l2-node_l3, 1) / &
+        dnrm2((2*nsph-1)*((p+1)**2), node_l2, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Deallocate tree
+    call ddfree(dd_data)
+end subroutine check_tree_l2l
+
+subroutine check_tree_m2l(pm, pl, alpha, iprint, threshold)
+    ! Inputs
+    integer, intent(in) :: pm, pl, iprint
+    real(dp), intent(in) :: alpha, threshold
+    ! Local variables
+    integer, parameter :: nsph = 10, lwork = 1000
+    integer :: i, j, k, l, order(nsph), istatus, iwork, jwork, work(3, lwork)
+    real(dp) :: csph(3, nsph), rsph(nsph), src(3, nsph), csph2(3, nsph), &
+        & rsph2(nsph), node_m((pm+1)**2, 2*nsph-1), &
+        & node_l((pl+1)**2, 2*nsph-1), vscales((pm+pl+1)**2), &
+        & vfact(2*(pm+pl)+1), rel_err, full_norm, diff_norm, &
+        & node_m2((pm+1)**2, 2*nsph-1), node_l2((pl+1)**2, 2*nsph-1)
+    type(dd_data_type) :: dd_data
+    logical :: ok
+    real(dp), external :: dnrm2
+    real(dp) :: full_mat((pl+1)**2, 2*nsph-1, (pm+1)**2, 2*nsph-1)
+    real(dp) :: far_p2p(nsph), far_p2p2(nsph)
+    ! Scale inputs
+    csph(:, 1) = alpha * (/1d0, 1d0, 1d0/)
+    csph(:, 2) = alpha * (/2d0, 2d0, 2d0/)
+    csph(:, 3) = alpha * (/1d0, 1d0, 3d0/)
+    csph(:, 4) = alpha * (/2d0, 2d0, 4d0/)
+    csph(:, 5) = alpha * (/1d0, 1d0, 5d0/)
+    csph(:, 6) = alpha * (/2d0, 2d0, 6d0/)
+    csph(:, 7) = alpha * (/1d0, 1d0, 7d0/)
+    csph(:, 8) = alpha * (/2d0, 2d0, 8d0/)
+    csph(:, 9) = alpha * (/1d0, 1d0, 9d0/)
+    csph(:, 10) = alpha * (/2d0, 2d0, 10d0/)
+    rsph = abs(alpha) * (/2d-1, 3d-1, 4d-1, 5d-1, 6d-1, 7d-1, 8d-1, 9d-1, &
+        & 1d0, 1.1d0/)
+    src(:, 1) = alpha * (/1.1d0, 0.9d0, 1d0/)
+    src(:, 2) = alpha * (/2.1d0, 1.9d0, 2.1d0/)
+    src(:, 3) = alpha * (/1.1d0, 1.1d0, 3.1d0/)
+    src(:, 4) = alpha * (/1.9d0, 1.9d0, 4.1d0/)
+    src(:, 5) = alpha * (/1.1d0, 0.9d0, 5d0/)
+    src(:, 6) = alpha * (/1.9d0, 2.1d0, 5.9d0/)
+    src(:, 7) = alpha * (/1.1d0, 0.9d0, 7d0/)
+    src(:, 8) = alpha * (/2.1d0, 2.1d0, 8d0/)
+    src(:, 9) = alpha * (/1.1d0, 0.9d0, 9d0/)
+    src(:, 10) = alpha * (/2.1d0, 1.9d0, 9.9d0/)
+    ! Reorder inputs
+    order = (/4, 2, 8, 5, 7, 1, 9, 6, 10, 3/)
+    do i = 1, nsph
+        csph2(:, i) = csph(:, order(i))
+        rsph2(i) = rsph(order(i))
+    end do
+    dd_data % nclusters = 2*nsph-1
+    dd_data % pl = pl
+    dd_data % pm = pm
+    dd_data % nsph = nsph
+    ! Allocate space for a tree
+    allocate(dd_data % cluster(2, 2*nsph-1), dd_data % children(2, 2*nsph-1), &
+        & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
+        & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
+        & dd_data % order(nsph), dd_data % vscales((pm+pl+1)**2), &
+        & dd_data % vfact(2*(pm+pl)+1))
+    allocate(dd_data % nfar(dd_data % nclusters), &
+        & dd_data % nnear(dd_data % nclusters))
+    ! Build a recursive inertial binary tree
+    call tree_rib_build(nsph, csph2, rsph2, dd_data % order, &
+        & dd_data % cluster, dd_data % children, dd_data % parent, &
+        & dd_data % cnode, dd_data % rnode, dd_data % snode)
+    ! Get list of neighbours for M2L operation
+    iwork = 0
+    call tree_get_farnear_work(dd_data % nclusters, dd_data % children, &
+        & dd_data % cnode, dd_data % rnode, lwork, iwork, jwork, work, &
+        & dd_data % nnfar, dd_data % nfar, dd_data % nnnear, dd_data % nnear)
+    if (iwork .le. jwork) then
+        write(*, "(A,A)") "Value of lwork, size of temporary buffer, ", &
+            & "is too low, please increase it"
+        stop 1
+    end if
+    allocate(dd_data % far(dd_data % nnfar), &
+        & dd_data % sfar(dd_data % nclusters+1), &
+        & dd_data % near(dd_data % nnnear), &
+        & dd_data % snear(dd_data % nclusters+1))
+    call tree_get_farnear(jwork, lwork, work, dd_data % nclusters, &
+        & dd_data % nnfar, dd_data % nfar, dd_data % sfar, dd_data % far, &
+        & dd_data % nnnear, dd_data % nnear, dd_data % snear, dd_data % near)
+    ! Get far-field P2P for a reference result
+    do i = 1, nsph
+        far_p2p(i) = zero
+        do j = 1, nsph
+            ok = .true.
+            do k = dd_data % snear(dd_data % snode(i)), &
+                & dd_data % snear(dd_data % snode(i)+1)-1
+                if (dd_data % near(k) .eq. dd_data % snode(j)) ok = .false.
+            end do
+            if (ok) then
+                far_p2p(i) = far_p2p(i) + &
+                    & one/dnrm2(3, src(:, order(i))-src(:, order(j)), 1)
+            end if
+        end do
+    end do
+    ! Get constants, corresponding to given maximum degree of spherical
+    ! harmonics
+    call ylmscale(pm+pl, dd_data % vscales)
+    dd_data % vfact(1) = one
+    do i = 2, 2*(pm+pl)+1
+        dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
+    end do
+    ! Init input harmonics
+    do i = 1, nsph
+        call fmm_p2m(src(:, order(i))-csph2(:, i), one, rsph2(i), pm, &
+            & dd_data % vscales, zero, node_m(:, dd_data % snode(i)))
+    end do
+    ! Prepare M2M
+    call tree_m2m_rotation(dd_data, node_m)
+    ! Check tree_m2l_rotation
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_rotation"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || P2M + [tree M2L] + L2P - P2P ||", &
+            & " / || P2P ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", threshold
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    call tree_m2l_rotation(dd_data, node_m, node_l)
+    call tree_l2l_rotation(dd_data, node_l)
+    do i = 1, nsph
+        call fmm_l2p(src(:, order(i))-csph2(:, i), rsph2(i), pl, &
+            & dd_data % vscales, one, node_l(:, dd_data % snode(i)), &
+            & zero, far_p2p2(i))
+    end do
+    rel_err = dnrm2(nsph, far_p2p-far_p2p2, 1) / dnrm2(nsph, far_p2p, 1)
+    ok = rel_err .le. threshold
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2l_reflection
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_reflection"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2L] - [tree_m2l_rotation] ||", &
+            & " / || [tree_m2l_rotation] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", 1d-15
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    call tree_m2l_rotation(dd_data, node_m, node_l)
+    call tree_m2l_reflection(dd_data, node_m, node_l2)
+    rel_err = dnrm2((2*nsph-1)*((pl+1)**2), node_l2-node_l, 1) / &
+        & dnrm2((2*nsph-1)*((pl+1)**2), node_l, 1)
+    ok = rel_err .le. 1d-15
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Allocate space for transfer matrices
+    dd_data % m2l_reflect_mat_size = (max(pm,pl)+1)*(2*max(pm,pl)+1)* &
+        & (2*max(pm,pl)+3)/3
+    dd_data % m2l_ztranslate_mat_size = (min(pm,pl)+1)*(min(pm,pl)+2)* &
+        & (3*max(pm,pl)+3-min(pm,pl))/6
+    allocate(dd_data % m2l_reflect_mat(dd_data % m2l_reflect_mat_size, &
+        & dd_data % nnfar), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    allocate(dd_data % m2l_ztranslate_mat(dd_data % m2l_ztranslate_mat_size, &
+        & dd_data % nnfar), stat=istatus)
+    if (istatus .ne. 0) stop "Allocation failed"
+    ! Check tree_m2l_reflection_use_mat
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_reflection_get_mat"
+        write(*, "(A)") "Check tree_m2l_reflection_use_mat"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2L] - [tree_m2l_rotation] ||", &
+            & " / || [tree_m2l_rotation] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", 1d-15
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    call tree_m2l_reflection_get_mat(dd_data)
+    call tree_m2l_reflection_use_mat(dd_data, node_m, node_l2)
+    rel_err = dnrm2((2*nsph-1)*((pl+1)**2), node_l2-node_l, 1) / &
+        & dnrm2((2*nsph-1)*((pl+1)**2), node_l, 1)
+    ok = rel_err .le. 1d-15
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2l_reflection_use_mat_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_reflection_use_mat_adj"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [tree M2L] - [adj tree M2L]^T ||", &
+            & " / || [tree M2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", 1d-15
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    do i = 1, dd_data % nclusters
+        do j = 1, (pm+1)**2
+            node_m2 = zero
+            node_m2(j, i) = one
+            call tree_m2l_reflection_use_mat(dd_data, node_m2, node_l2)
+            full_mat(:, :, j, i) = node_l2
+        end do
+    end do
+    full_norm = dnrm2((((2*nsph-1)*((pm+1)*(pl+1)))**2), full_mat, 1)
+    do i = 1, dd_data % nclusters
+        do j = 1, (pl+1)**2
+            node_l2 = zero
+            node_l2(j, i) = one
+            call tree_m2l_reflection_use_mat_adj(dd_data, node_l2, node_m2)
+            full_mat(j, i, :, :) = full_mat(j, i, :, :) - node_m2
+        end do
+    end do
+    diff_norm = dnrm2((((2*nsph-1)*((pm+1)*(pl+1)))**2), full_mat, 1)
+    rel_err = diff_norm / full_norm
+    ok = rel_err .le. 1d-15
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2l_rotation_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_rotation_adj"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [adj tree M2L] - [adj tree M2L] ||", &
+            & " / || [adj tree M2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", 1d-15
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    call tree_m2l_reflection_use_mat_adj(dd_data, node_l, node_m)
+    call tree_m2l_rotation_adj(dd_data, node_l, node_m2)
+    rel_err = dnrm2((2*nsph-1)*((pm+1)**2), node_m2-node_m, 1) / &
+        & dnrm2((2*nsph-1)*((pm+1)**2), node_m, 1)
+    ok = rel_err .le. 1d-15
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Check tree_m2l_reflection_adj
+    if (iprint .gt. 0) then
+        write(*, "(/,A)") repeat("=", 40)
+        write(*, "(A)") "Check tree_m2l_reflection_adj"
+        write(*, "(4x,A,I0)") "pm = ", pm
+        write(*, "(4x,A,I0)") "pl = ", pl
+        write(*, "(4x,A,ES24.16E3)") "alpha = ", alpha
+        write(*, "(4x,A,A)") "err = || [adj tree M2L] - [adj tree M2L] ||", &
+            & " / || [adj tree M2L] ||"
+        write(*, "(4x,A,ES23.16E3)") "threshold = ", 1d-15
+        write(*, "(A)") repeat("=", 40)
+        write(*, "(A)") " ok | err"
+        write(*, "(A)") repeat("=", 40)
+    end if
+    call tree_m2l_reflection_adj(dd_data, node_l, node_m2)
+    rel_err = dnrm2((2*nsph-1)*((pm+1)**2), node_m2-node_m, 1) / &
+        & dnrm2((2*nsph-1)*((pm+1)**2), node_m, 1)
+    ok = rel_err .le. 1d-15
+    if (iprint .gt. 0) then
+        write(*, "(L3,A,ES23.16E3)") ok, " | ", rel_err
+        write(*, "(A,/)") repeat("=", 40)
+    end if
+    if (.not. ok) stop 1
+    ! Deallocate tree
+    call ddfree(dd_data)
+end subroutine check_tree_m2l
+
+subroutine check_tree_l2p(p, alpha, iprint, threshold)
+    ! Inputs
+    integer, intent(in) :: p, iprint
+    real(dp), intent(in) :: alpha, threshold
+    ! Local variables
+end subroutine check_tree_l2p
+
+subroutine check_tree_m2p
+end subroutine check_tree_m2p
 
 end program test_dd_core
 

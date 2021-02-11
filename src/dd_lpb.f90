@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Abhinav Jha and Michele Nottoli
-!! @date 2021-01-07
+!! @date 2021-02-11
 
 module dd_lpb
 use dd_cosmo
@@ -161,9 +161,11 @@ contains
     !! @param[in]  g    : Intermediate right side g
     !! @param[out] g0   : Integrated right side Eq.(77) in QSM19.SISC
     call intrhs(dd_data % iprint, dd_data % ngrid, &
-                dd_data % lmax, dd_data % vwgrid, isph, g(:,isph), g0)
+                dd_data % lmax, dd_data % vwgrid, dd_data % vgrid_nbasis, &
+                & isph, g(:,isph), g0)
     call intrhs(dd_data % iprint, dd_data % ngrid, &
-                dd_data % lmax, dd_data % vwgrid, isph,f(:,isph),f0)
+                dd_data % lmax, dd_data % vwgrid, dd_data % vgrid_nbasis, &
+                & isph,f(:,isph),f0)
     !! rhs 
     rhs_r_init(:,isph) = g0 + f0
     rhs_e_init(:,isph) = f0
@@ -457,7 +459,8 @@ contains
     call calcv2_lpb(dd_data, isph, pot, x, basloc, vplm, vcos, vsin )
     ! intrhs comes from ddCOSMO
     call intrhs(dd_data % iprint, dd_data % ngrid, &
-                dd_data % lmax, dd_data % vwgrid, isph, pot, y(:,isph) )
+                dd_data % lmax, dd_data % vwgrid, dd_data % vgrid_nbasis, &
+                & isph, pot, y(:,isph) )
     ! Action of off-diagonal blocks
     y(:,isph) = - y(:,isph)
     ! Add action of diagonal block

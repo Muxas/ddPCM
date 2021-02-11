@@ -1,4 +1,4 @@
-!> @copyright (c) 2020-2020 RWTH Aachen. All rights reserved.
+!> @copyright (c) 2020-2021 RWTH Aachen. All rights reserved.
 !!
 !! ddX software
 !!
@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2020-12-17
+!! @date 2021-02-11
 
 !> Core routines and parameters of ddX software
 module dd_cosmo
@@ -36,7 +36,7 @@ subroutine ddcosmo(dd_data, phi, psi, tol, ndiis, niter)
     call wghpot(dd_data, phi, g)
     do isph = 1, dd_data % nsph
         call intrhs(dd_data % iprint, dd_data % ngrid, dd_data % lmax, &
-            & dd_data % vwgrid, isph, g(:, isph), rhs(:, isph))
+            & dd_data % vwgrid, dd_data % vgrid_nbasis, isph, g(:, isph), rhs(:, isph))
     end do
     allocate(xs(dd_data % nbasis, dd_data % nsph))
     xs = zero

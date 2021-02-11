@@ -8,7 +8,7 @@
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
 !! @author Abhinav Jha
-!! @date 2021-02-04
+!! @date 2021-02-11
 
 program main
 use dd_core
@@ -21,7 +21,7 @@ implicit none
 character(len=255) :: fname
 type(dd_data_type) :: dd_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
-integer :: niter, ndiis=25
+integer :: niter, ndiis=25, fmm_precompute, itersolver, maxiter
 logical :: ok
 real(dp) :: eps, eta, tol, se, kappa
 ! esolv       : Electrostatic Solvation Energy
@@ -45,12 +45,13 @@ real(dp), allocatable :: x(:), y(:), z(:), rvdw(:), charge(:)
 real(dp), allocatable :: phi(:), gradphi(:,:), psi(:, :), xs(:, :)
 real(dp), allocatable :: g(:, :), rhs(:, :)
 !
+! These constants are defined in ddX library already
 ! toang       : Conversion for Angstrom
 ! tokcal      : Conversion for Energy (?)
 ! tobohr      : Conversion from Angstrom to Bohr radius
 !
-real(dp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
-real(dp), parameter :: tobohr=1d0/toang
+!real(dp), parameter :: toang=0.52917721092d0, tokcal=627.509469d0
+!real(dp), parameter :: tobohr=1d0/toang
 !
 ! - ddLPB solution 
 !   sigma (nylm,n)      : Solution of ddLPB
@@ -113,13 +114,16 @@ model=3
 force=0
 fmm=0
 se=-one
-call ddinit(n, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
-    & iprint, se, eta, eps, kappa, dd_data, info)
+itersolver=1
+tol=1d-1**iconv
+maxiter=200
+call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
+    & fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, maxiter, &
+    & ndiis, nproc, dd_data, info)
 
 allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n), gradphi(3, dd_data % ncav))
 
-call mkrhs(n, charge, x, y, z, dd_data % ncav, dd_data % ccav, phi, &
-    & gradphi, dd_data % nbasis, psi)
+call mkrhs(dd_data, phi, gradphi, psi)
 
 niter = 200
 ! Now, call the ddLPB solver
