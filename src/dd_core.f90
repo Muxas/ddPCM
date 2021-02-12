@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-11
+!! @date 2021-02-12
 
 !> Core routines and parameters of ddX software
 module dd_core
@@ -203,6 +203,10 @@ type dd_data_type
     !> Index of first element of array of admissible near pairs. Dimension is
     !!      nclusters+1
     integer, allocatable :: snear(:)
+    !> Multipole coefficients of each node. Dimension is ((pm+1)**2, nsph)
+    real(dp), allocatable :: node_m(:, :)
+    !> Local coefficients of each node. Dimension is ((pl+1)**2, nsph)
+    real(dp), allocatable :: node_l(:, :)
     !! Reflection matrices for M2M, M2L and L2L operations
     !> Size of each M2M reflection matrix
     integer :: m2m_reflect_mat_size
@@ -230,8 +234,18 @@ type dd_data_type
     real(dp), allocatable :: m2l_ztranslate_mat(:, :)
     !> Number of near-field M2P interactions with cavity points
     integer :: nnear_m2p
-    !> Near-field M2P matrices of dimension (nbasis, nnear_m2p)
+    !> Near-field M2P matrices of a dimension (nbasis, nnear_m2p)
     real(dp), allocatable :: m2p_mat(:, :)
+    !> Temporary workspace to hold grid values. Dimension is (ngrid, nsph).
+    real(dp), allocatable :: tmp_grid(:, :)
+    !> Variable \f$ \Phi \f$ of a dimension (nbasis, nsph)
+    real(dp), allocatable :: phi(:, :)
+    !> Variable \f$ \Phi_\infty \f$ of a dimension (nbasis, nsph)
+    real(dp), allocatable :: phiinf(:, :)
+    !> Variable \f$ \Phi_\varepsilon \f$ of a dimension (nbasis, nsph)
+    real(dp), allocatable :: phieps(:, :)
+    !> Solution of the ddCOSMO system of a dimension (nbasis, nsph)
+    real(dp), allocatable :: xs(:, :)
 end type dd_data_type
 
 contains
@@ -239,7 +253,7 @@ contains
 !> Initialize ddX input with a full set of parameters
 !!
 !! @param[in] n: Number of atoms. n > 0.
-!! @param[in] q: Charges of atoms. Dimension is `(n)`
+!! @param[in] charge: Charges of atoms. Dimension is `(n)`
 !! @param[in] x: \f$ x \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] y: \f$ y \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] z: \f$ z \f$ coordinates of atoms. Dimension is `(n)`
@@ -876,6 +890,20 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 30
             return
         end if
+        allocate(dd_data % node_m((dd_data % pm+1)**2, dd_data % nclusters), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation"
+            info = 30
+            return
+        end if
+        allocate(dd_data % node_l((dd_data % pl+1)**2, dd_data % nclusters), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation"
+            info = 30
+            return
+        end if
         if (fmm_precompute .eq. 1) then
             dd_data % m2m_ztranslate_mat_size = (pm+1)*(pm+2)*(pm+3)/6
             dd_data % m2m_reflect_mat_size = (pm+1)*(2*pm+1)*(2*pm+3)/3
@@ -955,6 +983,44 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             ! Precompute M2P matrices
             call tree_m2p_get_mat(dd_data)
         end if
+    end if
+    !! Per-model allocations
+    ! COSMO model
+    if (model .eq. 1) then
+    ! PCM model
+    else if (model .eq. 2) then
+        allocate(dd_data % phi(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % phiinf(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % phieps(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % xs(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+    ! LPB model
+    else if (model .eq. 3) then
     end if
 end subroutine ddinit
 
@@ -1382,6 +1448,20 @@ subroutine ddfree(dd_data)
             stop 1
         endif
     end if
+    if (allocated(dd_data % node_m)) then
+        deallocate(dd_data % node_m, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [28] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % node_l)) then
+        deallocate(dd_data % node_l, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [28] deallocation failed!"
+            stop 1
+        endif
+    end if
     if (allocated(dd_data % m2m_ztranslate_mat)) then
         deallocate(dd_data % m2m_ztranslate_mat, stat=istatus)
         if (istatus .ne. 0) then
@@ -1426,6 +1506,41 @@ subroutine ddfree(dd_data)
     end if
     if (allocated(dd_data % m2p_mat)) then
         deallocate(dd_data % m2p_mat, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [35] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % phi)) then
+        deallocate(dd_data % phi, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % phiinf)) then
+        deallocate(dd_data % phiinf, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % phieps)) then
+        deallocate(dd_data % phieps, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % xs)) then
+        deallocate(dd_data % xs, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % tmp_grid)) then
+        deallocate(dd_data % tmp_grid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
@@ -2012,37 +2127,6 @@ subroutine intrhs(iprint, ngrid, p, vwgrid, ldvwgrid, isph, x, xlm)
         call prtsph('vlm', (p+1)**2, p, 1, isph, xlm)
     end if
 end subroutine intrhs
-
-!> Integrate against spherical harmonics by dgemv
-!!
-!! Integrate by Lebedev spherical quadrature by BLAS dgemv.
-!!
-!! @param[in] ngrid: Number of Lebedev grid points. `ngrid` > 0
-!! @param[in] p: Maximal degree of spherical harmonics. `p` >= 0
-!! @param[in] vwgrid: Values of spherical harmonics at Lebedev grid points,
-!!      multiplied by weights of grid points. Dimension is ((p+1)**2, ngrid)
-!! @param[in] isph: Index of given sphere. Used for debug purpose.
-!! @param[in] x: Input values at grid points of the sphere. Dimension is
-!!      (ngrid)
-!! @param[out] xlm: Output spherical harmonics. Dimension is ((p+1)**2)
-subroutine intrhs2(iprint, ngrid, p, vwgrid, isph, x, xlm)
-    ! Inputs
-    integer, intent(in) :: iprint, ngrid, p, isph
-    real(dp), intent(in) :: vwgrid((p+1)**2, ngrid)
-    real(dp), intent(in) :: x(ngrid)
-    ! Output
-    real(dp), intent(out) :: xlm((p+1)**2)
-    ! Local variables
-    integer :: nbasis
-    nbasis = (p+1)**2
-    ! Integrate by dgemv
-    call dgemv('N', nbasis, ngrid, one, vwgrid, nbasis, x, 1, zero, xlm, 1)
-    ! Printing (these functions are not implemented yet)
-    if (iprint .ge. 5) then
-        call ptcart('pot', ngrid, 1, isph, x)
-        call prtsph('vlm', (p+1)**2, p, 1, isph, xlm)
-    end if
-end subroutine intrhs2
 
 !> Compute first derivatives of spherical harmonics
 !!

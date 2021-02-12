@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-11
+!! @date 2021-02-12
 
 !> Operators shared among ddX methods
 module dd_operators
@@ -125,7 +125,7 @@ end subroutine ldm1x
 !! @param[in] dd_data
 subroutine dx(dd_data, do_diag, x, y)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     integer, intent(in) :: do_diag
     real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
@@ -232,69 +232,65 @@ end subroutine dx_dense
 !! @param[in] dd_data
 subroutine dx_fmm(dd_data, do_diag, x, y)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     integer, intent(in) :: do_diag
     real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
     real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
     ! Local variables
     integer :: isph, inode, l, indl, indl1, m
-    real(dp) :: node_m((dd_data % pm+1)**2, dd_data % nclusters), &
-        & node_l((dd_data % pl+1)**2, dd_data % nclusters), &
-        & grid_v(dd_data % ngrid, dd_data % nsph)
-    real(dp) :: z(dd_data % nbasis, dd_data % nsph), zz(dd_data % nbasis), &
-        & finish_time, start_time
-    ! Scale input harmonics at first
-    z(1, :) = zero
+    real(dp) :: finish_time, start_time
+    ! Scale input harmonics at first (use output as a temporary variable)
+    y(1, :) = zero
     indl = 2
     do l = 1, dd_data % lmax
         indl1 = (l+1)**2
-        z(indl:indl1, :) = l * x(indl:indl1, :)
+        y(indl:indl1, :) = l * x(indl:indl1, :)
         indl = indl1 + 1
     end do
     ! Load input harmonics into tree data
     if(dd_data % lmax .lt. dd_data % pm) then
         do isph = 1, dd_data % nsph
             inode = dd_data % snode(isph)
-            node_m(:dd_data % nbasis, inode) = z(:, isph)
-            node_m(dd_data % nbasis+1:, inode) = zero
+            dd_data % node_m(:dd_data % nbasis, inode) = y(:, isph)
+            dd_data % node_m(dd_data % nbasis+1:, inode) = zero
         end do
     else
         indl = (dd_data % pm+1)**2
         do isph = 1, dd_data % nsph
             inode = dd_data % snode(isph)
-            node_m(:, inode) = z(:indl, isph)
+            dd_data % node_m(:, inode) = y(:indl, isph)
         end do
     end if
     ! Do FMM operations
     if(dd_data % fmm_precompute .eq. 1) then
-        call tree_m2m_reflection_use_mat(dd_data, node_m)
-        call tree_m2l_reflection_use_mat(dd_data, node_m, node_l)
-        call tree_l2l_reflection_use_mat(dd_data, node_l)
-        call tree_l2p(dd_data, one, node_l, zero, grid_v)
-        call tree_m2p_use_mat(dd_data, one, z, one, grid_v)
+        call tree_m2m_reflection_use_mat(dd_data, dd_data % node_m)
+        call tree_m2l_reflection_use_mat(dd_data, dd_data % node_m, &
+            & dd_data % node_l)
+        call tree_l2l_reflection_use_mat(dd_data, dd_data % node_l)
+        call tree_l2p(dd_data, one, dd_data % node_l, zero, dd_data % tmp_grid)
+        call tree_m2p_use_mat(dd_data, one, y, one, dd_data % tmp_grid)
     else
-        call tree_m2m_rotation(dd_data, node_m)
-        call tree_m2l_rotation(dd_data, node_m, node_l)
-        call tree_l2l_rotation(dd_data, node_l)
-        call tree_l2p(dd_data, one, node_l, zero, grid_v)
-        call tree_m2p(dd_data, one, z, one, grid_v)
+        call tree_m2m_rotation(dd_data, dd_data % node_m)
+        call tree_m2l_rotation(dd_data, dd_data % node_m, dd_data % node_l)
+        call tree_l2l_rotation(dd_data, dd_data % node_l)
+        call tree_l2p(dd_data, one, dd_data % node_l, zero, dd_data % tmp_grid)
+        call tree_m2p(dd_data, one, y, one, dd_data % tmp_grid)
     end if
     ! Apply diagonal contribution if needed
     if(do_diag .eq. 1) then
         call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, &
             & dd_data % nbasis, -pt5, dd_data % l2grid, &
-            & dd_data % vgrid_nbasis, x, dd_data % nbasis, one, grid_v, &
-            & dd_data % ngrid)
+            & dd_data % vgrid_nbasis, x, dd_data % nbasis, one, &
+            & dd_data % tmp_grid, dd_data % ngrid)
     end if
     ! Multiply bu characteristic function
-    grid_v = grid_v * dd_data % ui
+    dd_data % tmp_grid = dd_data % tmp_grid * dd_data % ui
     ! now integrate the potential to get its modal representation
-    do isph = 1, dd_data % nsph
-        call intrhs(dd_data % iprint, dd_data % ngrid, dd_data % lmax, &
-            & dd_data % vwgrid, dd_data % vgrid_nbasis, isph, &
-            & grid_v(:, isph), y(:, isph))
-    end do
+    ! output y is overwritten here
+    call dgemm('N', 'N', dd_data % nbasis, dd_data % nsph, dd_data % ngrid, &
+        & one, dd_data % vwgrid, dd_data % vgrid_nbasis, dd_data % tmp_grid, &
+        & dd_data % ngrid, zero, y, dd_data % nbasis)
 end subroutine dx_fmm
 
 !> Apply adjoint double layer operator to spherical harmonics
@@ -411,7 +407,7 @@ end subroutine dstarx_fmm
 !! @param[out] y:
 subroutine rx(dd_data, x, y)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
     real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
@@ -432,7 +428,7 @@ end subroutine rx
 !! @param[out] y:
 subroutine repsx(dd_data, x, y)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
     real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
@@ -443,7 +439,6 @@ subroutine repsx(dd_data, x, y)
     ! Apply diagonal
     fac = twopi * (dd_data % eps + one) / (dd_data % eps - one)
     y = fac*x - y
-    call prtsph("matvec x", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
 end subroutine repsx
 
 !> Apply \f$ R_\infty \f$ operator to spherical harmonics
@@ -455,7 +450,7 @@ end subroutine repsx
 !! @param[out] y:
 subroutine rinfx(dd_data, x, y)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     real(dp), intent(in) :: x(dd_data % nbasis, dd_data % nsph)
     ! Output
     real(dp), intent(out) :: y(dd_data % nbasis, dd_data % nsph)
