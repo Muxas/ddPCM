@@ -9,6 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        config:
         - {
             name: "Ubuntu Latest",
             os: ubuntu-latest
