@@ -27,6 +27,7 @@ jobs:
       run: |
         if ("${{ runner.os }}" STREQUAL "macOS")
           set(FC "gfortran-10")
+        endif()
 
     - name: Build project
       uses: nicledomaS/cmake_build_action@v1.3
