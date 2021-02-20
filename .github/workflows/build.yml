@@ -28,16 +28,6 @@ jobs:
         if ("${{ runner.os }}" STREQUAL "Windows")
           set(fortran_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
           file(DOWNLOAD "${fortran_url}" ./fortran.tar.xz SHOW_PROGRESS)
-          execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz)
+          execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz ./fortran/)
           # Save the path for other steps
         endif()
-        set(ENV{FC} ["$ENV{GITHUB_WORKSPACE}\\bin\\gfortran.exe"])
-        message(STATUS "$ENV{FC}")
-
-    - name: Build project
-      uses: nicledomaS/cmake_build_action@v1.3
-      with:
-        submodule_update: ON
-        run_tests: ON
-        cmake_args: -DENV{FC}="$ENV{GITHUB_WORKSPACE}\\bin\\gfortran.exe"
-        unit_test_build: -Dtest=ON
