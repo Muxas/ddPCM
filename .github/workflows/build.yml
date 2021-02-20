@@ -32,6 +32,7 @@ jobs:
             COMMAND mkdir fortran
             COMMAND cd fortran
             COMMAND tar xvf ../fortran.tar.xz
+            COMMAND dir
           )
           # Save the path for other steps
         endif()
