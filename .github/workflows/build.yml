@@ -35,7 +35,7 @@ jobs:
           )
           # Save the path for other steps
         endif()
-      -name: check dirs
+    - name: check dirs
       if: runner.os == 'Windows'
       run: |
         echo 'test'
