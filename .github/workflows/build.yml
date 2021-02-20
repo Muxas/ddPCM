@@ -28,7 +28,10 @@ jobs:
         if ("${{ runner.os }}" STREQUAL "Windows")
           set(fortran_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
           file(DOWNLOAD "${fortran_url}" ./fortran/fortran.tar.xz SHOW_PROGRESS)
-          execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran/fortran.tar.xz)
+          execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran/fortran.tar.xz
+            WORKING_DIRECTORY ./fortran
+          )
           # Save the path for other steps
         endif()
     - name: check dirs
