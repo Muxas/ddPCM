@@ -35,6 +35,10 @@ jobs:
           set(ENV{FC} "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
           set(CMAKE_FC_COMPILER  "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
         endif()
+    - name: create build dir
+      shell: cmake -P {0}
+      run: |
+        file(MAKE_DIRECTORY build)
     - name: check dirs
       if: runner.os == 'Windows'
       run: |
