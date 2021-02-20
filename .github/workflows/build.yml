@@ -45,8 +45,6 @@ jobs:
         echo 'test'
         dir
 
-    - name: build
-      run: |
-        cd build
-        cmake ../
-        cmake --build
+    - run: cd build
+    - run: cmake ../
+    - run: cmake --build
