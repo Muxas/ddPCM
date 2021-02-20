@@ -38,4 +38,5 @@ jobs:
       if: runner.os == 'Windows'
       run: |
         echo 'test'
+        cd fortran
         dir
