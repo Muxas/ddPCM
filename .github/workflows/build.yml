@@ -45,4 +45,4 @@ jobs:
     - name: build
       shell: cmake -P {0}
       run: |
-        cmake --build ./build
+        cmake . --build ./build
