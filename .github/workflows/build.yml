@@ -32,7 +32,8 @@ jobs:
             COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz
             WORKING_DIRECTORY ./fortran
           )
-          # Save the path for other steps
+          set(ENV{FC} "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
+          set(CMAKE_FC_COMPILER  "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
         endif()
     - name: check dirs
       if: runner.os == 'Windows'
@@ -40,3 +41,8 @@ jobs:
         echo 'test'
         cd fortran
         dir
+
+    - name: build
+      shell: cmake -P {0}
+      run: |
+        cmake --build build
