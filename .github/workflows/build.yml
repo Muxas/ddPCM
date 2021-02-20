@@ -29,9 +29,9 @@ jobs:
           set(fortran_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
           file(DOWNLOAD "${fortran_url}" ./fortran.tar.xz SHOW_PROGRESS)
           execute_process(
-            COMMAND mkdir fortran
-            COMMAND cd fortran
-            COMMAND tar xvf ../fortran.tar.xz
+            COMMAND ${CMAKE_COMMAND} -E mkdir fortran
+            COMMAND ${CMAKE_COMMAND} -E cd fortran
+            COMMAND ${CMAKE_COMMAND} -E tar xvf ../fortran.tar.xz
           )
           # Save the path for other steps
         endif()
