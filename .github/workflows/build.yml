@@ -14,10 +14,10 @@ jobs:
             name: "Ubuntu Latest",
             os: ubuntu-latest
           }
-        - {
-            name: "Windows Latest",
-            os: windows-latest
-          }
+       # - {
+       #     name: "Windows Latest",
+       #     os: windows-latest
+       #   }
 
     steps:
     - name: Checkout
@@ -46,5 +46,6 @@ jobs:
         dir
 
     - run: cd build
+    - run: ls
     - run: cmake ../
     - run: cmake --build
