@@ -43,9 +43,9 @@ jobs:
       if: runner.os == 'Windows'
       run: |
         echo 'test'
-        cd fortran
         dir
 
     - name: build
       run: |
+        cmake --configure
         cmake --build ./build
