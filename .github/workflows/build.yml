@@ -48,5 +48,5 @@ jobs:
     - name: build
       run: |
         cd build
-        cmake ..
+        cmake ../
         cmake --build
