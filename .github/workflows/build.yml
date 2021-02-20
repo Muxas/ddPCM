@@ -44,10 +44,15 @@ jobs:
       run: |
         echo 'test'
         dir
+        cmake --help
 
     - name: build
       run: |
         cd build
-        cmake ..
-        cmake --build .
+        #cmake ..
+        #cmake --build .
+
+    - name: print cmake error log
+      if: ${{ always() }}
+      run: |
         
