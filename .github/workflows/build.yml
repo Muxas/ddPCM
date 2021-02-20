@@ -23,6 +23,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2.0.0
     - name: download gfortran
+      id: fortran
       shell: cmake -P {0}
       run: |
         if ("${{ runner.os }}" STREQUAL "Windows")
@@ -32,8 +33,7 @@ jobs:
             COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz
             WORKING_DIRECTORY ./fortran
           )
-          set(ENV{FC} "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
-          set(CMAKE_Fortran_COMPILER  "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
+          message("::set-output name=fortran_dir::$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
         endif()
     - name: create build dir
       shell: cmake -P {0}
@@ -42,15 +42,15 @@ jobs:
     - name: check dirs
       if: runner.os == 'Windows'
       run: |
-        echo 'test'
+        echo ${{ steps.fortran.outputs.fortran_dir }}
         dir
 
     - name: build
       if: runner.os == 'Windows'
       run: |
         cd build
-        Write-Output "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe"
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe" .. 
+        Write-Output "${{ steps.fortran.outputs.fortran_dir }}"
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="${{ steps.fortran.outputs.fortran_dir }}" .. 
         cmake --build .
 
     - name: print cmake error log
