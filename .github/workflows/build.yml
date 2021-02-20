@@ -47,5 +47,5 @@ jobs:
 
     - name: build
       run: |
-        cmake --configure
+        cmake .
         cmake --build ./build
