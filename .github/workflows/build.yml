@@ -53,6 +53,7 @@ jobs:
         cmake --build .
 
     - name: print cmake error log
-      if: ${{ always() }}
+      if: ${{ always() && runner.os == 'Windows'}}
       run: |
+        Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
         
