@@ -32,7 +32,11 @@ jobs:
             COMMAND mkdir fortran
             COMMAND cd fortran
             COMMAND tar xvf ../fortran.tar.xz
-            COMMAND dir
           )
           # Save the path for other steps
         endif()
+      -name: check dirs
+      if: runner.os == 'Windows'
+      run: |
+        echo 'test'
+        dir
