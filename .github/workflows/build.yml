@@ -49,7 +49,7 @@ jobs:
     - name: build
       run: |
         cd build
-        cmake -G "${{matrix.config.gen}}" -DCMAKE_Fortran_COMPILER="${{matrix.config.fortran_path}}" .. 
+        cmake -G "${{matrix.config.gen}}" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
         cmake --build .
     
     - name: print cmake error log
