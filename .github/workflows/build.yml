@@ -33,7 +33,9 @@ jobs:
             COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz
             WORKING_DIRECTORY ./fortran
           )
-          message("::set-output name=fortran_dir::$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
+          string(REPLACE "\\" "/" fortran_dir "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\gfortran.exe")
+          message("fortran_dir ${fortran_dir}")
+          message("::set-output name=fortran_dir::${fortran_dir}")
         endif()
     - name: create build dir
       shell: cmake -P {0}
