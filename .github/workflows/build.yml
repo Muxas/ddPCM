@@ -36,11 +36,9 @@ jobs:
       shell: cmake -P {0}
       run: |
         file(MAKE_DIRECTORY build)
-
-    - name: test gfortran mac
-      if: runner.os == 'macOS'
-      run: |
-        gfortran-10
+        if ("${{ runner.os }}" STREQUAL "macOS")
+          set(ENV{FC} "gfortran-10")
+        endif()
 
     - name: build
       run: |
