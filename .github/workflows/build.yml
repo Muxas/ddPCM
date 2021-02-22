@@ -38,7 +38,7 @@ jobs:
         file(MAKE_DIRECTORY build)
 
     - name: test gfortran mac
-      if: runner.os == macOS
+      if: runner.os == 'macOS'
       run: |
         gfortran-10
 
