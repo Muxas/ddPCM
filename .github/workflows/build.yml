@@ -14,43 +14,52 @@ jobs:
             name: "Ubuntu Latest",
             os: ubuntu-latest,
             gen: "Unix Makefiles",
+            fortran: "gfortran-10",
             print: "cat"
           }
         - {
             name: "Windows Latest",
             os: windows-latest,
             gen: "MinGW Makefiles",
+            fortran: "gfortran",
             print: "Get-Content -Path"
           }
         - {
             name: "macOS Latest Clang",
             os: macos-latest,
             gen: "Unix Makefiles",
-            fortran_path: "/usr/local/bin/gfortran-10",
+            fortran: "gfortran-10",
             print: "cat"
           }
     steps:
     - name: Checkout
       uses: actions/checkout@v2.0.0
 
-    #- name: mac get fortran path
-    #  if: runner.os == 'macOS'
-    #  run: |
-    #    type -a gfortran-10
-
     - name: create build dir
       shell: cmake -P {0}
       run: |
         file(MAKE_DIRECTORY build)
-        if ("${{ runner.os }}" STREQUAL "macOS")
-          set(ENV{FC} "${{matrix.config.fortran_path}}")
-        endif()
     
     - name: build
       run: |
         cd build
-        cmake -G "${{matrix.config.gen}}" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
+        cmake -G "${{matrix.config.gen}}" -DCMAKE_Fortran_COMPILER="${{matrix.config.fortran}}" .. 
         cmake --build .
+
+    - name: Run tests
+      shell: cmake -P {0}
+      run: |
+        include(ProcessorCount)
+        ProcessorCount(N)
+        execute_process(
+          COMMAND ctest -j ${N}
+          WORKING_DIRECTORY build
+          RESULT_VARIABLE result
+        )
+        if (NOT result EQUAL 0)
+          message(FATAL_ERROR "Running tests failed!")
+        endif()
+      
     
     - name: print cmake error log
       if: ${{ always() }}
