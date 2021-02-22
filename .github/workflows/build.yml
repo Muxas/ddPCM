@@ -12,13 +12,22 @@ jobs:
         config:
         - {
             name: "Ubuntu Latest",
-            os: ubuntu-latest
+            os: ubuntu-latest,
+            gen: "Unix Makefiles",
+            print: "cat"
           }
         - {
             name: "Windows Latest",
-            os: windows-latest
+            os: windows-latest,
+            gen: "MinGW Makefiles",
+            print: "Get-Content -Path"
           }
-
+        - {
+            name: "macOS Latest Clang",
+            os: macos-latest,
+            gen: "Unix Makefiles",
+            print: "cat"
+          }
     steps:
     - name: Checkout
       uses: actions/checkout@v2.0.0
@@ -29,14 +38,14 @@ jobs:
         file(MAKE_DIRECTORY build)
 
     - name: build
-      if: runner.os == 'Windows'
       run: |
         cd build
-        cmake -G "MinGW Makefiles" .. 
+        cmake -G "${{matrix.config.gen}}" .. 
         cmake --build .
 
     - name: print cmake error log
-      if: ${{ always() && runner.os == 'Windows'}}
+      if: ${{ always() }}
       run: |
-        Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
+        ${{matrix.config.print}} ./build/CMakeFiles/CMakeError.log
+        #Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
         
