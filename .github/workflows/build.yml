@@ -22,21 +22,6 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2.0.0
-    #- name: download gfortran
-    #  id: fortran
-    #  shell: cmake -P {0}
-    #  run: |
-    #    if ("${{ runner.os }}" STREQUAL "Windows")
-    #      set(fortran_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
-    #      file(DOWNLOAD "${fortran_url}" ./fortran/fortran.tar.xz SHOW_PROGRESS)
-    #      execute_process(
-    #        COMMAND ${CMAKE_COMMAND} -E tar xvf ./fortran.tar.xz
-    #        WORKING_DIRECTORY ./fortran
-    #      )
-    #      string(REPLACE "\\" "/" fortran_dir "$ENV{GITHUB_WORKSPACE}\\fortran\\bin\\mingw32-gfortran.exe")
-    #      message("fortran_dir ${fortran_dir}")
-    #      message("::set-output name=fortran_dir::${fortran_dir}")
-    #    endif()
     - name: create build dir
       shell: cmake -P {0}
       run: |
@@ -44,19 +29,12 @@ jobs:
     - name: check gfortran
       run: |
         gfortran
-    #- name: check dirs
-    #  if: runner.os == 'Windows'
-    #  run: |
-    #    echo ${{ steps.fortran.outputs.fortran_dir }}
-    #    dir
-    #
     - name: build
       if: runner.os == 'Windows'
       run: |
         cd build
-        #Write-Output "${{ steps.fortran.outputs.fortran_dir }}"
-        #cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="${{ steps.fortran.outputs.fortran_dir }}" .. 
-        #cmake --build .
+        cmake -G "MinGW Makefiles" .. 
+        cmake --build .
 
     - name: print cmake error log
       if: ${{ always() && runner.os == 'Windows'}}
