@@ -26,34 +26,35 @@ jobs:
             name: "macOS Latest Clang",
             os: macos-latest,
             gen: "Unix Makefiles",
+            fortran_path: "/usr/local/bin/gfortran-10",
             print: "cat"
           }
     steps:
     - name: Checkout
       uses: actions/checkout@v2.0.0
 
-    - name: mac get fortran path
-      if: runner.os == 'macOS'
-      run: |
-        type -a gfortran-10
+    #- name: mac get fortran path
+    #  if: runner.os == 'macOS'
+    #  run: |
+    #    type -a gfortran-10
 
-    #- name: create build dir
-    #  shell: cmake -P {0}
-    #  run: |
-    #    file(MAKE_DIRECTORY build)
-    #    if ("${{ runner.os }}" STREQUAL "macOS")
-    #      set(ENV{FC} "gfortran-10")
-    #    endif()
-    #
-    #- name: build
-    #  run: |
-    #    cd build
-    #    cmake -G "${{matrix.config.gen}}" .. 
-    #    cmake --build .
-    #
-    #- name: print cmake error log
-    #  if: ${{ always() }}
-    #  run: |
-    #    ${{matrix.config.print}} ./build/CMakeFiles/CMakeError.log
-    #    #Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
+    - name: create build dir
+      shell: cmake -P {0}
+      run: |
+        file(MAKE_DIRECTORY build)
+        if ("${{ runner.os }}" STREQUAL "macOS")
+          set(ENV{FC} "${{matrix.config.fortran_path}}")
+        endif()
+    
+    - name: build
+      run: |
+        cd build
+        cmake -G "${{matrix.config.gen}}" .. 
+        cmake --build .
+    
+    - name: print cmake error log
+      if: ${{ always() }}
+      run: |
+        ${{matrix.config.print}} ./build/CMakeFiles/CMakeError.log
+        #Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
         
