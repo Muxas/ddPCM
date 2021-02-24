@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-12
+!! @date 2021-02-24
 
 !> Core routines and parameters of ddX software
 module dd_pcm
@@ -43,14 +43,19 @@ subroutine ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
     logical :: ok
     double precision, external :: ddot
     external :: dgemm
-    ! Accumulate necessary arrays
+    ! Unwrap sparsely stored potential at cavity points and multiply by ui
     call wghpot(dd_data, phi_cav, dd_data % tmp_grid)
+    ! Integrate against spherical harmonics and Lebedev weights to get Phi
     call dgemm('N', 'N', dd_data % nbasis, dd_data % nsph, dd_data % ngrid, &
         & one, dd_data % vwgrid, dd_data % vgrid_nbasis, dd_data % tmp_grid, &
         & dd_data % ngrid, zero, dd_data % phi, dd_data % nbasis)
+    ! Compute Phi_infty
     call rinfx(dd_data, dd_data % phi, dd_data % phiinf)
+    ! Set initial guess on Phi_epsilon as Phi
     dd_data % phieps = dd_data % phi
+    ! Maximum number of iterations for an iterative solver
     niter = dd_data % maxiter
+    ! Solve ddPCM system R_eps Phi_epsilon = Phi_infty
     call cpu_time(start_time)
     call jacobi_diis(dd_data, dd_data % n, dd_data % iprint, dd_data % ndiis, &
         & 4, dd_data % tol, dd_data % phiinf, dd_data % phieps, niter, ok, &
@@ -61,6 +66,7 @@ subroutine ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
             & finish_time-start_time, " seconds"
         write(*, "(A,I0)") " ddpcm step iterations: ", niter
     endif
+    ! Solve ddCOSMO system L X = -Phi_epsilon with a zero initial guess
     niter = dd_data % maxiter
     dd_data % xs = zero
     call cpu_time(start_time)
@@ -73,7 +79,38 @@ subroutine ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
             & finish_time-start_time, " seconds"
         write(*, "(A,I0)") " ddcosmo step iterations: ", niter
     endif
-    write(*, *) "esolv=", pt5*ddot(dd_data % n, dd_data % xs, 1, psi, 1)
+    ! Solvation energy is computed
+    esolv = pt5*ddot(dd_data % n, dd_data % xs, 1, psi, 1)
+    ! Get forces if needed
+    if (dd_data % force .eq. 1) then
+        ! Solve adjoint ddCOSMO system
+        niter = dd_data % maxiter
+        dd_data % s = zero
+        call cpu_time(start_time)
+        call jacobi_diis(dd_data, dd_data % n, dd_data % iprint, &
+            & dd_data % ndiis, 4, dd_data % tol, psi, dd_data % s, niter, ok, &
+            & lstarx, ldm1x, hnorm)
+        call cpu_time(finish_time)
+        if (dd_data % iprint.ge.1) then
+            write(*, "(A,ES11.4E2,A)") " adjoint ddcosmo step time:", &
+                & finish_time-start_time, " seconds"
+            write(*, "(A,I0)") " adjoint ddcosmo step iterations: ", niter
+        endif
+        ! Solve adjoint ddPCM system
+        niter = dd_data % maxiter
+        dd_data % y = zero
+        call cpu_time(start_time)
+        call jacobi_diis(dd_data, dd_data % n, dd_data % iprint, &
+            & dd_data % ndiis, 4, dd_data % tol, dd_data % s, dd_data % y, &
+            & niter, ok, rstarx, apply_rstarepsx_prec, hnorm)
+        call cpu_time(finish_time)
+        if (dd_data % iprint .ge. 1) then
+            write(*,"(A,ES11.4E2,A)") " adjoint ddpcm step time:", &
+                & finish_time-start_time, " seconds"
+            write(*,"(A,I0)") " adjoint ddpcm step iterations: ", &
+                & niter
+        end if
+    end if
 end subroutine ddpcm
 
 end module dd_pcm

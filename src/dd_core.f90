@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-12
+!! @date 2021-02-24
 
 !> Core routines and parameters of ddX software
 module dd_core
@@ -203,10 +203,6 @@ type dd_data_type
     !> Index of first element of array of admissible near pairs. Dimension is
     !!      nclusters+1
     integer, allocatable :: snear(:)
-    !> Multipole coefficients of each node. Dimension is ((pm+1)**2, nsph)
-    real(dp), allocatable :: node_m(:, :)
-    !> Local coefficients of each node. Dimension is ((pl+1)**2, nsph)
-    real(dp), allocatable :: node_l(:, :)
     !! Reflection matrices for M2M, M2L and L2L operations
     !> Size of each M2M reflection matrix
     integer :: m2m_reflect_mat_size
@@ -234,10 +230,12 @@ type dd_data_type
     real(dp), allocatable :: m2l_ztranslate_mat(:, :)
     !> Number of near-field M2P interactions with cavity points
     integer :: nnear_m2p
-    !> Near-field M2P matrices of a dimension (nbasis, nnear_m2p)
+    !> Maximal degree of near-field M2P spherical harmonics
+    integer :: m2p_lmax
+    !> Number of spherical harmonics used for near-field M2P
+    integer :: m2p_nbasis
+    !> Near-field M2P matrices of a dimension (m2p_nbasis, nnear_m2p)
     real(dp), allocatable :: m2p_mat(:, :)
-    !> Temporary workspace to hold grid values. Dimension is (ngrid, nsph).
-    real(dp), allocatable :: tmp_grid(:, :)
     !> Variable \f$ \Phi \f$ of a dimension (nbasis, nsph)
     real(dp), allocatable :: phi(:, :)
     !> Variable \f$ \Phi_\infty \f$ of a dimension (nbasis, nsph)
@@ -246,6 +244,41 @@ type dd_data_type
     real(dp), allocatable :: phieps(:, :)
     !> Solution of the ddCOSMO system of a dimension (nbasis, nsph)
     real(dp), allocatable :: xs(:, :)
+    !> Solution of the adjoint ddCOSMO system of a dimension (nbasis, nsph)
+    real(dp), allocatable :: s(:, :)
+    !> Solution of the adjoint ddPCM system of a dimension (nbasis, nsph)
+    real(dp), allocatable :: y(:, :)
+    !> Values of y at grid points. Dimension is (ngrid, nsph)
+    real(dp), allocatable :: ygrid(:, :)
+    !> Shortcut of \f$ \Phi_\varepsilon - \Phi \f$
+    real(dp), allocatable :: g(:, :)
+    !> Temporary workspace for multipole coefficients of a degree up to lmax
+    !!      of each sphere. Dimension is (nbasis, nsph).
+    real(dp), allocatable :: tmp_sph(:, :)
+    !> Number of spherical harmonics of degree up to lmax+1 used for
+    !!      computation of forces (gradients).
+    integer :: grad_nbasis
+    !> Temporary workspace for multipole coefficients of a degree up to lmax+1
+    !!      of each sphere. Dimension is (grad_nbasis, nsph).
+    real(dp), allocatable :: tmp_sph2(:, :)
+    !> Temporary workspace for a gradient of M2M of harmonics of a degree up to
+    !!      lmax+1 of each sphere. Dimension is ((grad_nbasis, 3, nsph).
+    real(dp), allocatable :: tmp_sph_grad(:, :, :)
+    !> Temporary workspace for local coefficients of a degree up to pl
+    !!      of each sphere. Dimension is ((pl+1)**2, nsph).
+    real(dp), allocatable :: tmp_sph_l(:, :)
+    !> Temporary workspace for a gradient of L2L of harmonics of a degree up to
+    !!      pl of each sphere. Dimension is ((pl+1)**2, 3, nsph).
+    real(dp), allocatable :: tmp_sph_l_grad(:, :, :)
+    !> Temporary workspace for multipole coefficients of each node. Dimension
+    !!      is ((pm+1)**2, nsph)
+    real(dp), allocatable :: tmp_node_m(:, :)
+    !> Temporary workspace for local coefficients of each node. Dimension is
+    !!      ((pl+1)**2, nsph)
+    real(dp), allocatable :: tmp_node_l(:, :)
+    !> Temporary workspace for grid values of each sphere. Dimension is
+    !!      (ngrid, nsph).
+    real(dp), allocatable :: tmp_grid(:, :)
 end type dd_data_type
 
 contains
@@ -462,14 +495,18 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
         ! near-field analytical gradients
         if (force .eq. 1) then
             dd_data % dmax = max(pm+pl, lmax+1)
+            dd_data % m2p_lmax = lmax + 1
         else
             dd_data % dmax = max(pm+pl, lmax)
+            dd_data % m2p_lmax = lmax
         end if
         dd_data % vgrid_dmax = max(pl, lmax)
+        dd_data % m2p_nbasis = (dd_data % m2p_lmax+1) ** 2
     end if
     dd_data % vgrid_nbasis = (dd_data % vgrid_dmax+1) ** 2
     dd_data % nfact = max(2*dd_data % dmax+1, 2)
     dd_data % nscales = (dd_data % dmax+1) ** 2
+    dd_data % grad_nbasis = (lmax+2) ** 2
     ! Compute scaling factors of spherical harmonics
     allocate(dd_data % vscales(dd_data % nscales), stat=istatus)
     if (istatus .ne. 0) then
@@ -890,18 +927,54 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 30
             return
         end if
-        allocate(dd_data % node_m((dd_data % pm+1)**2, dd_data % nclusters), &
-            & stat=istatus)
+        allocate(dd_data % tmp_sph(dd_data % nbasis, n), stat=istatus)
         if (istatus .ne. 0) then
-            !write(*, *) "Error in allocation"
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_sph2(dd_data % grad_nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_sph_grad(dd_data % grad_nbasis, 3, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_sph_l((dd_data % pl+1)**2, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_sph_l_grad((dd_data % pl+1)**2, 3, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
+            return
+        end if
+        allocate(dd_data % tmp_node_m((dd_data % pm+1)**2, &
+            & dd_data % nclusters), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
             info = 30
             return
         end if
-        allocate(dd_data % node_l((dd_data % pl+1)**2, dd_data % nclusters), &
-            & stat=istatus)
+        allocate(dd_data % tmp_node_l((dd_data % pl+1)**2, &
+            & dd_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
-            !write(*, *) "Error in allocation"
+            !write(*, *) "Error in allocation of a temporary"
             info = 30
+            return
+        end if
+        allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of a temporary"
+            info = 38
             return
         end if
         if (fmm_precompute .eq. 1) then
@@ -973,7 +1046,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
                     & dd_data % ncav_sph(isph)*dd_data % nnear( &
                     & dd_data % snode(isph))
             end do
-            allocate(dd_data % m2p_mat(dd_data % nbasis, &
+            allocate(dd_data % m2p_mat(dd_data % m2p_nbasis, &
                 & dd_data % nnear_m2p), stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2P matrices"
@@ -1013,7 +1086,25 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 38
             return
         end if
-        allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
+        allocate(dd_data % s(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % y(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % ygrid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % g(dd_data % nbasis, n), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
@@ -1448,15 +1539,29 @@ subroutine ddfree(dd_data)
             stop 1
         endif
     end if
-    if (allocated(dd_data % node_m)) then
-        deallocate(dd_data % node_m, stat=istatus)
+    if (allocated(dd_data % tmp_sph)) then
+        deallocate(dd_data % tmp_sph, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % node_l)) then
-        deallocate(dd_data % node_l, stat=istatus)
+    if (allocated(dd_data % tmp_node_m)) then
+        deallocate(dd_data % tmp_node_m, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [28] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % tmp_node_l)) then
+        deallocate(dd_data % tmp_node_l, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [28] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % tmp_grid)) then
+        deallocate(dd_data % tmp_grid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
@@ -1534,6 +1639,34 @@ subroutine ddfree(dd_data)
     end if
     if (allocated(dd_data % xs)) then
         deallocate(dd_data % xs, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % s)) then
+        deallocate(dd_data % s, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % y)) then
+        deallocate(dd_data % y, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % ygrid)) then
+        deallocate(dd_data % ygrid, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [36] deallocation failed!"
+            stop 1
+        endif
+    end if
+    if (allocated(dd_data % g)) then
+        deallocate(dd_data % g, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
@@ -1699,8 +1832,8 @@ subroutine ylmscale(p, vscales)
         ! m != 0
         do m = 1, l
             tmp = -tmp / sqrt(dble((l-m+1)*(l+m)))
-            ! Fill only positive m
             vscales(ind+m) = tmp
+            vscales(ind-m) = tmp
         end do
     end do
 end subroutine ylmscale
@@ -2502,7 +2635,7 @@ endsubroutine rmsvec
 subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
 !
       implicit none
-      type(dd_data_type) :: dd_data
+      type(dd_data_type), intent(in) :: dd_data
       integer,                       intent(in)    :: isph
       real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(in)    :: xi
       real(dp), dimension((dd_data % lmax+1)**2),     intent(inout) :: vlm
@@ -2511,6 +2644,7 @@ subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
 !
       integer :: ij, jsph, ig, l, ind, m
       real(dp)  :: vji(3), vvji, tji, sji(3), xji, oji, fac, ffac, t
+      real(dp) :: rho, ctheta, stheta, cphi, sphi
 !      
 !-----------------------------------------------------------------------------------
 !
@@ -2551,7 +2685,9 @@ subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
             endif
 !            
 !           compute Y_l^m( s_n^ji )
-            !call ylmbas( sji, basloc, vplm, vcos, vsin )
+            call ylmbas(sji, rho, ctheta, stheta, cphi, sphi, &
+                & dd_data % lmax, dd_data % vscales, basloc, vplm, &
+                & vcos, vsin )
 !            
 !           initialize ( t_n^ji )^l
             t = one
@@ -2956,6 +3092,72 @@ subroutine fmm_m2p(c, r, p, vscales, alpha, src_m, beta, v)
         v = v + t*tmp/vscales(ind)**2
     end do
 end subroutine fmm_m2p
+
+!> Adjoint M2P operation
+!!
+!! Computes the following sum:
+!! \f[
+!!      v = \beta v + \alpha \sum_{\ell=0}^p \frac{4\pi}{\sqrt{2\ell+1}}
+!!      \left( \frac{r}{\|c\|} \right)^{\ell+1} \sum_{m=-\ell}^\ell
+!!      M_\ell^m Y_\ell^m \left( \frac{c}{\|c\|} \right),
+!! \f]
+!! where \f$ M \f$ is a vector of coefficients of input harmonics of
+!! a degree up to \f$ p \f$ inclusively with a convergence radius \f$ r \f$
+!! located at the origin, \f$ \alpha \f$ and \f$ \beta \f$ are scaling factors
+!! and \f$ c \f$ is a location of a particle.
+!!
+!! Based on normalized real spherical harmonics \f$ Y_\ell^m \f$, scaled by \f$
+!! r^{-\ell} \f$. It means corresponding coefficients are simply scaled by an
+!! additional factor \f$ r^\ell \f$.
+!!
+!! @param[in] c: Coordinates of a particle (relative to center of harmonics)
+!! @param[in] r: Radius of spherical harmonics
+!! @param[in] p: Maximal degree of multipole basis functions
+!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
+!!      is `(p+1)**2`
+!! @param[in] alpha: Scalar multiplier for `src_m`
+!! @param[in] src_m: Multipole coefficients. Dimension is `(p+1)**2`
+!! @param[in] beta: Scalar multiplier for `v`
+!! @param[inout] v: Value of induced potential
+subroutine fmm_m2p_adj(c, r, p, vscales, alpha, beta, src_m)
+    ! Inputs
+    real(dp), intent(in) :: c(3), r, vscales((p+1)*(p+1)), alpha, beta
+    integer, intent(in) :: p
+    ! Output
+    real(dp), intent(inout) :: src_m((p+1)**2)
+    ! Local variables
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
+    real(dp) :: vylm((p+1)**2), vplm((p+1)**2), rcoef, t, tmp
+    integer :: n, ind
+    ! Scale output
+    if (beta .eq. zero) then
+        src_m = zero
+    else
+        src_m = beta * src_m
+    end if
+    ! In case of zero alpha nothing else is required no matter what is the
+    ! value of the induced potential
+    if (alpha .eq. zero) then
+        return
+    end if
+    ! Get radius and values of spherical harmonics
+    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
+        & vcos, vsin)
+    ! In case of a singularity (rho=zero) induced potential is infinite and is
+    ! not taken into account.
+    if (rho .eq. zero) then
+        return
+    end if
+    ! Compute actual induced potentials
+    rcoef = r / rho
+    t = alpha
+    do n = 0, p
+        t = t * rcoef
+        ind = n*n + n + 1
+        src_m(ind-n:ind+n) = src_m(ind-n:ind+n) + &
+            & t/(vscales(ind)**2)*vylm(ind-n:ind+n)
+    end do
+end subroutine fmm_m2p_adj
 
 !> Accumulate potentials, induced by each multipole spherical harmonic
 !!
@@ -7991,7 +8193,7 @@ subroutine tree_l2p(dd_data, alpha, node_l, beta, grid_v)
     real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
     ! Local variables
     real(dp) :: sph_l((dd_data % pl+1)**2, dd_data % nsph), c(3)
-    integer :: isph, igrid
+    integer :: isph
     external :: dgemm
     ! Init output
     if (beta .eq. zero) then
@@ -8010,11 +8212,41 @@ subroutine tree_l2p(dd_data, alpha, node_l, beta, grid_v)
         & dd_data % ngrid)
 end subroutine tree_l2p
 
-subroutine tree_m2p(dd_data, alpha, sph_m, beta, grid_v)
+subroutine tree_l2p_adj(dd_data, alpha, grid_v, beta, node_l)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: sph_m(dd_data % nbasis, dd_data % nsph), &
-        & alpha, beta
+    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+        & beta
+    ! Output
+    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, &
+        & dd_data % nclusters)
+    ! Local variables
+    real(dp) :: sph_l((dd_data % pl+1)**2, dd_data % nsph), c(3)
+    integer :: isph, inode
+    external :: dgemm
+    ! Init output
+    if (beta .eq. zero) then
+        node_l = zero
+    else
+        node_l = beta * node_l
+    end if
+    ! Get weights of spherical harmonics at each sphere
+    call dgemm('N', 'N', (dd_data % pl+1)**2, dd_data % nsph, &
+        & dd_data % ngrid, one, dd_data % l2grid, dd_data % vgrid_nbasis, &
+        & grid_v, dd_data % ngrid, zero, sph_l, &
+        & (dd_data % pl+1)**2)
+    ! Get data from all clusters to spheres
+    do isph = 1, dd_data % nsph
+        inode = dd_data % snode(isph)
+        node_l(:, inode) = node_l(:, inode) + alpha*sph_l(:, isph)
+    end do
+end subroutine tree_l2p_adj
+
+subroutine tree_m2p(dd_data, p, alpha, sph_m, beta, grid_v)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: p
+    real(dp), intent(in) :: sph_m((p+1)**2, dd_data % nsph), alpha, beta
     ! Output
     real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
     ! Local variables
@@ -8042,13 +8274,53 @@ subroutine tree_m2p(dd_data, alpha, sph_m, beta, grid_v)
                 if(dd_data % ui(igrid, isph) .eq. zero) cycle
                 c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
                     & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
-                call fmm_m2p(c, dd_data % rsph(jsph), dd_data % lmax, &
-                    & dd_data % vscales, alpha, sph_m(:, jsph), one, &
-                    & grid_v(igrid, isph))
+                call fmm_m2p(c, dd_data % rsph(jsph), p, dd_data % vscales, &
+                    & alpha, sph_m(:, jsph), one, grid_v(igrid, isph))
             end do
         end do
     end do
 end subroutine tree_m2p
+
+subroutine tree_m2p_adj(dd_data, p, alpha, grid_v, beta, sph_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: p
+    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+        & beta
+    ! Output
+    real(dp), intent(inout) :: sph_m((p+1)**2, dd_data % nsph)
+    ! Local variables
+    integer :: isph, inode, jnear, jnode, jsph, igrid
+    real(dp) :: c(3)
+    ! Init output
+    if (beta .eq. zero) then
+        sph_m = zero
+    else
+        sph_m = beta * sph_m
+    end if
+    ! Cycle over all spheres
+    do isph = 1, dd_data % nsph
+        ! Cycle over all near-field admissible pairs of spheres
+        inode = dd_data % snode(isph)
+        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+            ! Near-field interactions are possible only between leaf nodes,
+            ! which must contain only a single input sphere
+            jnode = dd_data % near(jnear)
+            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            ! Ignore self-interaction
+            if(isph .eq. jsph) cycle
+            ! Accumulate interaction for external grid points only
+            do igrid = 1, dd_data % ngrid
+                if(dd_data % ui(igrid, isph) .eq. zero) cycle
+                c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
+                    & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
+                call fmm_m2p_adj(c, dd_data % rsph(jsph), p, &
+                    & dd_data % vscales, alpha*grid_v(igrid, isph), one, &
+                    & sph_m(:, jsph))
+            end do
+        end do
+    end do
+end subroutine tree_m2p_adj
 
 subroutine tree_m2p_get_mat(dd_data)
     ! Inputs
@@ -8074,7 +8346,7 @@ subroutine tree_m2p_get_mat(dd_data)
                 igrid = dd_data % icav_ja(icav)
                 c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
                     & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
-                call fmm_m2p_mat(c, dd_data % rsph(jsph), dd_data % lmax, &
+                call fmm_m2p_mat(c, dd_data % rsph(jsph), dd_data % m2p_lmax, &
                     & dd_data % vscales, dd_data % m2p_mat(:, m2p_column))
                 m2p_column = m2p_column + 1
             end do
@@ -8082,11 +8354,11 @@ subroutine tree_m2p_get_mat(dd_data)
     end do
 end subroutine tree_m2p_get_mat
 
-subroutine tree_m2p_use_mat(dd_data, alpha, sph_m, beta, grid_v)
+subroutine tree_m2p_use_mat(dd_data, p, alpha, sph_m, beta, grid_v)
     ! Inputs
     type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: sph_m(dd_data % nbasis, dd_data % nsph), &
-        & alpha, beta
+    integer, intent(in) :: p
+    real(dp), intent(in) :: sph_m((p+1)**2, dd_data % nsph), alpha, beta
     ! Output
     real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
     ! Local variables
@@ -8112,8 +8384,8 @@ subroutine tree_m2p_use_mat(dd_data, alpha, sph_m, beta, grid_v)
             ! Ignore self-interaction
             if(isph .eq. jsph) cycle
             ! Accumulate interaction for external grid points only
-            call dgemv('T', dd_data % nbasis, dd_data % ncav_sph(isph), &
-                & one, dd_data % m2p_mat(1, m2p_column), dd_data % nbasis, &
+            call dgemv('T', (p+1)**2, dd_data % ncav_sph(isph), one, &
+                & dd_data % m2p_mat(1, m2p_column), dd_data % m2p_nbasis, &
                 & sph_m(1, jsph), 1, one, x(1), 1)
             m2p_column = m2p_column + dd_data % ncav_sph(isph)
         end do
@@ -8124,6 +8396,49 @@ subroutine tree_m2p_use_mat(dd_data, alpha, sph_m, beta, grid_v)
         end do
     end do
 end subroutine tree_m2p_use_mat
+
+subroutine tree_m2p_use_mat_adj(dd_data, p, alpha, grid_v, beta, sph_m)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    integer, intent(in) :: p
+    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+        & beta
+    ! Output
+    real(dp), intent(inout) :: sph_m((p+1)**2, dd_data % nsph)
+    ! Local variables
+    integer :: isph, inode, jnear, jnode, jsph, icav_sph, igrid, m2p_column
+    real(dp) :: c(3), x(dd_data % ngrid)
+    ! Init output
+    if (beta .eq. zero) then
+        sph_m = zero
+    else
+        sph_m = beta * sph_m
+    end if
+    ! Cycle over all spheres
+    m2p_column = 1
+    do isph = 1, dd_data % nsph
+        ! Move full grid_v into sparsely stored x
+        do icav_sph = 1, dd_data % ncav_sph(isph)
+            igrid = dd_data % icav_ja(dd_data % icav_ia(isph)+icav_sph-1)
+            x(icav_sph) = alpha * grid_v(igrid, isph)
+        end do
+        ! Cycle over all near-field admissible pairs of spheres
+        inode = dd_data % snode(isph)
+        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+            ! Near-field interactions are possible only between leaf nodes,
+            ! which must contain only a single input sphere
+            jnode = dd_data % near(jnear)
+            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            ! Ignore self-interaction
+            if(isph .eq. jsph) cycle
+            ! Accumulate interaction for external grid points only
+            call dgemv('N', (p+1)**2, dd_data % ncav_sph(isph), one, &
+                & dd_data % m2p_mat(1, m2p_column), dd_data % m2p_nbasis, &
+                & x(1), 1, one, sph_m(1, jsph), 1)
+            m2p_column = m2p_column + dd_data % ncav_sph(isph)
+        end do
+    end do
+end subroutine tree_m2p_use_mat_adj
 
 end module dd_core
 

@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-12
+!! @date 2021-02-24
 
 program main
 use dd_core
@@ -39,6 +39,14 @@ call cpu_time(start_time)
 call ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
 call cpu_time(finish_time)
 write(*, "(A,ES11.4E2,A)") "DDPCM time:", finish_time-start_time, " seconds"
+call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, dd_data % nbasis, &
+    & one, dd_data % vgrid, dd_data % vgrid_nbasis, dd_data % y, &
+    & dd_data % nbasis, zero, dd_data % ygrid, dd_data % ngrid)
+dd_data % g = dd_data % phi - dd_data % phieps
+call gradr_dense(dd_data, force)
+write(*, *) force(1, :)
+write(*, *) force(2, :)
+write(*, *) force(3, :)
 deallocate(phi_cav, gradphi_cav, psi, force)
 call ddfree(dd_data)
 
