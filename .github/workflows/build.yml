@@ -1,6 +1,6 @@
 name: CMake Build
 
-on: [push]
+on: [workflow_dispatch]
 
 jobs:
   build-and-test:
@@ -65,5 +65,4 @@ jobs:
       if: ${{ always() }}
       run: |
         ${{matrix.config.print}} ./build/CMakeFiles/CMakeError.log
-        #Get-Content -Path "D:/a/ddPCM/ddPCM/build/CMakeFiles/CMakeError.log"
         
