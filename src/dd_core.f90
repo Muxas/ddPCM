@@ -6985,7 +6985,7 @@ subroutine fmm_m2l_reflection_get_mat(c, src_r, dst_r, pm, pl, vscales, &
     integer, intent(in) :: pm, pl
     ! Outputs
     real(dp), intent(out) :: transform_mat((max(pm,pl)+1)*(2*max(pm,pl)+1)* &
-        & (2*max(pm,pl)+3)/6)
+        & (2*max(pm,pl)+3)/3)
     real(dp), intent(out) :: ztranslate_mat((min(pm,pl)+1)*(min(pm,pl)+2)* &
         & (3*max(pm,pl)+3-min(pm,pl))/6)
     ! Local variables
