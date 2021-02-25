@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-11
+!! @date 2021-02-25
 
 !> Core routines and parameters of ddX software
 module dd_cosmo
@@ -27,13 +27,14 @@ subroutine ddcosmo(dd_data, phi, psi, tol, ndiis, niter)
     integer, intent(in) :: ndiis
     integer, intent(inout) :: niter
     ! Local variables
-    real(dp), allocatable :: g(:, :), rhs(:, :), xs(:, :)
+    real(dp), allocatable :: g(:, :), rhs(:, :), xs(:, :), phi_grid(:, :)
     integer :: istatus, isph
     logical :: ok
     ! Accumulate right hand side
     allocate(g(dd_data % ngrid, dd_data % nsph), &
-        & rhs(dd_data % nbasis, dd_data % nsph), stat=istatus)
-    call wghpot(dd_data, phi, g)
+        & rhs(dd_data % nbasis, dd_data % nsph), &
+        & phi_grid(dd_data % ngrid, dd_data % nsph), stat=istatus)
+    call wghpot(dd_data, phi, phi_grid, g)
     do isph = 1, dd_data % nsph
         call intrhs(dd_data % iprint, dd_data % ngrid, dd_data % lmax, &
             & dd_data % vwgrid, dd_data % vgrid_nbasis, isph, g(:, isph), rhs(:, isph))
@@ -44,7 +45,7 @@ subroutine ddcosmo(dd_data, phi, psi, tol, ndiis, niter)
         & rhs, xs, niter, ok, lx, ldm1x, hnorm)
     call prtsph('x', dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, xs)
     deallocate(xs)
-    deallocate(g, rhs)
+    deallocate(g, rhs, phi_grid)
 end subroutine ddcosmo
 
 end module dd_cosmo

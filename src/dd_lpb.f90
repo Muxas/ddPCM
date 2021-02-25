@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Abhinav Jha and Michele Nottoli
-!! @date 2021-02-11
+!! @date 2021-02-25
 
 module dd_lpb
 use dd_cosmo
@@ -96,7 +96,7 @@ contains
   !! ok     : Boolean to check convergence of solver
   !! tol    : Tolerance for Jacobi solver
   !! n_iter : Number of iterative steps
-  real(dp), allocatable :: g(:,:), f(:,:), g0(:), f0(:)
+  real(dp), allocatable :: g(:,:), f(:,:), g0(:), f0(:), phi_grid(:, :)
   integer                    :: isph
   integer                    :: i
   logical                    :: ok = .false.
@@ -110,7 +110,8 @@ contains
   call ddlpb_init(dd_data)
 
   allocate(g(dd_data % ngrid,dd_data % nsph),&
-           & f(dd_data % ngrid, dd_data % nsph))
+           & f(dd_data % ngrid, dd_data % nsph), &
+           & phi_grid(dd_data % ngrid, dd_data % nsph))
   allocate(g0(dd_data % nbasis),f0(dd_data % nbasis))
   allocate(rhs_r(dd_data % nbasis, dd_data % nsph),&
            & rhs_e(dd_data % nbasis, dd_data % nsph))
@@ -135,7 +136,7 @@ contains
   !! @param[in]  phi : Boundary conditions (This is psi_0 Eq.(20) QSM19.SISC)
   !! @param[out] g   : Boundary conditions on solute-solvent boundary gamma_j_e
   !!
-  call wghpot(dd_data, phi,g)
+  call wghpot(dd_data, phi, phi_grid, g)
   !!
   !! wghpot_f : Intermediate computation of F_0 Eq.(75) from QSM19.SISC
   !!

@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-24
+!! @date 2021-02-25
 
 !> Core routines and parameters of ddX software
 module dd_core
@@ -236,6 +236,8 @@ type dd_data_type
     integer :: m2p_nbasis
     !> Near-field M2P matrices of a dimension (m2p_nbasis, nnear_m2p)
     real(dp), allocatable :: m2p_mat(:, :)
+    !> Potential at all grid points. Dimension is (ngrid, nsph)
+    real(dp), allocatable :: phi_grid(:, :)
     !> Variable \f$ \Phi \f$ of a dimension (nbasis, nsph)
     real(dp), allocatable :: phi(:, :)
     !> Variable \f$ \Phi_\infty \f$ of a dimension (nbasis, nsph)
@@ -246,12 +248,20 @@ type dd_data_type
     real(dp), allocatable :: xs(:, :)
     !> Solution of the adjoint ddCOSMO system of a dimension (nbasis, nsph)
     real(dp), allocatable :: s(:, :)
+    !> Values of s at grid points. Dimension is (ngrid, nsph)
+    real(dp), allocatable :: sgrid(:, :)
     !> Solution of the adjoint ddPCM system of a dimension (nbasis, nsph)
     real(dp), allocatable :: y(:, :)
     !> Values of y at grid points. Dimension is (ngrid, nsph)
     real(dp), allocatable :: ygrid(:, :)
     !> Shortcut of \f$ \Phi_\varepsilon - \Phi \f$
     real(dp), allocatable :: g(:, :)
+    !> s-4pi/(eps-1)y of dimension (nbasis, nsph)
+    real(dp), allocatable :: q(:, :)
+    !> Values of q at grid points. Dimension is (ngrid, nsph)
+    real(dp), allocatable :: qgrid(:, :)
+    !> Zeta intermediate for forces. Dimension is (ncav)
+    real(dp), allocatable :: zeta(:)
     !> Temporary workspace for multipole coefficients of a degree up to lmax
     !!      of each sphere. Dimension is (nbasis, nsph).
     real(dp), allocatable :: tmp_sph(:, :)
@@ -971,12 +981,6 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 30
             return
         end if
-        allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
-        if (istatus .ne. 0) then
-            !write(*, *) "Error in allocation of a temporary"
-            info = 38
-            return
-        end if
         if (fmm_precompute .eq. 1) then
             dd_data % m2m_ztranslate_mat_size = (pm+1)*(pm+2)*(pm+3)/6
             dd_data % m2m_reflect_mat_size = (pm+1)*(2*pm+1)*(2*pm+3)/3
@@ -1062,6 +1066,12 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     if (model .eq. 1) then
     ! PCM model
     else if (model .eq. 2) then
+        allocate(dd_data % phi_grid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
         allocate(dd_data % phi(dd_data % nbasis, n), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
@@ -1092,6 +1102,12 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 38
             return
         end if
+        allocate(dd_data % sgrid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
         allocate(dd_data % y(dd_data % nbasis, n), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
@@ -1110,8 +1126,32 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 38
             return
         end if
+        allocate(dd_data % q(dd_data % nbasis, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % qgrid(dd_data % ngrid, n), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(dd_data % zeta(dd_data % ncav), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
     ! LPB model
     else if (model .eq. 3) then
+    end if
+    allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
+    if (istatus .ne. 0) then
+        !write(*, *) "Error in allocation of a temporary"
+        info = 38
+        return
     end if
 end subroutine ddinit
 
@@ -2446,13 +2486,14 @@ end function intmlp
 ! Purpose : weigh potential at cavity points by characteristic function "ui"
 !------------------------------------------------------------------------------------------------
 !> TODO
-subroutine wghpot( dd_data, phi, g )
+subroutine wghpot( dd_data, phi, phi_grid, g)
 !
       implicit none
 !
     type(dd_data_type) :: dd_data
       real(dp), dimension(dd_data % ncav),       intent(in)  :: phi
       real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: g
+      real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: phi_grid
 !
     integer isph, ig, ic
 !
@@ -2460,6 +2501,7 @@ subroutine wghpot( dd_data, phi, g )
 !
 !   initialize
     ic = 0 ; g(:,:)=0.d0
+    phi_grid = zero
 !      
 !   loop over spheres
     do isph = 1, dd_data % nsph
@@ -2472,6 +2514,7 @@ subroutine wghpot( dd_data, phi, g )
 !
 !         advance cavity point counter
           ic = ic + 1
+          phi_grid(ig, isph) = phi(ic)
 !            
 !         weigh by (negative) characteristic function
           g(ig,isph) = -dd_data % ui(ig,isph) * phi(ic)
@@ -8439,6 +8482,394 @@ subroutine tree_m2p_use_mat_adj(dd_data, p, alpha, grid_v, beta, sph_m)
         end do
     end do
 end subroutine tree_m2p_use_mat_adj
+
+subroutine fdoka(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
+    type(dd_data_type), intent(in) :: dd_data
+      integer,                         intent(in)    :: isph
+      real(dp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: sigma
+      real(dp),  dimension(dd_data % ngrid),       intent(in)    :: xi
+      real(dp),  dimension(dd_data % nbasis),      intent(inout) :: basloc, vplm
+      real(dp),  dimension(3, dd_data % nbasis),    intent(inout) :: dbsloc
+      real(dp),  dimension(dd_data % lmax+1),      intent(inout) :: vcos, vsin
+      real(dp),  dimension(3),           intent(inout) :: fx
+!
+      integer :: ig, ij, jsph, l, ind, m
+      real(dp)  :: vvij, tij, xij, oij, t, fac, fl, f1, f2, f3, beta, tlow, thigh
+      real(dp)  :: vij(3), sij(3), alp(3), va(3)
+      real(dp), external :: dnrm2
+!      
+!-----------------------------------------------------------------------------------
+!    
+      tlow  = one - pt5*(one - dd_data % se)*dd_data % eta
+      thigh = one + pt5*(one + dd_data % se)*dd_data % eta
+!    
+      do ig = 1, dd_data % ngrid
+        va = zero
+        do ij = dd_data % inl(isph), dd_data % inl(isph+1) - 1
+          jsph = dd_data % nl(ij)
+          vij  = dd_data % csph(:,isph) + &
+              & dd_data % rsph(isph)*dd_data % cgrid(:,ig) - &
+              & dd_data % csph(:,jsph)
+          !vvij = sqrt(dot_product(vij,vij))
+          vvij = dnrm2(3, vij, 1)
+          tij  = vvij/dd_data % rsph(jsph)
+!    
+          if (tij.ge.thigh) cycle
+!    
+          sij  = vij/vvij
+          !call dbasis(sij,basloc,dbsloc,vplm,vcos,vsin)
+          call dbasis(dd_data, sij, basloc, dbsloc, vplm, vcos, vsin)
+          alp  = zero
+          t    = one
+          do l = 1, dd_data % lmax
+            ind = l*l + l + 1
+            fl  = dble(l)
+            fac = t/(dd_data % vscales(ind)**2)
+            do m = -l, l
+              f2 = fac*sigma(ind+m,jsph)
+              f1 = f2*fl*basloc(ind+m)
+              alp(:) = alp(:) + f1*sij(:) + f2*dbsloc(:,ind+m)
+            end do
+            t = t*tij
+          end do
+          beta = intmlp(dd_data, tij,sigma(:,jsph),basloc)
+          xij = fsw(tij,dd_data % se,dd_data % eta)
+          if (dd_data % fi(ig,isph).gt.one) then
+            oij = xij/dd_data % fi(ig,isph)
+            f2  = -oij/dd_data % fi(ig,isph)
+          else
+            oij = xij
+            f2  = zero
+          end if
+          f1 = oij/dd_data % rsph(jsph)
+          va(:) = va(:) + f1*alp(:) + beta*f2*dd_data % zi(:,ig,isph)
+          if (tij .gt. tlow) then
+            f3 = beta*dfsw(tij,dd_data % se,dd_data % eta)/dd_data % rsph(jsph)
+            if (dd_data % fi(ig,isph).gt.one) f3 = f3/dd_data % fi(ig,isph)
+            va(:) = va(:) + f3*sij(:)
+          end if
+        end do
+        fx = fx - dd_data % wgrid(ig)*xi(ig)*va(:)
+      end do
+!      
+      return
+!      
+!      
+end subroutine fdoka
+!-----------------------------------------------------------------------------------
+!
+!      
+!      
+!      
+!-----------------------------------------------------------------------------------
+subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
+    type(dd_data_type), intent(in) :: dd_data
+      integer,                         intent(in)    :: isph
+      real(dp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: sigma
+      real(dp),  dimension(dd_data % ngrid, dd_data % nsph),  intent(in)    :: xi
+      real(dp),  dimension(dd_data % nbasis),      intent(inout) :: basloc, vplm
+      real(dp),  dimension(3, dd_data % nbasis),    intent(inout) :: dbsloc
+      real(dp),  dimension(dd_data % lmax+1),      intent(inout) :: vcos, vsin
+      real(dp),  dimension(3),           intent(inout) :: fx
+!
+      integer :: ig, ji, jsph, l, ind, m, jk, ksph
+      logical :: proc
+      real(dp)  :: vvji, tji, xji, oji, t, fac, fl, f1, f2, beta, di, tlow, thigh
+      real(dp)  :: b, g1, g2, vvjk, tjk, f, xjk
+      real(dp)  :: vji(3), sji(3), alp(3), vb(3), vjk(3), sjk(3), vc(3)
+      real(dp) :: rho, ctheta, stheta, cphi, sphi
+      real(dp), external :: dnrm2
+!
+!-----------------------------------------------------------------------------------
+!
+      tlow  = one - pt5*(one - dd_data % se)*dd_data % eta
+      thigh = one + pt5*(one + dd_data % se)*dd_data % eta
+!
+      do ig = 1, dd_data % ngrid
+        vb = zero
+        vc = zero
+        do ji = dd_data % inl(isph), dd_data % inl(isph+1) - 1
+          jsph = dd_data % nl(ji)
+          vji  = dd_data % csph(:,jsph) + &
+              & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
+              & dd_data % csph(:,isph)
+          !vvji = sqrt(dot_product(vji,vji))
+          vvji = dnrm2(3, vji, 1)
+          tji  = vvji/dd_data % rsph(isph)
+!
+          if (tji.gt.thigh) cycle
+!
+          sji  = vji/vvji
+          !call dbasis(sji,basloc,dbsloc,vplm,vcos,vsin)
+          call dbasis(dd_data, sji, basloc, dbsloc, vplm, vcos, vsin)
+!
+          alp = zero
+          t   = one
+          do l = 1, dd_data % lmax
+            ind = l*l + l + 1
+            fl  = dble(l)
+            fac = t/(dd_data % vscales(ind)**2)
+            do m = -l, l
+              f2 = fac*sigma(ind+m,isph)
+              f1 = f2*fl*basloc(ind+m)
+              alp = alp + f1*sji + f2*dbsloc(:,ind+m)
+            end do
+            t = t*tji
+          end do
+          xji = fsw(tji,dd_data % se,dd_data % eta)
+          if (dd_data % fi(ig,jsph).gt.one) then
+            oji = xji/dd_data % fi(ig,jsph)
+          else
+            oji = xji
+          end if
+          f1 = oji/dd_data % rsph(isph)
+          vb = vb + f1*alp*xi(ig,jsph)
+          if (tji .gt. tlow) then
+            beta = intmlp(dd_data, tji, sigma(:,isph), basloc)
+            if (dd_data % fi(ig,jsph) .gt. one) then
+              di  = one/dd_data % fi(ig,jsph)
+              fac = di*xji
+              proc = .false.
+              b    = zero
+              do jk = dd_data % inl(jsph), dd_data % inl(jsph+1) - 1
+                ksph = dd_data % nl(jk)
+                vjk  = dd_data % csph(:,jsph) + &
+                    & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
+                    & dd_data % csph(:,ksph)
+                !vvjk = sqrt(dot_product(vjk,vjk))
+                vvjk = dnrm2(3, vjk, 1)
+                tjk  = vvjk/dd_data % rsph(ksph)
+                if (ksph.ne.isph) then
+                  if (tjk .le. thigh) then
+                    proc = .true.
+                    sjk  = vjk/vvjk
+                    !call ylmbas(sjk,basloc,vplm,vcos,vsin)
+                    call ylmbas(sjk, rho, ctheta, stheta, cphi, sphi, &
+                        & dd_data % lmax, dd_data % vscales, basloc, vplm, &
+                        & vcos, vsin)
+                    g1  = intmlp(dd_data, tjk, sigma(:,ksph), basloc)
+                    xjk = fsw(tjk, dd_data % se, dd_data % eta)
+                    b   = b + g1*xjk
+                  end if
+                end if
+              end do
+              if (proc) then
+                g1 = di*di*dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+                g2 = g1*xi(ig,jsph)*b
+                vc = vc + g2*sji
+              end if
+            else
+              di  = one
+              fac = zero
+            end if
+            f2 = (one-fac)*di*dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+            vb = vb + f2*xi(ig,jsph)*beta*sji
+          end if 
+        end do
+        fx = fx + dd_data % wgrid(ig)*(vb - vc)
+      end do
+      return
+  end subroutine fdokb
+!-----------------------------------------------------------------------------------
+!
+!
+!
+!
+!-----------------------------------------------------------------------------------
+subroutine fdoga(dd_data, isph, xi, phi, fx )
+    type(dd_data_type), intent(in) :: dd_data
+      integer,                        intent(in)    :: isph
+      real(dp),  dimension(dd_data % ngrid, dd_data % nsph), intent(in)    :: xi, phi
+      real(dp),  dimension(3),          intent(inout) :: fx
+!
+      integer :: ig, ji, jsph
+      real(dp)  :: vvji, tji, fac, swthr
+      real(dp)  :: alp(3), vji(3), sji(3)
+      real(dp), external :: dnrm2
+!
+!-----------------------------------------------------------------------------------
+!
+      do ig = 1, dd_data % ngrid
+        alp = zero
+        if (dd_data % ui(ig,isph) .gt. zero .and. dd_data % ui(ig,isph).lt.one) then
+          alp = alp + phi(ig,isph)*xi(ig,isph)*dd_data % zi(:,ig,isph)
+        end if
+        do ji = dd_data % inl(isph), dd_data % inl(isph+1) - 1
+          jsph  = dd_data % nl(ji)
+          vji   = dd_data % csph(:,jsph) + &
+              & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
+              & dd_data % csph(:,isph)
+          !vvji  = sqrt(dot_product(vji,vji))
+          vvji = dnrm2(3, vji, 1)
+          tji   = vvji/dd_data % rsph(isph)
+          swthr = one + (dd_data % se + 1.d0)*dd_data % eta / 2.d0
+          if (tji.lt.swthr .and. tji.gt.swthr-dd_data % eta .and. dd_data % ui(ig,jsph).gt.zero) then
+            sji = vji/vvji
+            fac = - dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+            alp = alp + fac*phi(ig,jsph)*xi(ig,jsph)*sji
+          end if
+        end do
+        fx = fx - dd_data % wgrid(ig)*alp
+      end do
+!
+      return 
+!
+!
+end subroutine fdoga
+
+subroutine efld(nsrc,src,csrc,ntrg,ctrg,ef)
+integer,                    intent(in)    :: nsrc, ntrg
+real*8,  dimension(nsrc),   intent(in)    :: src
+real*8,  dimension(3,nsrc), intent(in)    :: csrc
+real*8,  dimension(3,ntrg), intent(in)    :: ctrg
+real*8,  dimension(3,ntrg), intent(inout) :: ef
+!
+integer :: i, j
+real*8  :: dx, dy, dz, r2, rr, r3, f, e(3)
+real*8, parameter :: zero=0.0d0
+!
+ef = zero
+do j = 1, ntrg
+  e = zero
+  do i = 1, nsrc
+    dx   = ctrg(1,j) - csrc(1,i)
+    dy   = ctrg(2,j) - csrc(2,i)
+    dz   = ctrg(3,j) - csrc(3,i)
+    r2   = dx*dx + dy*dy + dz*dz
+    rr   = sqrt(r2)
+    r3   = r2*rr
+    f    = src(i)/r3
+    e(1) = e(1) + f*dx
+    e(2) = e(2) + f*dy
+    e(3) = e(3) + f*dz
+  end do
+  ef(:,j) = e
+end do
+end subroutine efld
+
+subroutine tree_grad_m2m(dd_data, sph_m, sph_m_grad, work)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: sph_m(dd_data % nbasis, dd_data % nsph)
+    ! Output
+    real(dp), intent(out) :: sph_m_grad((dd_data % lmax+2)**2, 3, &
+        & dd_data % nsph)
+    ! Temporary workspace
+    real(dp), intent(out) :: work((dd_data % lmax+2)**2, dd_data % nsph)
+    ! Local variables
+    integer :: isph, l, indi, indj, m
+    real(dp) :: tmp1, tmp2
+    real(dp), dimension(3, 3) :: zx_coord_transform, zy_coord_transform
+    ! Set coordinate transformations
+    zx_coord_transform = zero
+    zx_coord_transform(3, 2) = one
+    zx_coord_transform(2, 3) = one
+    zx_coord_transform(1, 1) = one
+    zy_coord_transform = zero
+    zy_coord_transform(1, 2) = one
+    zy_coord_transform(2, 1) = one
+    zy_coord_transform(3, 3) = one
+    ! At first reflect harmonics of a degree up to lmax
+    sph_m_grad(1:dd_data % nbasis, 3, :) = sph_m
+    do isph = 1, dd_data % nsph
+        call fmm_sph_transform_out(dd_data % lmax, zx_coord_transform, &
+            & sph_m(:, isph), sph_m_grad(1:dd_data % nbasis, 1, isph))
+        call fmm_sph_transform_out(dd_data % lmax, zy_coord_transform, &
+            & sph_m(:, isph), sph_m_grad(1:dd_data % nbasis, 2, isph))
+    end do
+    ! Derivative of M2M translation over OZ axis at the origin consists of 2
+    ! steps:
+    !   1) increase degree l and scale by sqrt((2*l+1)*(l*l-m*m)) / sqrt(2*l-1)
+    !   2) scale by 1/rsph(isph)
+    do l = dd_data % lmax+1, 1, -1
+        indi = l*l + l + 1
+        indj = indi - 2*l
+        tmp1 = sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
+        do m = 1-l, l-1
+            tmp2 = sqrt(dble(l*l-m*m)) * tmp1
+            sph_m_grad(indi+m, :, :) = tmp2 * sph_m_grad(indj+m, :, :)
+        end do
+        sph_m_grad(indi+l, :, :) = zero
+        sph_m_grad(indi-l, :, :) = zero
+    end do
+    sph_m_grad(1, :, :) = zero
+    ! Scale by 1/rsph(isph) and rotate harmonics of degree up to lmax+1 back to
+    ! the initial axis. Coefficient of 0-th degree is zero so we ignore it.
+    do isph = 1, dd_data % nsph
+        sph_m_grad(:, 3, isph) = sph_m_grad(:, 3, isph) / dd_data % rsph(isph)
+        work(:, isph) = sph_m_grad(:, 1, isph) / dd_data % rsph(isph)
+        call fmm_sph_transform_out(dd_data % lmax+1, zx_coord_transform, &
+            & work(:, isph), sph_m_grad(:, 1, isph))
+        work(:, isph) = sph_m_grad(:, 2, isph) / dd_data % rsph(isph)
+        call fmm_sph_transform_out(dd_data % lmax+1, zy_coord_transform, &
+            & work(:, isph), sph_m_grad(:, 2, isph))
+    end do
+end subroutine tree_grad_m2m
+
+subroutine tree_grad_l2l(dd_data, node_l, sph_l_grad, work)
+    ! Inputs
+    type(dd_data_type), intent(in) :: dd_data
+    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Output
+    real(dp), intent(out) :: sph_l_grad((dd_data % pl+1)**2, 3, dd_data % nsph)
+    ! Temporary workspace
+    real(dp), intent(out) :: work((dd_data % pl+1)**2, dd_data % nsph)
+    ! Local variables
+    integer :: isph, inode, l, indi, indj, m
+    real(dp) :: tmp1, tmp2
+    real(dp), dimension(3, 3) :: zx_coord_transform, zy_coord_transform
+    ! Set coordinate transformations
+    zx_coord_transform = zero
+    zx_coord_transform(3, 2) = one
+    zx_coord_transform(2, 3) = one
+    zx_coord_transform(1, 1) = one
+    zy_coord_transform = zero
+    zy_coord_transform(1, 2) = one
+    zy_coord_transform(2, 1) = one
+    zy_coord_transform(3, 3) = one
+    ! At first reflect harmonics of a degree up to pl
+    do isph = 1, dd_data % nsph
+        inode = dd_data % snode(isph)
+        sph_l_grad(:, 3, isph) = node_l(:, inode)
+        call fmm_sph_transform_out(dd_data % pl, zx_coord_transform, &
+            & node_l(:, inode), sph_l_grad(:, 1, isph))
+        call fmm_sph_transform_out(dd_data % pl, zy_coord_transform, &
+            & node_l(:, inode), sph_l_grad(:, 2, isph))
+    end do
+    ! Derivative of L2L translation over OZ axis at the origin consists of 2
+    ! steps:
+    !   1) decrease degree l and scale by sqrt((2*l-1)*(l*l-m*m)) / sqrt(2*l+1)
+    !   2) scale by 1/rsph(isph)
+    do l = 1, dd_data % pl
+        indi = l*l + l + 1
+        indj = indi - 2*l
+        tmp1 = -sqrt(dble(2*l-1)) / sqrt(dble(2*l+1))
+        do m = 1-l, l-1
+            tmp2 = sqrt(dble(l*l-m*m)) * tmp1
+            sph_l_grad(indj+m, :, :) = tmp2 * sph_l_grad(indi+m, :, :)
+        end do
+    end do
+    ! Scale by 1/rsph(isph) and rotate harmonics of degree up to pl-1 back to
+    ! the initial axis. Coefficient of pl-th degree is zero so we ignore it.
+    do isph = 1, dd_data % nsph
+        sph_l_grad(1:dd_data % pl**2, 3, isph) = &
+            & sph_l_grad(1:dd_data % pl**2, 3, isph) / dd_data % rsph(isph)
+        work(1:dd_data % pl**2, isph) = &
+            & sph_l_grad(1:dd_data % pl**2, 1, isph) / dd_data % rsph(isph)
+        call fmm_sph_transform_out(dd_data % pl-1, zx_coord_transform, &
+            & work(1:dd_data % pl**2, isph), &
+            & sph_l_grad(1:dd_data % pl**2, 1, isph))
+        work(1:dd_data % pl**2, isph) = &
+            & sph_l_grad(1:dd_data % pl**2, 2, isph) / dd_data % rsph(isph)
+        call fmm_sph_transform_out(dd_data % pl-1, zy_coord_transform, &
+            & work(1:dd_data % pl**2, isph), &
+            & sph_l_grad(1:dd_data % pl**2, 2, isph))
+    end do
+    ! Set degree pl to zero to avoid problems if user actually uses it
+    l = dd_data % pl
+    indi = l*l + l + 1
+    sph_l_grad(indi-l:indi+l, :, :) = zero
+end subroutine tree_grad_l2l
 
 end module dd_core
 

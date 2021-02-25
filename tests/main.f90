@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-24
+!! @date 2021-02-25
 
 program main
 use dd_core
@@ -22,7 +22,7 @@ type(dd_data_type) :: dd_data
 integer :: info
 real(dp), allocatable :: phi_cav(:), gradphi_cav(:, :), psi(:, :), force(:, :)
 real(dp) :: esolv, start_time, finish_time
-integer :: i, j
+integer :: i, j, isph
 
 ! Read input file name
 call getarg(1, fname)
@@ -39,14 +39,9 @@ call cpu_time(start_time)
 call ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
 call cpu_time(finish_time)
 write(*, "(A,ES11.4E2,A)") "DDPCM time:", finish_time-start_time, " seconds"
-call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, dd_data % nbasis, &
-    & one, dd_data % vgrid, dd_data % vgrid_nbasis, dd_data % y, &
-    & dd_data % nbasis, zero, dd_data % ygrid, dd_data % ngrid)
-dd_data % g = dd_data % phi - dd_data % phieps
-call gradr_dense(dd_data, force)
-write(*, *) force(1, :)
-write(*, *) force(2, :)
-write(*, *) force(3, :)
+do isph = 1, dd_data % nsph
+    write(6,'(1x,i5,3ES25.16E3)') isph, force(:,isph)
+end do
 deallocate(phi_cav, gradphi_cav, psi, force)
 call ddfree(dd_data)
 

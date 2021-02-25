@@ -7,7 +7,7 @@
 !!
 !! @version 1.0.0
 !! @author Aleksandr Mikhalev
-!! @date 2021-02-24
+!! @date 2021-02-25
 
 !> Operators shared among ddX methods
 module dd_operators
@@ -21,30 +21,124 @@ contains
 !!
 !! TODO: make use of FMM here
 !! AJ: Added gradphi for ddLPB
-subroutine mkrhs(dd_data, phi, gradphi, psi)
+subroutine mkrhs(dd_data, phi_cav, gradphi_cav, psi)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(dd_data_type), intent(inout) :: dd_data
     ! Outputs
-    real(dp), intent(out) :: phi(dd_data % ncav)
-    real(dp), intent(out) :: gradphi(3, dd_data % ncav)
+    real(dp), intent(out) :: phi_cav(dd_data % ncav)
+    real(dp), intent(out) :: gradphi_cav(3, dd_data % ncav)
     real(dp), intent(out) :: psi(dd_data % nbasis, dd_data % nsph)
     ! Local variables
-    integer :: isph, icav
+    integer :: isph, igrid, icav, inode, inear, jnear, jnode, jsph
     real(dp) :: d(3), v, dnorm, gradv(3), epsp=one
+    real(dp) :: grid_grad(dd_data % ngrid, 3, dd_data % nsph)
     real(dp), external :: dnrm2
-    ! Vector phi
-    do icav = 1, dd_data % ncav
-        v = zero
-        gradv = zero
-        do isph = 1, dd_data % nsph
-            d = dd_data % ccav(:, icav) - dd_data % csph(:, isph)
-            dnorm = dnrm2(3, d, 1)
-            v = v + dd_data % charge(isph)/dnorm
-            gradv = gradv - dd_data % charge(isph)*d/(dnorm**3)
+    ! In case FMM is disabled compute phi and gradphi at cavity points by a
+    ! naive double loop of a quadratic complexity
+    if (dd_data % fmm .eq. 0) then
+        do icav = 1, dd_data % ncav
+            v = zero
+            gradv = zero
+            do isph = 1, dd_data % nsph
+                d = dd_data % ccav(:, icav) - dd_data % csph(:, isph)
+                dnorm = dnrm2(3, d, 1)
+                v = v + dd_data % charge(isph)/dnorm
+                gradv = gradv - dd_data % charge(isph)*d/(dnorm**3)
+            end do
+            phi_cav(icav) = v
+            gradphi_cav(:,icav) = gradv
         end do
-        phi(icav) = v
-        gradphi(:,icav) = gradv
-    end do
+    ! Use the FMM otherwise
+    else
+        ! P2M step from centers of harmonics
+        do isph = 1, dd_data % nsph
+            inode = dd_data % snode(isph)
+            dd_data % tmp_sph(1, isph) = dd_data % charge(isph) / &
+                & dd_data % rsph(isph) / sqrt4pi
+            dd_data % tmp_sph(2:, isph) = zero
+            dd_data % tmp_node_m(1, inode) = dd_data % tmp_sph(1, isph)
+            dd_data % tmp_node_m(2:, inode) = zero
+        end do
+        ! M2M, M2L and L2L translations
+        if(dd_data % fmm_precompute .eq. 1) then
+            call tree_m2m_reflection_use_mat(dd_data, dd_data % tmp_node_m)
+            call tree_m2l_reflection_use_mat(dd_data, dd_data % tmp_node_m, &
+                & dd_data % tmp_node_l)
+            call tree_l2l_reflection_use_mat(dd_data, dd_data % tmp_node_l)
+            call tree_l2p(dd_data, one, dd_data % tmp_node_l, zero, &
+                & dd_data % tmp_grid)
+            call tree_m2p_use_mat(dd_data, dd_data % lmax, one, &
+                & dd_data % tmp_sph, one, dd_data % tmp_grid)
+        else
+            call tree_m2m_rotation(dd_data, dd_data % tmp_node_m)
+            call tree_m2l_rotation(dd_data, dd_data % tmp_node_m, &
+                & dd_data % tmp_node_l)
+            call tree_l2l_rotation(dd_data, dd_data % tmp_node_l)
+            call tree_l2p(dd_data, one, dd_data % tmp_node_l, zero, &
+                & dd_data % tmp_grid)
+            call tree_m2p(dd_data, dd_data % lmax, one, dd_data % tmp_sph, &
+                & one, dd_data % tmp_grid)
+        end if
+        ! Potential from each sphere to its own grid points
+        call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, &
+            & dd_data % nbasis, one, dd_data % l2grid, &
+            & dd_data % vgrid_nbasis, dd_data % tmp_sph, dd_data % nbasis, &
+            & one, dd_data % tmp_grid, dd_data % ngrid)
+        ! Rearrange potential from all grid points to external only
+        icav = 0
+        do isph = 1, dd_data % nsph
+            do igrid = 1, dd_data % ngrid
+                ! Do not count internal grid points
+                if(dd_data % ui(igrid, isph) .eq. zero) cycle
+                icav = icav + 1
+                phi_cav(icav) = dd_data % tmp_grid(igrid, isph)
+            end do
+        end do
+        ! Now compute near-field FMM gradients
+        ! Cycle over all spheres
+        do isph = 1, dd_data % nsph
+            grid_grad(:, :, isph) = zero
+            ! Cycle over all external grid points
+            do igrid = 1, dd_data % ngrid
+                if(dd_data % ui(igrid, isph) .eq. zero) cycle
+                ! Cycle over all near-field admissible pairs of spheres,
+                ! including pair (isph, isph) which is a self-interaction
+                inode = dd_data % snode(isph)
+                do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+                    ! Near-field interactions are possible only between leaf
+                    ! nodes, which must contain only a single input sphere
+                    jnode = dd_data % near(jnear)
+                    jsph = dd_data % order(dd_data % cluster(1, jnode))
+                    d = dd_data % csph(:, isph) + &
+                        & dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
+                        & dd_data % csph(:, jsph)
+                    dnorm = dnrm2(3, d, 1)
+                    grid_grad(igrid, :, isph) = grid_grad(igrid, :, isph) - &
+                        & dd_data % charge(jsph)*d/(dnorm**3)
+                end do
+            end do
+        end do
+        ! Take into account far-field FMM gradients
+        ! Get gradient of L2L
+        call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
+            & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
+        ! Apply L2P for every axis with -1 multiplier since grad over target
+        ! point is equal to grad over source point
+        call dgemm('T', 'N', dd_data % ngrid, 3*dd_data % nsph, &
+            & (dd_data % pl)**2, -one, dd_data % l2grid, &
+            & dd_data % vgrid_nbasis, dd_data % tmp_sph_l_grad, &
+            & (dd_data % pl+1)**2, one, grid_grad, &
+            & dd_data % ngrid)
+        ! Copy output for external grid points only
+        icav = 0
+        do isph = 1, dd_data % nsph
+            do igrid = 1, dd_data % ngrid
+                if(dd_data % ui(igrid, isph) .eq. zero) cycle
+                icav = icav + 1
+                gradphi_cav(:, icav) = grid_grad(igrid, :, isph)
+            end do
+        end do
+    end if
     ! Vector psi
     psi(2:, :) = zero
     do isph = 1, dd_data % nsph
@@ -694,6 +788,19 @@ subroutine apply_rstarepsx_prec(dd_data, x, y)
     !call prtsph("rx_prec y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
 end subroutine apply_rstarepsx_prec
 
+subroutine gradr(dd_data, fx)
+    ! Inputs
+    type(dd_data_type), intent(inout) :: dd_data
+    ! Output
+    real(dp), intent(out) :: fx(3, dd_data % nsph)
+    ! Check which gradr to execute
+    if (dd_data % fmm .eq. 1) then
+        call gradr_fmm(dd_data, fx)
+    else
+        call gradr_dense(dd_data, fx)
+    end if
+end subroutine gradr
+
 subroutine gradr_dense(dd_data, fx)
     ! Inputs
     type(dd_data_type), intent(inout) :: dd_data
@@ -1003,7 +1110,7 @@ subroutine gradr_fmm(dd_data, fx)
     ! Inputs
     type(dd_data_type), intent(inout) :: dd_data
     ! Output
-    real(dp), intent(inout) :: fx(3, dd_data % nsph)
+    real(dp), intent(out) :: fx(3, dd_data % nsph)
     ! Local variables
     integer :: i, j, indi, indj, indl, indl1, l, m, isph, igrid, ik, ksph, &
         & jsph, jsph_node
@@ -1034,54 +1141,10 @@ subroutine gradr_fmm(dd_data, fx)
     end do
     !! Compute gradient of M2M of tmp_sph harmonics at the origin and store it
     !! in tmp_sph_grad. tmp_sph_grad(:, 1, :), tmp_sph_grad(:, 2, :) and
-    !! tmp_sph_grad(:, 3, :) correspond to the OX, OY and OZ axes. This
-    !! gradient is computed as a reflection from OX/OY/OZ axis to the OZ,
-    !! derivative of a M2M translation over OZ axis and a reflection back to
-    !! the initial axis.
-    ! At first reflect harmonics of a degree up to lmax
-    dd_data % tmp_sph_grad(1:dd_data % nbasis, 3, :) = dd_data % tmp_sph
-    do isph = 1, dd_data % nsph
-        call fmm_sph_transform_out(dd_data % lmax, zx_coord_transform, &
-            & dd_data % tmp_sph(:, isph), &
-            & dd_data % tmp_sph_grad(1:dd_data % nbasis, 1, isph))
-        call fmm_sph_transform_out(dd_data % lmax, zy_coord_transform, &
-            & dd_data % tmp_sph(:, isph), &
-            & dd_data % tmp_sph_grad(1:dd_data % nbasis, 2, isph))
-    end do
-    ! Derivative of M2M translation over OZ axis at the origin consists of 2
-    ! steps:
-    !   1) increase degree l and scale by sqrt((2*l+1)*(l*l-m*m)) / sqrt(2*l-1)
-    !   2) scale by 1/rsph(isph)
-    do l = dd_data % lmax+1, 1, -1
-        indi = l*l + l + 1
-        indj = indi - 2*l
-        tmp1 = sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
-        do m = 1-l, l-1
-            tmp2 = sqrt(dble(l*l-m*m)) * tmp1
-            dd_data % tmp_sph_grad(indi+m, :, :) = tmp2 * &
-                & dd_data % tmp_sph_grad(indj+m, :, :)
-        end do
-        dd_data % tmp_sph_grad(indi+l, :, :) = zero
-        dd_data % tmp_sph_grad(indi-l, :, :) = zero
-    end do
-    dd_data % tmp_sph_grad(1, :, :) = zero
-    ! Scale by 1/rsph(isph) and rotate harmonics of degree up to lmax+1 back to
-    ! the initial axis
-    do isph = 1, dd_data % nsph
-        dd_data % tmp_sph_grad(:, 3, isph) = &
-            & dd_data % tmp_sph_grad(:, 3, isph) / dd_data % rsph(isph)
-        ! tmp_sph2 is a temporary of size (nbasis_grad, nsph)
-        dd_data % tmp_sph2(:, isph) = &
-            & dd_data % tmp_sph_grad(:, 1, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform_out(dd_data % lmax+1, zx_coord_transform, &
-            & dd_data % tmp_sph2(:, isph), &
-            & dd_data % tmp_sph_grad(:, 1, isph))
-        dd_data % tmp_sph2(:, isph) = &
-            & dd_data % tmp_sph_grad(:, 2, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform_out(dd_data % lmax+1, zy_coord_transform, &
-            & dd_data % tmp_sph2(:, isph), &
-            & dd_data % tmp_sph_grad(:, 2, isph))
-    end do
+    !! tmp_sph_grad(:, 3, :) correspond to the OX, OY and OZ axes. Variable
+    !! tmp_sph2 is a temporary workspace here.
+    call tree_grad_m2m(dd_data, dd_data % tmp_sph, dd_data % tmp_sph_grad, &
+        & dd_data % tmp_sph2)
     !! Adjoint full FMM matvec to get output multipole expansions from input
     !! external grid points. It is used to compute R_i^B fast as a contraction
     !! of a gradient stored in tmp_sph_grad and a result of adjoint matvec.
@@ -1134,7 +1197,7 @@ subroutine gradr_fmm(dd_data, fx)
     do isph = 1, dd_data % nsph
         call dgemv('T', dd_data % grad_nbasis, 3, one, &
             & dd_data % tmp_sph_grad(1, 1, isph), dd_data % grad_nbasis, &
-            & dd_data % tmp_sph2(1, isph), 1, one, fx(1, isph), 1)
+            & dd_data % tmp_sph2(1, isph), 1, zero, fx(1, isph), 1)
     end do
     !! Direct far-field FMM matvec to get output local expansions from input
     !! multipole expansions. It will be used in R_i^A.
@@ -1176,51 +1239,8 @@ subroutine gradr_fmm(dd_data, fx)
             & dd_data % tmp_grid)
     end if
     !! Compute gradients of L2L
-    ! At first reflect harmonics to OZ axis
-    do isph = 1, dd_data % nsph
-        inode = dd_data % snode(isph)
-        dd_data % tmp_sph_l_grad(:, 3, isph) = dd_data % tmp_node_l(:, inode)
-        call fmm_sph_transform_out(dd_data % pl, zx_coord_transform, &
-            & dd_data % tmp_sph_l_grad(:, 3, isph), &
-            & dd_data % tmp_sph_l_grad(:, 1, isph))
-        call fmm_sph_transform_out(dd_data % pl, zy_coord_transform, &
-            & dd_data % tmp_sph_l_grad(:, 3, isph), &
-            & dd_data % tmp_sph_l_grad(:, 2, isph))
-    end do
-    ! Derivative of L2L translation over OZ axis at the origin consists of 2
-    ! steps:
-    !   1) decrease degree l and scale by sqrt((2*l-1)*(l*l-m*m)) / sqrt(2*l+1)
-    !   2) scale by 1/rsph(isph)
-    do l = 1, dd_data % pl
-        indi = l*l + l + 1
-        indj = indi - 2*l
-        tmp1 = -sqrt(dble(2*l-1)) / sqrt(dble(2*l+1))
-        do m = 1-l, l-1
-            tmp2 = sqrt(dble(l*l-m*m)) * tmp1
-            dd_data % tmp_sph_l_grad(indj+m, :, :) = tmp2 * &
-                & dd_data % tmp_sph_l_grad(indi+m, :, :)
-        end do
-    end do
-    ! Scale by 1/rsph(isph) and rotate harmonics of degree up to pl-1 back to
-    ! the initial axis
-    do isph = 1, dd_data % nsph
-        dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 3, isph) = &
-            & dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 3, isph) / &
-            & dd_data % rsph(isph)
-        ! tmp_sph_l is a temporary of size ((pl+1)**2, nsph)
-        dd_data % tmp_sph_l(1:dd_data % pl**2, isph) = &
-            & dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 1, isph) / &
-            & dd_data % rsph(isph)
-        call fmm_sph_transform_out(dd_data % pl-1, zx_coord_transform, &
-            & dd_data % tmp_sph_l(1:dd_data % pl**2, isph), &
-            & dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 1, isph))
-        dd_data % tmp_sph_l(1:dd_data % pl**2, isph) = &
-            & dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 2, isph) / &
-            & dd_data % rsph(isph)
-        call fmm_sph_transform_out(dd_data % pl-1, zy_coord_transform, &
-            & dd_data % tmp_sph_l(1:dd_data % pl**2, isph), &
-            & dd_data % tmp_sph_l_grad(1:dd_data % pl**2, 2, isph))
-    end do
+    call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
+        & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
     !! Compute all terms of grad_i(R). The second term of R_i^B is already
     !! taken into account and the first term is computed together with R_i^C.
     do isph = 1, dd_data % nsph
