@@ -34,11 +34,13 @@ allocate(phi_cav(dd_data % ncav), gradphi_cav(3, dd_data % ncav), &
 call cpu_time(start_time)
 call mkrhs(dd_data, phi_cav, gradphi_cav, psi)
 call cpu_time(finish_time)
-write(*, "(A,ES11.4E2,A)") "MKRHS time:", finish_time-start_time, " seconds"
+write(*, "(A,ES11.4E2,A)") "mkrhs time:", finish_time-start_time, " seconds"
 call cpu_time(start_time)
 call ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
 call cpu_time(finish_time)
-write(*, "(A,ES11.4E2,A)") "DDPCM time:", finish_time-start_time, " seconds"
+write(*, "(A,ES11.4E2,A)") "ddpcm time:", finish_time-start_time, " seconds"
+write(*, "(A,ES25.16E3)") "ddpcm esolv:", esolv
+write(*, *) "Full forces"
 do isph = 1, dd_data % nsph
     write(6,'(1x,i5,3ES25.16E3)') isph, force(:,isph)
 end do
