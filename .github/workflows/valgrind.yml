@@ -1,0 +1,37 @@
+name: Valgrind
+
+on: [workflow_dispatch]
+
+jobs:
+  run-valgrind:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {
+            name: "Ubuntu Latest",
+            os: ubuntu-latest,
+            gen: "Unix Makefiles",
+            fortran: "gfortran-10"
+            print: "cat"
+          }
+    steps:
+    - name: Install Valgrind
+      run: |
+        sudo apt-get install valgrind
+
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+    
+    - name: build
+      run: |
+        mkdir build
+        cd build
+        cmake .. 
+        make
+      
+    - name: memcheck
+      run: |
+        valgrind --tool=memcheck ctest
