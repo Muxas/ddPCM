@@ -28,20 +28,25 @@ jobs:
 
     - name: cachegrind
       run: |
+        cd build
         valgrind --tool=cachegrind ctest
 
     - name: callgrind
       run: |
+        cd build
         valgrind --tool=callgrind ctest
 
     - name: massif
       run: |
+        cd build
         valgrind --tool=massif ctest
 
     - name: helgrind
       run: |
+        cd build
         valgrind --tool=helgrind ctest
 
     - name: drd
       run: |
+        cd build
         valgrind --tool=drd ctest
