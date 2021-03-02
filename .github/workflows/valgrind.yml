@@ -23,6 +23,7 @@ jobs:
       
     - name: memcheck
       run: |
+        cd build
         valgrind --tool=memcheck ctest
 
     - name: cachegrind
