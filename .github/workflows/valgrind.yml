@@ -4,19 +4,7 @@ on: workflow_dispatch
 
 jobs:
   run-valgrind:
-    name: ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-        - {
-            name: "Ubuntu Latest",
-            os: ubuntu-latest,
-            gen: "Unix Makefiles",
-            fortran: "gfortran-10"
-            print: "cat"
-          }
+    runs-on: ubuntu-latest
     steps:
     - name: Install Valgrind
       run: |
