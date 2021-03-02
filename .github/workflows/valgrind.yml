@@ -43,7 +43,3 @@ jobs:
     - name: drd
       run: |
         valgrind --tool=drd ctest
-
-    - name: dhat
-      run: |
-        valgrind --tool=dhat ctest
