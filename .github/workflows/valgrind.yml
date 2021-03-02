@@ -23,3 +23,27 @@ jobs:
     - name: memcheck
       run: |
         valgrind --tool=memcheck ctest
+
+    - name: cachegrind
+      run: |
+        valgrind --tool=cachegrind ctest
+
+    - name: callgrind
+      run: |
+        valgrind --tool=callgrind ctest
+
+    - name: massif
+      run: |
+        valgrind --tool=massif ctest
+
+    - name: helgrind
+      run: |
+        valgrind --tool=helgrind ctest
+
+    - name: drd
+      run: |
+        valgrind --tool=drd ctest
+
+    - name: dhat
+      run: |
+        valgrind --tool=dhat ctest
