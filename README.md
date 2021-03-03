@@ -3,7 +3,7 @@ A fast domain decomposition based implementation of the COSMO solvation model
 
 [![DOI](https://zenodo.org/badge/63929685.svg)](https://zenodo.org/badge/latestdoi/63929685)
 
-[![Bintray](https://img.shields.io/github/workflow/status/Nige91/ddPCM/tree/ddX/CMake%20Build%20Matrix)](https://bintray.com/asciidoctor/maven/asciidoctorj)
+[![Bintray](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)
 
 COPYRIGHT (C) 2016 by Filippo Lipparini, Benjamin Stamm, Eric Cancès,
 Yvon Maday, Paolo Gatto, Jean-Philip Piquemal, Louis Lagardère and 
