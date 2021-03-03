@@ -1,0 +1,27 @@
+name: Valgrind DRD
+
+on: workflow_dispatch
+
+jobs:
+  run-valgrind:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Valgrind
+      run: |
+        sudo apt-get install valgrind
+
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+    
+    - name: build
+      run: |
+        mkdir build
+        cd build
+        cmake .. 
+        make 
+        ctest
+
+    - name: drd
+      run: |
+        cd build
+        valgrind --tool=drd ctest
