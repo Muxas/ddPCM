@@ -1,6 +1,6 @@
 name: CMake Build
 
-on: workflow_dispatch
+on: [push]
 
 jobs:
   build-and-test:
@@ -17,13 +17,13 @@ jobs:
             fortran: "gfortran-10",
             print: "cat"
           }
-        - {
-            name: "Windows Latest",
-            os: windows-latest,
-            gen: "MinGW Makefiles",
-            fortran: "gfortran",
-            print: "Get-Content -Path"
-          }
+        #- {
+        #    name: "Windows Latest",
+        #    os: windows-latest,
+        #    gen: "MinGW Makefiles",
+        #    fortran: "gfortran",
+        #    print: "Get-Content -Path"
+        #  }
         - {
             name: "macOS Latest Clang",
             os: macos-latest,
