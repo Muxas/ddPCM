@@ -212,15 +212,17 @@ subroutine ddpcm(dd_data, phi_cav, gradphi_cav, psi, esolv, force)
                     end do
                 end do
             end do
-            ! Take into account far-field FMM gradients
-            tmp1 = one / sqrt(3d0) / dd_data % vscales(1)
-            do isph = 1, dd_data % nsph
-                inode = dd_data % snode(isph)
-                tmp2 = tmp1 / dd_data % rsph(isph)
-                ef(3, isph) = ef(3, isph) + tmp2*dd_data % tmp_node_l(3, inode)
-                ef(1, isph) = ef(1, isph) + tmp2*dd_data % tmp_node_l(4, inode)
-                ef(2, isph) = ef(2, isph) + tmp2*dd_data % tmp_node_l(2, inode)
-            end do
+            ! Take into account far-field FMM gradients only if pl > 0
+            if (dd_data % pl .gt. 0) then
+                tmp1 = one / sqrt(3d0) / dd_data % vscales(1)
+                do isph = 1, dd_data % nsph
+                    inode = dd_data % snode(isph)
+                    tmp2 = tmp1 / dd_data % rsph(isph)
+                    ef(3, isph) = ef(3, isph) + tmp2*dd_data % tmp_node_l(3, inode)
+                    ef(1, isph) = ef(1, isph) + tmp2*dd_data % tmp_node_l(4, inode)
+                    ef(2, isph) = ef(2, isph) + tmp2*dd_data % tmp_node_l(2, inode)
+                end do
+            end if
             do isph = 1, dd_data % nsph
                 force(:, isph) = force(:, isph) + ef(:, isph)*dd_data % charge(isph)
             end do

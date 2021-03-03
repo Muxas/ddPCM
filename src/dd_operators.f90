@@ -118,17 +118,19 @@ subroutine mkrhs(dd_data, phi_cav, gradphi_cav, psi)
                 end do
             end do
         end do
-        ! Take into account far-field FMM gradients
-        ! Get gradient of L2L
-        call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
-            & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
-        ! Apply L2P for every axis with -1 multiplier since grad over target
-        ! point is equal to grad over source point
-        call dgemm('T', 'N', dd_data % ngrid, 3*dd_data % nsph, &
-            & (dd_data % pl)**2, -one, dd_data % l2grid, &
-            & dd_data % vgrid_nbasis, dd_data % tmp_sph_l_grad, &
-            & (dd_data % pl+1)**2, one, grid_grad, &
-            & dd_data % ngrid)
+        ! Take into account far-field FMM gradients only if pl > 0
+        if (dd_data % pl .gt. 0) then
+            ! Get gradient of L2L
+            call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
+                & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
+            ! Apply L2P for every axis with -1 multiplier since grad over
+            ! target point is equal to grad over source point
+            call dgemm('T', 'N', dd_data % ngrid, 3*dd_data % nsph, &
+                & (dd_data % pl)**2, -one, dd_data % l2grid, &
+                & dd_data % vgrid_nbasis, dd_data % tmp_sph_l_grad, &
+                & (dd_data % pl+1)**2, one, grid_grad, &
+                & dd_data % ngrid)
+        end if
         ! Copy output for external grid points only
         icav = 0
         do isph = 1, dd_data % nsph
@@ -1238,9 +1240,11 @@ subroutine gradr_fmm(dd_data, fx)
         call tree_m2p(dd_data, dd_data % lmax, one, dd_data % tmp_sph, one, &
             & dd_data % tmp_grid)
     end if
-    !! Compute gradients of L2L
-    call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
-        & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
+    !! Compute gradients of L2L if pl > 0
+    if (dd_data % pl .gt. 0) then
+        call tree_grad_l2l(dd_data, dd_data % tmp_node_l, &
+            & dd_data % tmp_sph_l_grad, dd_data % tmp_sph_l)
+    end if
     !! Compute all terms of grad_i(R). The second term of R_i^B is already
     !! taken into account and the first term is computed together with R_i^C.
     do isph = 1, dd_data % nsph

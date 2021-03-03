@@ -8818,6 +8818,9 @@ subroutine tree_grad_l2l(dd_data, node_l, sph_l_grad, work)
     integer :: isph, inode, l, indi, indj, m
     real(dp) :: tmp1, tmp2
     real(dp), dimension(3, 3) :: zx_coord_transform, zy_coord_transform
+    ! Gradient of L2L reduces degree by 1, so exit if degree of harmonics is 0
+    ! or -1 (which means no FMM at all)
+    if (dd_data % pl .le. 0) return
     ! Set coordinate transformations
     zx_coord_transform = zero
     zx_coord_transform(3, 2) = one
