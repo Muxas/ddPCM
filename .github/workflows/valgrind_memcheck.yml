@@ -1,4 +1,4 @@
-name: Valgrind Cachegrind
+name: Valgrind Memcheck
 
 on: workflow_dispatch
 

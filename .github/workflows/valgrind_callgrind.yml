@@ -1,4 +1,4 @@
-name: Valgrind Cachegrind
+name: Valgrind Callgrind
 
 on: workflow_dispatch
 
