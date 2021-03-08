@@ -13,14 +13,14 @@ program test_dd_operators
 use dd_operators
 implicit none
 
-integer :: i, iprint=1, info, ngrid=590
+integer :: i, iprint=1, info, ngrid=590, nproc=1
 ! Some implementation do not work for alpha=1d-307, so range of test values is
 ! reduced. This can be fixed by enforcing proper order of multiplications like
 ! a*b*c into a*(b*c).
 real(dp) :: alpha(4)=(/1d0, -1d0, 1d-300, 1d+300/)
 type(dd_data_type) :: dd_data
 integer, parameter :: nsph=10, lmax=7, force=1, itersolver=1, &
-    & maxiter=1000, ndiis=25, nproc=1
+    & maxiter=1000, ndiis=25
 real(dp), parameter :: se=0d0, eta=0.1d0, eps=78d0, kappa=0d0, tol=1d-7
 real(dp) :: gcsph(3, nsph), csph(3, nsph), grsph(nsph), rsph(nsph), &
     & gcharge(nsph), charge(nsph)

@@ -43,7 +43,7 @@ project(ddX VERSION ${VERSION} LANGUAGES Fortran CXX)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 ###############################################################################
-##                        REQUIREMENTS: BLAS AND LAPACK                      ##
+##                REQUIREMENTS: OpenMP, BLAS AND LAPACK                      ##
 ###############################################################################
 
 find_package(BLAS REQUIRED)
@@ -65,6 +65,9 @@ option(DOCS "Build documentation" ON)
 
 # Check if a code coverage report is needed
 option(COVERAGE "Generate code coverage report" OFF)
+
+# Whether or not to use OpenMP
+option(OPENMP "Enable OpenMP" OFF)
 
 ###############################################################################
 ##                               CHECK OPTIONS                               ##
@@ -113,6 +116,14 @@ if(TESTS)
                 "configuration command.")
         endif()
     endif()
+endif()
+
+# Check OpenMP option
+if(OPENMP)
+    message(WARNING "OpenMP is currently disabled, setting OPENMP to OFF")
+    set(OPENMP OFF)
+    #find_package(OpenMP REQUIRED)
+    #add_definitions(-DOPENMP)
 endif()
 
 ###############################################################################
