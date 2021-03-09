@@ -69,6 +69,7 @@ do i = 1, size(alpha)
     call check_p2m_m2p(p, alpha(i), iprint, 120*epsilon(zero))
 end do
 
+return
 ! Check P2L and L2P operations of the FMM
 do i = 1, size(alpha)
     call check_p2l_l2p(0, alpha(i), iprint, 6d-2)
@@ -82,8 +83,6 @@ do i = 1, size(alpha)
     call check_m2m(1, alpha(i), iprint, 10d0*epsilon(zero))
     call check_m2m(p, alpha(i), iprint, 10d0*epsilon(zero))
 end do
-
-return
 
 ! Check L2L operations of the FMM
 do i = 1, size(alpha)
@@ -637,7 +636,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     real(dp), intent(in) :: alpha, threshold
     ! Local variables
     integer :: nbasis, i, j, istatus
-    real(dp) :: vscales((p+1)**2)
+    real(dp) :: vscales((p+1)**2), vscales_rel((p+1)**2), v4pi2lp1(p+1)
     real(dp) :: src0(3), src(3), dst(3), csph(3, nsph), rsph(nsph), v0, v(nsph)
     real(dp), dimension((p+1)**2, nsph) :: coef, coef2
     real(dp) :: ztranslate_mat((p+1)*(p+2)*(p+3)/6)
@@ -656,7 +655,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     nbasis = (p+1) * (p+1)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, vscales)
+    call ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     !! Check P2M parameters q and beta
     if (iprint .gt. 0) then
         write(*, *)
@@ -700,35 +699,35 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     end if
     ! Check beta=zero
     v(1) = zero
-    call fmm_m2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v0 = v(1)
-    call fmm_m2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     if (iprint .gt. 0) then
         write(*, *) "M2P beta=zero param check:", v0 .eq. v(1)
     end if
     if (v0 .ne. v(1)) stop 1
     ! Check alpha=zero
-    call fmm_m2p(dst, alpha, p, vscales, zero, coef(:, 1), -one, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, zero, coef(:, 1), -one, v(1))
     if (iprint .gt. 0) then
         write(*, *) "M2P alpha=zero param check:", v0 .eq. -v(1)
     end if
     if (v0 .ne. -v(1)) stop 1
     ! Check non-zero alpha and beta
     v(1) = v0
-    call fmm_m2p(dst, alpha, p, vscales, one, coef(:, 1), one, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, one, coef(:, 1), one, v(1))
     ok = abs(v(1)/v0-two) .le. 10d0*epsilon(zero)
     if (iprint .gt. 0) then
         write(*, *) "M2P alpha and beta params check:", ok
     end if
     if (.not. ok) stop 1
-    call fmm_m2p(dst, alpha, p, vscales, -two, coef(:, 1), pt5, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, -two, coef(:, 1), pt5, v(1))
     ok = abs(v(1)/v0+one) .le. 10d0*epsilon(zero)
     if (iprint .gt. 0) then
         write(*, *) "M2P alpha and beta parameter check:", ok
     end if
     if (.not. ok) stop 1
     !! Check M2P with a location of P equal to the center of M
-    call fmm_m2p(src0, rsph(1), p, vscales, one, coef(:, 1), zero, v0)
+    call fmm_m2p(src0, rsph(1), p, vscales_rel, one, coef(:, 1), zero, v0)
     if (iprint .gt. 0) then
         write(*, *) "Check M2P with center of harmonics=particle location"
         write(*, *) "================================="
@@ -746,7 +745,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
         write(*, *) "threshold=" , threshold
     end if
     call fmm_p2m(src0, one, alpha, p, vscales, zero, coef(:, 1))
-    call fmm_m2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v0 = one / dnrm2(3, dst, 1)
     v(1) = abs((v(1)-v0) / v0)
     if (iprint .gt. 0) then
@@ -755,7 +754,7 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     end if
     if (v(1) .gt. threshold) stop 1
     call fmm_p2m(src0, pt5, alpha, p, vscales, pt5, coef(:, 1))
-    call fmm_m2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_m2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v(1) = abs((v(1)-v0) / v0)
     if (iprint .gt. 0) then
         write(*, "(A,A,ES24.16E3)") "|| P2M(0) + M(0)2P - P2P ||  /  ", &
@@ -769,8 +768,8 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
     do i = 1, nsph
         call fmm_p2m(src-csph(:, i), one, rsph(i), p, vscales, zero, &
             & coef(:, i))
-        call fmm_m2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v(i))
+        call fmm_m2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v(i))
         ! Finally check p2m+m2p
         v(i) = abs((v(i)-v0) / v0)
         if (iprint .gt. 0) then
@@ -779,6 +778,29 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
                 & ")2P - P2P ||  /  || P2P || =", v(i)
         end if
         if (v(i) .gt. threshold) stop 1
+    end do
+    !! Check adjoint M2P
+    do i = 1, nsph
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_m2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+                & coef(:, i), zero, coef2(j, i))
+        end do
+        call fmm_m2p_adj(dst-csph(:, i), one, rsph(i), p, vscales, zero, &
+            & coef(:, i))
+        !!write(*, *) coef(:, i) - coef2(:, i)
+        v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
+            & dnrm2((p+1)**2, coef2(:, i), 1)
+        write(*, *) "adj=", v(i)
+        write(*, *) maxval(abs(coef(:, i)-coef2(:, i)) / coef2(:, i))
+        if (v(i) .gt. 1d-15) stop 1
+        call fmm_m2p_adj(dst-csph(:, i), -one, rsph(i), p, vscales, two, &
+            & coef(:, i))
+        v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
+            & dnrm2((p+1)**2, coef2(:, i), 1)
+        write(*, *) "adj(beta!=0)=", v(i)
+        if (v(i) .gt. 1d-15) stop 1
     end do
 end subroutine check_p2m_m2p
 
@@ -915,7 +937,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     ! Local variables
     integer :: nbasis, i, j
     real(dp) :: delta = 10d0 * epsilon(one)
-    real(dp) :: vscales((p+1)**2)
+    real(dp) :: vscales((p+1)**2), vscales_rel((p+1)**2), v4pi2lp1(p+1)
     real(dp) :: dst0(3), dst(3), src(3), csph(3, nsph), rsph(nsph), v0, v(nsph)
     real(dp), dimension((p+1)**2, nsph) :: coef, coef2
     logical :: ok
@@ -925,12 +947,12 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     dst = alpha * gsrc
     src = alpha * gdst(:, 1)
     csph = alpha * gcsph
-    rsph = alpha * grsph
+    rsph = abs(alpha) * grsph
     ! Preliminaries
     nbasis = (p+1) * (p+1)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, vscales)
+    call ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     !! Check P2L parameters q and beta
     if (iprint .gt. 0) then
         write(*, *)
@@ -1095,7 +1117,8 @@ subroutine check_m2m(p, alpha, iprint, threshold)
     real(dp), intent(in) :: alpha, threshold
     ! Local variables
     integer :: nbasis, i, j
-    real(dp) :: vscales((p+1)**2), vfact(2*p+1)
+    real(dp) :: vscales((p+1)**2), vfact(2*p+1), vscales_rel((p+1)**2), &
+        & v4pi2lp1(p+1)
     real(dp) :: src0(3), src(3), dst(3), csph(3, nsph), rsph(nsph), v0, v(nsph)
     real(dp), dimension((p+1)**2, nsph) :: coef, coef2
     real(dp) :: ztranslate_mat((p+1)*(p+2)*(p+3)/6)
@@ -1114,7 +1137,7 @@ subroutine check_m2m(p, alpha, iprint, threshold)
     nbasis = (p+1) * (p+1)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, vscales)
+    call ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     vfact(1) = one
     do i = 2, 2*p+1
         vfact(i) = vfact(i-1) * sqrt(dble(i-1))
@@ -1741,7 +1764,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     real(dp), intent(in) :: alpha, threshold
     ! Local variables
     integer :: nbasis, i, j
-    real(dp) :: vscales((p+1)**2), vfact(2*p+1)
+    real(dp) :: vscales((p+1)**2), vfact(2*p+1), vscales_rel((p+1)**2), &
+        & v4pi2lp1(p+1)
     real(dp) :: dst0(3), dst(3), src(3), csph(3, nsph), rsph(nsph), v0, v1
     real(dp), dimension((p+1)**2, nsph) :: coef
     real(dp) :: ztranslate_mat((p+1)*(p+2)*(p+3)/6)
@@ -1760,7 +1784,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     nbasis = (p+1) * (p+1)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, vscales)
+    call ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     vfact(1) = one
     do i = 2, 2*p+1
         vfact(i) = vfact(i-1) * sqrt(dble(i-1))
@@ -2389,7 +2413,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
     ! Local variables
     integer :: nbasism, nbasisl, i, j, k
     real(dp) :: vscales((pm+pl+1)**2), vfact(2*(pm+pl)+1), dst_csph(3, 2), &
-        & dst_rsph(2)
+        & dst_rsph(2), vscales_rel((pm+pl+1)**2), v4pi2lp1(pm+pl+1)
     real(dp) :: src0(3), src(3), dst(3, 2), csph(3, nsph), rsph(nsph), v0(2), &
         & v1
     real(dp) :: coefm((pm+1)**2, nsph), coef2m((pm+1)**2), coefl((pl+1)**2)
@@ -2414,7 +2438,7 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
     nbasisl = (pl+1)**2
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(pm+pl, vscales)
+    call ylmscale(pm+pl, vscales, v4pi2lp1, vscales_rel)
     vfact(1) = one
     do i = 2, 2*(pm+pl)+1
         vfact(i) = vfact(i-1) * sqrt(dble(i-1))
@@ -3161,7 +3185,8 @@ subroutine check_tree_m2m(p, alpha, iprint, threshold)
         & dd_data % cnode, dd_data % rnode, dd_data % snode)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, dd_data % vscales)
+    call ylmscale(p, dd_data % vscales, dd_data % v4pi2lp1, &
+        & dd_data % vscales_rel)
     dd_data % vfact(1) = one
     do i = 2, 2*p+1
         dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
@@ -3425,7 +3450,8 @@ subroutine check_tree_l2l(p, alpha, iprint, threshold)
         & dd_data % cnode, dd_data % rnode, dd_data % snode)
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(p, dd_data % vscales)
+    call ylmscale(p, dd_data % vscales, dd_data % v4pi2lp1, &
+        & dd_data % vscales_rel)
     dd_data % vfact(1) = one
     do i = 2, 2*p+1
         dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))
@@ -3738,7 +3764,8 @@ subroutine check_tree_m2l(pm, pl, alpha, iprint, threshold)
     end do
     ! Get constants, corresponding to given maximum degree of spherical
     ! harmonics
-    call ylmscale(pm+pl, dd_data % vscales)
+    call ylmscale(pm+pl, dd_data % vscales, dd_data % v4pi2lp1, &
+        & dd_data % vscales_rel)
     dd_data % vfact(1) = one
     do i = 2, 2*(pm+pl)+1
         dd_data % vfact(i) = dd_data % vfact(i-1) * sqrt(dble(i-1))

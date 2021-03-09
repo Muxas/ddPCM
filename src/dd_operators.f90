@@ -1344,17 +1344,17 @@ subroutine gradr_fmm(dd_data, fx)
                             & dd_data % rsph(isph)*dd_data % cgrid(:, igrid)
                         call fmm_m2p(c-dd_data % csph(:, jsph), &
                             & dd_data % rsph(jsph), dd_data % lmax+1, &
-                            & dd_data % vscales, one, &
+                            & dd_data % vscales_rel, one, &
                             & dd_data % tmp_sph_grad(:, 1, jsph), zero, tmp_gg)
                         gg3(1) = gg3(1) + tmp_gg
                         call fmm_m2p(c-dd_data % csph(:, jsph), &
                             & dd_data % rsph(jsph), dd_data % lmax+1, &
-                            & dd_data % vscales, one, &
+                            & dd_data % vscales_rel, one, &
                             & dd_data % tmp_sph_grad(:, 2, jsph), zero, tmp_gg)
                         gg3(2) = gg3(2) + tmp_gg
                         call fmm_m2p(c-dd_data % csph(:, jsph), &
                             & dd_data % rsph(jsph), dd_data % lmax+1, &
-                            & dd_data % vscales, one, &
+                            & dd_data % vscales_rel, one, &
                             & dd_data % tmp_sph_grad(:, 3, jsph), zero, tmp_gg)
                         gg3(3) = gg3(3) + tmp_gg
                     end do

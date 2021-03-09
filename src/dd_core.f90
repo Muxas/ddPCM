@@ -110,6 +110,13 @@ type dd_data_type
     !!
     !! This array has `nscales` entries
     real(dp), allocatable :: vscales(:)
+    !> Array of values 4pi/(2l+1), dimension is (dmax+1)
+    real(dp), allocatable :: v4pi2lp1(:)
+    !> Relative scales of real normalized spherical harmonics
+    !!
+    !! Each values of vscales is multiplied by a corresponding 4pi/(2l+1).
+    !! This array has `nscales` entries.
+    real(dp), allocatable :: vscales_rel(:)
     !> Maximum sqrt of factorial precomputed
     !!
     !! Just like with `dmax` parameter, number of used factorials is either
@@ -381,7 +388,8 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     logical :: use_omp
     ! Pointers for OMP, that can not use fields of a derived type in a depend
     ! clause. This is done to compute all the dd_data fields in a parallel way
-    real(dp), pointer :: p_vscales(:), p_vfact(:), p_cgrid(:, :), p_wgrid(:), &
+    real(dp), pointer :: p_vscales(:), p_v4pi2lp1(:), p_vscales_rel(:), &
+        & p_vfact(:), p_cgrid(:, :), p_wgrid(:), &
         & p_vgrid(:, :), p_vwgrid(:, :), p_l2grid(:, :), p_tmp_vplm(:, :), &
         & p_tmp_vcos(:, :), p_tmp_vsin(:, :), p_fi(:, :), p_ui(:, :), &
         & p_zi(:, :, :)
@@ -581,6 +589,20 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
         return
     end if
     p_vscales => dd_data % vscales
+    allocate(dd_data % v4pi2lp1(dd_data % dmax+1), stat=istatus)
+    if (istatus .ne. 0) then
+        !write(*, *) "ddinit: [2] allocation failed!"
+        info = 2
+        return
+    end if
+    p_v4pi2lp1 => dd_data % v4pi2lp1
+    allocate(dd_data % vscales_rel(dd_data % nscales), stat=istatus)
+    if (istatus .ne. 0) then
+        !write(*, *) "ddinit: [2] allocation failed!"
+        info = 2
+        return
+    end if
+    p_vscales_rel => dd_data % vscales_rel
     ! Allocate square roots of factorials
     allocate(dd_data % vfact(dd_data % nfact), stat=istatus)
     if (istatus .ne. 0) then
@@ -659,7 +681,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
         p_zi => dd_data % zi
     end if
     ! Compute scaling factors of spherical harmonics
-    call ylmscale(dd_data % dmax, p_vscales)
+    call ylmscale(dd_data % dmax, p_vscales, p_v4pi2lp1, p_vscales_rel)
     ! Compute square roots of factorials
     p_vfact(1) = 1
     do i = 2, dd_data % nfact
@@ -1447,6 +1469,20 @@ subroutine ddfree(dd_data)
             stop 1
         end if
     end if
+    if (allocated(dd_data % v4pi2lp1)) then
+        deallocate(dd_data % v4pi2lp1, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [3] deallocation failed!"
+            stop 1
+        end if
+    end if
+    if (allocated(dd_data % vscales_rel)) then
+        deallocate(dd_data % vscales_rel, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [3] deallocation failed!"
+            stop 1
+        end if
+    end if
     if (allocated(dd_data % vfact)) then
         deallocate(dd_data % vfact, stat=istatus)
         if (istatus .ne. 0) then
@@ -1926,25 +1962,37 @@ end subroutine print_ddvector
 !! is the same as scaling factor of \f$ Y_\ell^m \f$.
 !!
 !! @param[in] p: Maximal degree of spherical harmonics. `p` >= 0
-!! @param[out] vscales: Array of scaling factors. Dimension is `nscales`
-subroutine ylmscale(p, vscales)
+!! @param[out] vscales: Array of scaling factors. Dimension is `(p+1)**2`
+!! @param[out] vscales: Array of values 4pi/(2l+1). Dimension is `p+1`
+!! @param[out] vscales_rel: Array of relative scaling factors.
+!!      Dimension is `(p+1)**2`.
+subroutine ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     ! Input
     integer, intent(in) :: p
     ! Output
-    real(dp), intent(out) :: vscales((p+1)**2)
+    real(dp), intent(out) :: vscales((p+1)**2), v4pi2lp1(p+1), &
+        & vscales_rel((p+1)**2)
     ! Local variables
-    real(dp) :: tmp
+    real(dp) :: tmp, twolp1
     integer :: l, ind, m
+    twolp1 = one
     do l = 0, p
         ! m = 0
         ind = l*l + l + 1
-        vscales(ind) = sqrt(dble(2*l+1)) / sqrt4pi
+        tmp = fourpi / twolp1
+        v4pi2lp1(l+1) = tmp
+        tmp = sqrt(tmp)
+        vscales_rel(ind) = tmp
+        vscales(ind) = one / tmp
+        twolp1 = twolp1 + two
         tmp = vscales(ind) * sqrt2
         ! m != 0
         do m = 1, l
             tmp = -tmp / sqrt(dble((l-m+1)*(l+m)))
             vscales(ind+m) = tmp
             vscales(ind-m) = tmp
+            vscales_rel(ind+m) = tmp * v4pi2lp1(l+1)
+            vscales_rel(ind-m) = vscales_rel(ind+m)
         end do
     end do
 end subroutine ylmscale
@@ -2334,7 +2382,7 @@ subroutine polleg_work(ctheta, stheta, p, vplm, work)
         vplm(indl) = vplm(indl) / fl
         tmp4 = two * tmp2
         tmp5 = fl*fl - fl
-        ! Set P_l^m for m = 1, l-2
+        ! Set P_l^m for m=1..l-2
         do m = 1, l-2
             tmp4 = tmp4 + two
             tmp5 = tmp5 + tmp4
@@ -3684,23 +3732,23 @@ end subroutine fmm_p2m_work
 !! @param[in] c: Coordinates of a particle (relative to center of harmonics)
 !! @param[in] r: Radius of spherical harmonics
 !! @param[in] p: Maximal degree of multipole basis functions
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
-!!      is `(p+1)**2`
+!! @param[in] vscales_rel: Relative normalization constants for
+!!      \f$ Y_\ell^m \f$. Dimension is `(p+1)**2`
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Multipole coefficients. Dimension is `(p+1)**2`
 !! @param[in] beta: Scalar multiplier for `v`
 !! @param[inout] v: Value of induced potential
-subroutine fmm_m2p(c, r, p, vscales, alpha, src_m, beta, v)
+subroutine fmm_m2p(c, r, p, vscales_rel, alpha, src_m, beta, v)
     ! Inputs
-    real(dp), intent(in) :: c(3), r, vscales((p+1)*(p+1)), alpha, &
+    real(dp), intent(in) :: c(3), r, vscales_rel((p+1)*(p+1)), alpha, &
         & src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: v
     ! Temporary workspace
-    real(dp) :: work(2*(p+1)*(p+2))
+    real(dp) :: work((p+1)*(p+1)+3*p)
     ! Call corresponding work routine
-    call fmm_m2p_work(c, r, p, vscales, alpha, src_m, beta, v, work)
+    call fmm_m2p_work(c, r, p, vscales_rel, alpha, src_m, beta, v, work)
 end subroutine fmm_m2p
 
 !> Accumulate potential, induced by multipole spherical harmonics
@@ -3725,31 +3773,34 @@ end subroutine fmm_m2p
 !! @param[in] c: Coordinates of a particle (relative to center of harmonics)
 !! @param[in] r: Radius of spherical harmonics
 !! @param[in] p: Maximal degree of multipole basis functions
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
-!!      is `(p+1)**2`
+!! @param[in] vscales_rel: Relative normalization constants for
+!!      \f$ Y_\ell^m \f$. Dimension is `(p+1)**2`
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Multipole coefficients. Dimension is `(p+1)**2`
 !! @param[in] beta: Scalar multiplier for `v`
 !! @param[inout] v: Value of induced potential
-!! @param[out] work: Temporary workspace of size (p+1)*(p+3)
-subroutine fmm_m2p_work(c, r, p, vscales, alpha, src_m, beta, v, work)
+!! @param[out] work: Temporary workspace of size (p+1)*(p+1)+3*p
+subroutine fmm_m2p_work(c, src_r, p, vscales_rel, alpha, src_m, &
+        & beta, dst_v, work)
     ! Inputs
-    real(dp), intent(in) :: c(3), r, vscales((p+1)*(p+1)), alpha, &
+    real(dp), intent(in) :: c(3), src_r, vscales_rel((p+1)*(p+1)), alpha, &
         & src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
-    real(dp), intent(inout) :: v
+    real(dp), intent(inout) :: dst_v
     ! Workspace
-    real(dp), intent(out), target :: work((p+1)*(p+3))
+    real(dp), intent(out), target :: work((p+1)*(p+1)+3*p)
     ! Local variables
-    real(dp) :: rho, ctheta, stheta, cphi, sphi, rcoef, t, tmp, tmp2, tmp3, &
-        & max12, ssq12
-    integer :: n, m, ind, vplm1, vplm2, vcos1, vcos2, vsin1, vsin2, l
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, rcoef, t, tmp, tmp1, tmp2, &
+        & tmp3, tmp4, tmp5, fl, max12, ssq12
+    integer :: vplm1, vplm2, vcos1, vcos2, vsin1, vsin2, vminv1, vminv2, &
+        & l, m, indl, indlm1, indlm2
+    real(dp), pointer :: vplm(:), vcos(:), vsin(:), vminv(:)
     ! Scale output
     if (beta .eq. zero) then
-        v = zero
+        dst_v = zero
     else
-        v = beta * v
+        dst_v = beta * dst_v
     end if
     ! In case of zero alpha nothing else is required no matter what is the
     ! value of the induced potential
@@ -3759,11 +3810,17 @@ subroutine fmm_m2p_work(c, r, p, vscales, alpha, src_m, beta, v, work)
     ! Mark first and last elements of all work subarrays
     vplm1 = 1
     vplm2 = (p+1)**2
+    vplm => work(vplm1:vplm2)
     vcos1 = vplm2 + 1
     vcos2 = vcos1 + p
+    vcos => work(vcos1:vcos2)
     vsin1 = vcos2 + 1
     vsin2 = vsin1 + p
-    ! Get radius and values of spherical harmonics
+    vsin => work(vsin1:vsin2)
+    vminv1 = vsin2 + 1
+    vminv2 = vminv1 + p-3
+    vminv => work(vminv1:vminv2)
+    ! Get spherical coordinates
     if (c(1) .eq. zero) then
         max12 = abs(c(2))
         ssq12 = one
@@ -3790,7 +3847,7 @@ subroutine fmm_m2p_work(c, r, p, vscales, alpha, src_m, beta, v, work)
         return
     end if
     ! Compute the actual induced potential
-    rcoef = r / rho
+    rcoef = src_r / rho
     ! Length of a vector x(1:2)
     stheta = max12 * sqrt(ssq12)
     ! Case x(1:2) != 0
@@ -3805,76 +3862,98 @@ subroutine fmm_m2p_work(c, r, p, vscales, alpha, src_m, beta, v, work)
         select case(p)
             case (0)
                 ! l = 0
-                v = v + alpha*rcoef/vscales(1)*src_m(1)
+                dst_v = dst_v + alpha*rcoef*vscales_rel(1)*src_m(1)
                 return
             case (1)
                 ! l = 0
-                tmp = src_m(1) / vscales(1)
+                tmp = src_m(1) * vscales_rel(1)
                 ! l = 1
-                tmp2 = ctheta * src_m(3) * vscales(3)
-                tmp3 = vscales(4) * stheta
+                tmp2 = ctheta * src_m(3) * vscales_rel(3)
+                tmp3 = vscales_rel(4) * stheta
                 tmp2 = tmp2 - tmp3*sphi*src_m(2)
                 tmp2 = tmp2 - tmp3*cphi*src_m(4)
-                v = v + alpha*rcoef*(tmp+rcoef*tmp2/vscales(3)**2)
+                dst_v = dst_v + alpha*rcoef*(tmp+rcoef*tmp2)
                 return
         end select
-        ! Evaluate associated Legendre polynomials, size of temporary workspace
-        ! here needs only (p+1) elements so we use vcos as a temporary
-        call polleg_work(ctheta, stheta, p, work(vplm1:vplm2), &
-            & work(vcos1:vcos2))
         ! Evaluate cos(m*phi) and sin(m*phi) arrays
-        call trgev(cphi, sphi, p, work(vcos1:vcos2), work(vsin1:vsin2))
+        call trgev(cphi, sphi, p, vcos, vsin)
+        ! Prepare -stheta*pt5/m
+        tmp2 = -stheta * pt5
+        do m = 1, p-2
+            vminv(m) = tmp2 / dble(m)
+        end do
         ! Construct spherical harmonics
         ! l = 0
-        tmp = src_m(1) / vscales(1)
+        vplm(1) = one
+        tmp = src_m(1) * vscales_rel(1)
         ! l = 1
-        tmp2 = ctheta * src_m(3) * vscales(3)
-        tmp3 = vscales(4) * stheta
-        tmp2 = tmp2 - tmp3*sphi*src_m(2)
-        tmp2 = tmp2 - tmp3*cphi*src_m(4)
-        tmp = tmp + rcoef*tmp2/vscales(3)**2
-        ind = 3
+        vplm(3) = ctheta
+        vplm(4) = -stheta
+        tmp2 = ctheta * src_m(3) * vscales_rel(3)
+        tmp2 = tmp2 - stheta*vscales_rel(4)*(sphi*src_m(2)+cphi*src_m(4))
+        tmp = tmp + rcoef*tmp2
         t = rcoef
+        indl = 3
+        indlm1 = 1
         do l = 2, p
             t = t * rcoef
-            ! Offset of a Y_l^0 harmonic in vplm and vylm arrays
-            ind = ind + 2*l
-            !l**2 + l + 1
-            ! m = 0 implicitly uses `vcos(1) = 1`
-            !vylm(ind) = vscales(ind) * vplm(ind)
-            tmp2 = vscales(ind) * work(vplm1+ind-1) * src_m(ind)
-            do m = 1, l
-                ! only P_l^m for non-negative m is used/defined
-                tmp3 = work(vplm1+ind+m-1) * vscales(ind+m)
-                tmp2 = tmp2 + tmp3*(work(vcos1+m)*src_m(ind+m)+ &
-                    & work(vsin1+m)*src_m(ind-m))
+            ! Offset of a P_{l-2}^0 harmonic
+            indlm2 = indlm1
+            ! Offset of a P_{l-1}^0 harmonic
+            indlm1 = indl
+            ! Offset of a P_l^0 harmonic
+            indl = indl + 2*l
+            ! Some temp constants
+            fl = dble(l)
+            tmp1 = two*fl - one
+            tmp2 = fl - one
+            tmp3 = tmp1 * ctheta
+            tmp4 = two * tmp2
+            tmp5 = fl*fl - fl
+            ! Y_l^0
+            vplm(indl) = tmp3*vplm(indlm1) - tmp2*vplm(indlm2)
+            vplm(indl) = vplm(indl) / fl
+            tmp2 = vscales_rel(indl) * vplm(indl) * src_m(indl)
+            ! Y_l^m for m=1..l-2
+            do m = 1, l-2
+                tmp4 = tmp4 + two
+                tmp5 = tmp5 + tmp4
+                ! P_l^m
+                vplm(indl+m) = vminv(m) * (vplm(indlm1+m+1) + &
+                    & tmp5*vplm(indlm1+m-1))
+                tmp2 = tmp2 + vplm(indl+m)*(vcos(m+1)*src_m(indl+m)+ &
+                    & vsin(m+1)*src_m(indl-m))*vscales_rel(indl+m)
             end do
-            tmp = tmp + t*tmp2/vscales(ind)**2
+            ! m = l-1
+            vplm(indl+l-1) = tmp3 * vplm(indlm1+l-1)
+            tmp2 = tmp2 + vplm(indl+l-1)*(vcos(l)*src_m(indl+l-1)+ &
+                & vsin(l)*src_m(indl-l+1))*vscales_rel(indl+l-1)
+            ! m = l
+            vplm(indl+l) = -stheta * tmp1 * vplm(indlm1+l-1)
+            tmp2 = tmp2 + vplm(indl+l)*(vcos(l+1)*src_m(indl+l)+ &
+                & vsin(l+1)*src_m(indl-l))*vscales_rel(indl+l)
+            tmp = tmp + t*tmp2
         end do
-        v = v + alpha*rcoef*tmp
+        dst_v = dst_v + alpha*rcoef*tmp
     ! Case of x(1:2) = 0 and x(3) != 0
     else
-        ! Set spherical coordinates
-        !cphi = one
-        !sphi = zero
-        ctheta = sign(one, c(3))
-        !stheta = zero
-        ! Set output arrays vcos and vsin
-        !vcos = one
-        !vsin = zero
-        ! Evaluate spherical harmonics. P_l^m = 0 for m > 0. In the case m = 0
-        ! it depends if l is odd or even. Additionally, vcos = one and vsin =
-        ! zero for all elements
+    ! TODO: Add proper check for this routine, I am leaving here stop
+    ! instruction to indicate that it is not tested
+        stop "fmm_m2p_work untested branch"
+        ! In this case Y_l^m = 0 for m != 0, so only case m = 0 is taken into
+        ! account. Y_l^m = ctheta^m in this case where ctheta is either +1 or
+        ! -1. So, we copy sign(ctheta) into rcoef.
+        rcoef = sign(rcoef, c(3))
+        ! Init t and proceed with accumulation of a potential
         t = alpha
-        do l = 0, p, 2
+        indl = 1
+        do l = 0, p
+            ! Index of Y_l^0
+            indl = indl + 2*l
+            ! Update t
             t = t * rcoef
-            ind = l**2 + l + 1
-            ! only case m = 0
-            tmp = t * src_m(ind) / vscales(ind)
-            t = t * rcoef
-            ind = ind + 2*(l+1)
-            tmp = tmp + t * ctheta * src_m(ind) / vscales(ind)
-            v = v + tmp
+            ! Add 4*pi/(2*l+1)*rcoef^{l+1}*Y_l^0 contribution
+            dst_v = dst_v + t*src_m(indl)*vscales_rel(indl)
         end do
     end if
 end subroutine fmm_m2p_work
@@ -3900,20 +3979,20 @@ end subroutine fmm_m2p_work
 !! @param[in] src_q: Charge of the source particle
 !! @param[in] dst_r: Radius of output multipole spherical harmonics
 !! @param[in] p: Maximal degree of multipole basis functions
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
-!!      is `(p+1)**2`
+!! @param[in] vscales_rel: Relative normalization constants for
+!!      \f$ Y_\ell^m \f$. Dimension is `(p+1)**2`
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: Multipole coefficients. Dimension is `(p+1)**2`
-subroutine fmm_m2p_adj(c, src_q, dst_r, p, vscales, beta, dst_m)
+subroutine fmm_m2p_adj(c, src_q, dst_r, p, vscales_rel, beta, dst_m)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_q, dst_r, vscales((p+1)*(p+1)), beta
+    real(dp), intent(in) :: c(3), src_q, dst_r, vscales_rel((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)**2)
     ! Workspace
-    real(dp) :: work(2*(p+1)*(p+2))
+    real(dp) :: work((p+1)*(p+1)+3*p)
     ! Call corresponding work routine
-    call fmm_m2p_adj_work(c, src_q, dst_r, p, vscales, beta, dst_m, work)
+    call fmm_m2p_adj_work(c, src_q, dst_r, p, vscales_rel, beta, dst_m, work)
 end subroutine fmm_m2p_adj
 
 !> Adjoint M2P operation
@@ -3937,22 +4016,25 @@ end subroutine fmm_m2p_adj
 !! @param[in] src_q: Charge of the source particle
 !! @param[in] dst_r: Radius of output multipole spherical harmonics
 !! @param[in] p: Maximal degree of multipole basis functions
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$. Dimension
-!!      is `(p+1)**2`
+!! @param[in] vscales_rel: Relative normalization constants for
+!!      \f$ Y_\ell^m \f$. Dimension is `(p+1)**2`
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: Multipole coefficients. Dimension is `(p+1)**2`
-!! @param[out] work: Temporary workspace of a size (2*(p+1)*(p+2))
-subroutine fmm_m2p_adj_work(c, src_q, dst_r, p, vscales, beta, dst_m, work)
+!! @param[out] work: Temporary workspace of a size ((p+1)*(p+1)+3*p)
+subroutine fmm_m2p_adj_work(c, src_q, dst_r, p, vscales_rel, beta, dst_m, work)
     ! Inputs
-    real(dp), intent(in) :: c(3), src_q, dst_r, vscales((p+1)*(p+1)), beta
+    real(dp), intent(in) :: c(3), src_q, dst_r, vscales_rel((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)**2)
     ! Workspace
-    real(dp), intent(out), target :: work(2*(p+1)*(p+2))
+    real(dp), intent(out), target :: work((p+1)*(p+1)+3*p)
     ! Local variables
-    real(dp) :: rho, ctheta, stheta, cphi, sphi, rcoef, t, tmp
-    integer :: n, ind, vylm1, vylm2, vplm1, vplm2, vcos1, vcos2, vsin1, vsin2
+    real(dp) :: rho, ctheta, stheta, cphi, sphi, rcoef, t, tmp, tmp1, tmp2, &
+        & tmp3, tmp4, tmp5, fl, max12, ssq12
+    integer :: vplm1, vplm2, vcos1, vcos2, vsin1, vsin2, vminv1, vminv2, &
+        & l, m, indl, indlm1, indlm2
+    real(dp), pointer :: vplm(:), vcos(:), vsin(:), vminv(:)
     ! In case src_q is zero just scale output properly
     if (src_q .eq. zero) then
         ! Zero init output if beta is also zero
@@ -3967,18 +4049,39 @@ subroutine fmm_m2p_adj_work(c, src_q, dst_r, p, vscales, beta, dst_m, work)
     end if
     ! Now src_q is non-zero
     ! Mark first and last elements of all work subarrays
-    vylm1 = 1
-    vylm2 = (p+1)**2
-    vplm1 = vylm2 + 1
-    vplm2 = 2 * vylm2
+    vplm1 = 1
+    vplm2 = (p+1)**2
+    vplm => work(vplm1:vplm2)
     vcos1 = vplm2 + 1
     vcos2 = vcos1 + p
+    vcos => work(vcos1:vcos2)
     vsin1 = vcos2 + 1
     vsin2 = vsin1 + p
-    ! Get radius and values of spherical harmonics
-    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, &
-        & work(vylm1:vylm2), work(vplm1:vplm2), work(vcos1:vcos2), &
-        & work(vsin1:vsin2))
+    vsin => work(vsin1:vsin2)
+    vminv1 = vsin2 + 1
+    vminv2 = vminv1 + p-3
+    vminv => work(vminv1:vminv2)
+    ! Get spherical coordinates
+    if (c(1) .eq. zero) then
+        max12 = abs(c(2))
+        ssq12 = one
+    else if (abs(c(2)) .gt. abs(c(1))) then
+        max12 = abs(c(2))
+        ssq12 = one + (c(1)/c(2))**2
+    else
+        max12 = abs(c(1))
+        ssq12 = one + (c(2)/c(1))**2
+    end if
+    ! Then we compute rho
+    if (c(3) .eq. zero) then
+        rho = max12 * sqrt(ssq12)
+    else if (abs(c(3)) .gt. max12) then
+        rho = one + ssq12 *(max12/c(3))**2
+        rho = abs(c(3)) * sqrt(rho)
+    else
+        rho = ssq12 + (c(3)/max12)**2
+        rho = max12 * sqrt(rho)
+    end if
     ! In case of a singularity (rho=zero) induced potential is infinite and is
     ! not taken into account.
     if (rho .eq. zero) then
@@ -3986,24 +4089,206 @@ subroutine fmm_m2p_adj_work(c, src_q, dst_r, p, vscales, beta, dst_m, work)
     end if
     ! Compute actual induced potentials
     rcoef = dst_r / rho
-    t = src_q
-    ! Ignore input `dst_m` in case of a zero scaling factor beta
-    if (beta .eq. zero) then
-        do n = 0, p
-            t = t * rcoef
-            ind = n*n + n + 1
-            ! Array vylm is in the beginning of work array
-            dst_m(ind-n:ind+n) = t / (vscales(ind)**2) * work(ind-n:ind+n)
+    ! Length of a vector x(1:2)
+    stheta = max12 * sqrt(ssq12)
+    ! Case x(1:2) != 0
+    if (stheta .ne. zero) then
+        ! Normalize cphi and sphi
+        cphi = c(1) / stheta
+        sphi = c(2) / stheta
+        ! Normalize ctheta and stheta
+        ctheta = c(3) / rho
+        stheta = stheta / rho
+        ! Treat easy cases
+        t = src_q * rcoef
+        select case(p)
+            case (0)
+                if (beta .eq. zero) then
+                    dst_m(1) = t * vscales_rel(1)
+                else
+                    dst_m(1) = beta*dst_m(1) + t*vscales_rel(1)
+                end if
+                return
+            case (1)
+                if (beta .eq. zero) then
+                    ! l = 0
+                    dst_m(1) = t * vscales_rel(1)
+                    ! l = 1
+                    t = t * rcoef
+                    tmp = -vscales_rel(4) * stheta
+                    tmp2 = t * tmp
+                    dst_m(2) = tmp2 * sphi
+                    dst_m(3) = t * vscales_rel(3) * ctheta
+                    dst_m(4) = tmp2 * cphi
+                else
+                    ! l = 0
+                    dst_m(1) = beta*dst_m(1) + t*vscales_rel(1)
+                    ! l = 1
+                    t = t * rcoef
+                    tmp = -vscales_rel(4) * stheta
+                    tmp2 = t * tmp
+                    dst_m(2) = beta*dst_m(2) + tmp2*sphi
+                    dst_m(3) = beta*dst_m(3) + t*vscales_rel(3)*ctheta
+                    dst_m(4) = beta*dst_m(4) + tmp2*cphi
+                end if
+                return
+        end select
+        ! Evaluate cos(m*phi) and sin(m*phi) arrays
+        call trgev(cphi, sphi, p, vcos, vsin)
+        ! Prepare -stheta*pt5/m
+        tmp2 = -stheta * pt5
+        do m = 1, p-2
+            vminv(m) = tmp2 / dble(m)
         end do
-    ! Update `dst_m` otherwise
+        ! Overwrite output
+        if (beta .eq. zero) then
+            ! Construct spherical harmonics
+            ! l = 0
+            vplm(1) = one
+            dst_m(1) = t * vscales_rel(1)
+            ! l = 1
+            t = t * rcoef
+            vplm(3) = ctheta
+            vplm(4) = -stheta
+            tmp = t * vscales_rel(4) * vplm(4)
+            dst_m(2) = tmp * sphi
+            dst_m(3) = t * vscales_rel(3) * ctheta
+            dst_m(4) = tmp * cphi
+            indl = 3
+            indlm1 = 1
+            do l = 2, p
+                t = t * rcoef
+                ! Offset of a P_{l-2}^0 harmonic
+                indlm2 = indlm1
+                ! Offset of a P_{l-1}^0 harmonic
+                indlm1 = indl
+                ! Offset of a P_l^0 harmonic
+                indl = indl + 2*l
+                ! Some temp constants
+                fl = dble(l)
+                tmp1 = two*fl - one
+                tmp2 = fl - one
+                tmp3 = tmp1 * ctheta
+                tmp4 = two * tmp2
+                tmp5 = fl*fl - fl
+                ! Y_l^0
+                vplm(indl) = tmp3*vplm(indlm1) - tmp2*vplm(indlm2)
+                vplm(indl) = vplm(indl) / fl
+                dst_m(indl) = t * vscales_rel(indl) * vplm(indl)
+                ! Y_l^m for m=1..l-2
+                do m = 1, l-2
+                    tmp4 = tmp4 + two
+                    tmp5 = tmp5 + tmp4
+                    ! P_l^m
+                    vplm(indl+m) = vminv(m) * (vplm(indlm1+m+1) + &
+                        & tmp5*vplm(indlm1+m-1))
+                    tmp = t * vplm(indl+m) * vscales_rel(indl+m)
+                    dst_m(indl+m) = tmp * vcos(m+1)
+                    dst_m(indl-m) = tmp * vsin(m+1)
+                end do
+                ! m = l-1
+                vplm(indl+l-1) = tmp3 * vplm(indlm1+l-1)
+                tmp = t * vplm(indl+l-1) * vscales_rel(indl+l-1)
+                dst_m(indl+l-1) = tmp * vcos(l)
+                dst_m(indl-l+1) = tmp * vsin(l)
+                ! m = l
+                vplm(indl+l) = -stheta * tmp1 * vplm(indlm1+l-1)
+                tmp = t * vplm(indl+l) * vscales_rel(indl+l)
+                dst_m(indl+l) = tmp * vcos(l+1)
+                dst_m(indl-l) = tmp * vsin(l+1)
+            end do
+        else
+            ! Construct spherical harmonics
+            ! l = 0
+            vplm(1) = one
+            dst_m(1) = beta*dst_m(1) + t*vscales_rel(1)
+            ! l = 1
+            t = t * rcoef
+            vplm(3) = ctheta
+            vplm(4) = -stheta
+            tmp = t * vscales_rel(4) * vplm(4)
+            dst_m(2) = beta*dst_m(2) + tmp*sphi
+            dst_m(3) = beta*dst_m(3) + t*vscales_rel(3)*ctheta
+            dst_m(4) = beta*dst_m(4) + tmp*cphi
+            indl = 3
+            indlm1 = 1
+            do l = 2, p
+                t = t * rcoef
+                ! Offset of a P_{l-2}^0 harmonic
+                indlm2 = indlm1
+                ! Offset of a P_{l-1}^0 harmonic
+                indlm1 = indl
+                ! Offset of a P_l^0 harmonic
+                indl = indl + 2*l
+                ! Some temp constants
+                fl = dble(l)
+                tmp1 = two*fl - one
+                tmp2 = fl - one
+                tmp3 = tmp1 * ctheta
+                tmp4 = two * tmp2
+                tmp5 = fl*fl - fl
+                ! Y_l^0
+                vplm(indl) = tmp3*vplm(indlm1) - tmp2*vplm(indlm2)
+                vplm(indl) = vplm(indl) / fl
+                dst_m(indl) = beta*dst_m(indl) + t*vscales_rel(indl)*vplm(indl)
+                ! Y_l^m for m=1..l-2
+                do m = 1, l-2
+                    tmp4 = tmp4 + two
+                    tmp5 = tmp5 + tmp4
+                    ! P_l^m
+                    vplm(indl+m) = vminv(m) * (vplm(indlm1+m+1) + &
+                        & tmp5*vplm(indlm1+m-1))
+                    tmp = t * vplm(indl+m) * vscales_rel(indl+m)
+                    dst_m(indl+m) = beta*dst_m(indl+m) + tmp*vcos(m+1)
+                    dst_m(indl-m) = beta*dst_m(indl-m) + tmp*vsin(m+1)
+                end do
+                ! m = l-1
+                vplm(indl+l-1) = tmp3 * vplm(indlm1+l-1)
+                tmp = t * vplm(indl+l-1) * vscales_rel(indl+l-1)
+                dst_m(indl+l-1) = beta*dst_m(indl+l-1) + tmp*vcos(l)
+                dst_m(indl-l+1) = beta*dst_m(indl-l+1) + tmp*vsin(l)
+                ! m = l
+                vplm(indl+l) = -stheta * tmp1 * vplm(indlm1+l-1)
+                tmp = t * vplm(indl+l) * vscales_rel(indl+l)
+                dst_m(indl+l) = beta*dst_m(indl+l) + tmp*vcos(l+1)
+                dst_m(indl-l) = beta*dst_m(indl-l) + tmp*vsin(l+1)
+            end do
+        end if
+    ! Case of x(1:2) = 0 and x(3) != 0
     else
-        do n = 0, p
-            t = t * rcoef
-            ind = n*n + n + 1
-            ! Array vylm is in the beginning of work array
-            dst_m(ind-n:ind+n) = beta*dst_m(ind-n:ind+n) + &
-                & t/(vscales(ind)**2)*work(ind-n:ind+n)
-        end do
+    ! TODO: Add proper check for this routine, I am leaving here stop
+    ! instruction to indicate that it is not tested
+        stop "fmm_m2p_adj_work untested branch"
+        ! In this case Y_l^m = 0 for m != 0, so only case m = 0 is taken into
+        ! account. Y_l^m = ctheta^m in this case where ctheta is either +1 or
+        ! -1. So, we copy sign(ctheta) into rcoef.
+        rcoef = sign(rcoef, c(3))
+        ! Init t and proceed with accumulation of a potential
+        t = src_q
+        indl = 1
+        if (beta .eq. zero) then
+            do l = 0, p
+                ! Index of Y_l^0
+                indl = indl + 2*l
+                ! Update t
+                t = t * rcoef
+                ! Add 4*pi/(2*l+1)*rcoef^{l+1}*Y_l^0 contribution
+                dst_m(indl) = t * vscales_rel(indl)
+                dst_m(indl-l:indl-1) = zero
+                dst_m(indl+1:indl+l) = zero
+            end do
+        else
+            do l = 0, p
+                ! Index of Y_l^0
+                indl = indl + 2*l
+                ! Update t
+                t = t * rcoef
+                ! Add 4*pi/(2*l+1)*rcoef^{l+1}*Y_l^0 contribution
+                dst_m(indl) = beta*dst_m(indl) + t*vscales_rel(indl)
+                dst_m(indl-l:indl-1) = beta*dst_m(indl-l:indl-1)
+                dst_m(indl+1:indl+l) = beta*dst_m(indl+1:indl+l)
+            end do
+        end if
     end if
 end subroutine fmm_m2p_adj_work
 
@@ -4152,49 +4437,6 @@ end subroutine fmm_p2l
 !! @param[in] src_l: Local coefficients. Dimension is `(p+1)**2`
 !! @param[in] beta: Scalar multiplier for `dst_v`
 !! @param[inout] dst_v: Value of induced potential
-subroutine fmm_l2p_old(c, src_r, p, vscales, alpha, src_l, beta, dst_v)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, vscales((p+1)*(p+1)), alpha, &
-        & src_l((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_v
-    ! Local variables
-    real(dp) :: tmp, tmp1, tmp2
-    real(dp) :: rho, t, ctheta, stheta, cphi, sphi, vcos(p+1), vsin(p+1)
-    real(dp) :: vplm((p+1)**2), vylm((p+1)**2), rcoef
-    integer :: n, k, ind
-    ! Scale output
-    if (beta .eq. zero) then
-        dst_v = zero
-    else
-        dst_v = beta * dst_v
-    end if
-    ! In case of zero alpha nothing else is required no matter what is the
-    ! value of the induced potential
-    if (alpha .eq. zero) then
-        return
-    end if
-    ! Get radius and values of spherical harmonics
-    call ylmbas(c, rho, ctheta, stheta, cphi, sphi, p, vscales, vylm, vplm, &
-        & vcos, vsin)
-    ! In case `rho=zero` values of spherical harmonics make no sense and only
-    ! spherical harmonic of degree 0 shall be taken into account
-    if (rho .eq. zero) then
-        dst_v = dst_v + alpha*src_l(1)/vscales(1)
-    ! Compute the actual induced potential otherwise
-    else
-        rcoef = rho / src_r
-        t = alpha
-        do n = 0, p
-            ind = n*n + n + 1
-            tmp = dot_product(vylm(ind-n:ind+n), src_l(ind-n:ind+n))
-            dst_v = dst_v + t*tmp/(vscales(ind)**2)
-            t = t * rcoef
-        end do
-    end if
-end subroutine fmm_l2p_old
-
 subroutine fmm_l2p(c, src_r, p, vscales, alpha, src_l, beta, dst_v)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, vscales((p+1)*(p+1)), alpha, &
@@ -4332,23 +4574,19 @@ subroutine fmm_l2p_work(c, src_r, p, vscales, alpha, src_l, beta, dst_v, work)
         dst_v = dst_v + alpha*tmp
     ! Case of x(1:2) = 0 and x(3) != 0
     else
-        ! Set spherical coordinates
-        !cphi = one
-        !sphi = zero
-        ctheta = sign(one, c(3))
-        rcoef = rcoef * ctheta
-        !stheta = zero
-        ! Set output arrays vcos and vsin
-        !vcos = one
-        !vsin = zero
-        ! Evaluate spherical harmonics. P_l^m = 0 for m > 0. In the case m = 0
-        ! it depends if l is odd or even. Additionally, vcos = one and vsin =
-        ! zero for all elements
+        ! In this case Y_l^m = 0 for m != 0, so only case m = 0 is taken into
+        ! account. Y_l^m = ctheta^m in this case where ctheta is either +1 or
+        ! -1. So, we copy sign(ctheta) into rcoef.
+        rcoef = sign(rcoef, c(3))
+        ! Init t and proceed with accumulation of a potential
         t = alpha
+        ind = 1
         do l = 0, p
-            ind = l**2 + l + 1
-            ! only case m = 0
+            ! Index of Y_l^0
+            ind = ind + 2*l
+            ! Add 4*pi/(2*l+1)*rcoef^l*Y_l^0 contribution
             dst_v = dst_v + t*src_l(ind)/vscales(ind)
+            ! Update t
             t = t * rcoef
         end do
     end if
@@ -10101,7 +10339,7 @@ subroutine tree_m2p(dd_data, p, alpha, sph_m, beta, grid_v)
     integer :: isph, inode, jnear, jnode, jsph, igrid
     real(dp) :: c(3)
     ! Temporary workspace
-    real(dp) :: work(2*(p+1)*(p+2))
+    real(dp) :: work((p+1)*(p+1)+3*p)
     ! Init output
     if (beta .eq. zero) then
         grid_v = zero
@@ -10125,7 +10363,7 @@ subroutine tree_m2p(dd_data, p, alpha, sph_m, beta, grid_v)
                 c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
                     & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
                 call fmm_m2p_work(c, dd_data % rsph(jsph), p, &
-                    & dd_data % vscales, alpha, sph_m(:, jsph), one, &
+                    & dd_data % vscales_rel, alpha, sph_m(:, jsph), one, &
                     & grid_v(igrid, isph), work)
             end do
         end do
@@ -10141,7 +10379,7 @@ subroutine tree_m2p_adj(dd_data, p, alpha, grid_v, beta, sph_m)
     ! Output
     real(dp), intent(inout) :: sph_m((p+1)**2, dd_data % nsph)
     ! Temporary workspace
-    real(dp) :: work(2*(p+1)*(p+2))
+    real(dp) :: work((p+1)*(p+1)+3*p)
     ! Local variables
     integer :: isph, inode, jnear, jnode, jsph, igrid
     real(dp) :: c(3)
@@ -10168,7 +10406,7 @@ subroutine tree_m2p_adj(dd_data, p, alpha, grid_v, beta, sph_m)
                 c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
                     & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
                 call fmm_m2p_adj_work(c, alpha*grid_v(igrid, isph), &
-                    & dd_data % rsph(jsph), p, dd_data % vscales, one, &
+                    & dd_data % rsph(jsph), p, dd_data % vscales_rel, one, &
                     & sph_m(:, jsph), work)
             end do
         end do
