@@ -10,10 +10,13 @@ jobs:
     - name: Download Build
       uses: benday-inc/download-latest-artifact@main
       with:
-         workflow_name: 'Build Ubuntu'
-         branch_name: 'ddX'
-         download_path: '.'
-         download_filename: 'art.zip'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        repository_owner: 'Nige91'
+        repository_name: 'ddPCM'
+        workflow_name: 'Build Ubuntu'
+        branch_name: 'ddX'
+        download_path: '.'
+        download_filename: 'art.zip'
 
     - name: check dir
       run: |
