@@ -1,0 +1,43 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    name: MacOS Build
+    runs-on: macos-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+
+    - name: create build dir
+      shell: cmake -P {0}
+      run: |
+        file(MAKE_DIRECTORY build)
+    
+    - name: build
+      run: |
+        cd build
+        cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
+        cmake --build .
+
+    - name: Run tests
+      shell: cmake -P {0}
+      run: |
+        include(ProcessorCount)
+        ProcessorCount(N)
+        execute_process(
+          COMMAND ctest -j ${N}
+          WORKING_DIRECTORY build
+          RESULT_VARIABLE result
+        )
+        if (NOT result EQUAL 0)
+          message(FATAL_ERROR "Running tests failed!")
+        endif()
+      
+    
+    - name: print cmake error log
+      if: ${{ always() }}
+      run: |
+        cat ./build/CMakeFiles/CMakeError.log
+        
