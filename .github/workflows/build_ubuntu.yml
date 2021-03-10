@@ -33,24 +33,3 @@ jobs:
         name: built_repo_ubuntu
         path: built_repo_ubuntu.tar
         
-
-    - name: Run tests
-      shell: cmake -P {0}
-      run: |
-        include(ProcessorCount)
-        ProcessorCount(N)
-        execute_process(
-          COMMAND ctest -j ${N}
-          WORKING_DIRECTORY repo/build
-          RESULT_VARIABLE result
-        )
-        if (NOT result EQUAL 0)
-          message(FATAL_ERROR "Running tests failed!")
-        endif()
-      
-    
-    - name: print cmake error log
-      if: ${{ always() }}
-      run: |
-        cat ./repo/build/CMakeFiles/CMakeError.log
-        

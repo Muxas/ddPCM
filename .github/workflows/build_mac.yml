@@ -21,23 +21,13 @@ jobs:
         cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
         cmake --build .
 
-    - name: Run tests
-      shell: cmake -P {0}
+    - name: pack
       run: |
-        include(ProcessorCount)
-        ProcessorCount(N)
-        execute_process(
-          COMMAND ctest -j ${N}
-          WORKING_DIRECTORY build
-          RESULT_VARIABLE result
-        )
-        if (NOT result EQUAL 0)
-          message(FATAL_ERROR "Running tests failed!")
-        endif()
-      
-    
-    - name: print cmake error log
-      if: ${{ always() }}
-      run: |
-        cat ./build/CMakeFiles/CMakeError.log
+        tar -cf built_repo_mac.tar repo
+
+    - name: upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: built_repo_mac
+        path: built_repo_mac.tar
         

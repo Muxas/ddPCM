@@ -1,0 +1,35 @@
+name: Test Mac
+
+on: [push]
+
+jobs:
+  test:
+    name: MacOS Test
+    runs-on: macos-latest
+    steps:
+    - name: Download Build
+      uses: benday-inc/download-latest-artifact@main
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        repository_owner: 'Nige91'
+        repository_name: 'ddPCM'
+        workflow_name: 'Build MacOS'
+        branch_name: 'ddX'
+        download_path: '.'
+        download_filename: 'art.zip'
+
+    - name: Unpack
+      run: |
+        mkdir repo
+        tar -xzf art.zip
+
+    - name: Test
+      run: |
+        cd repo/build
+        ctest
+
+    - name: check dir
+      run: |
+        cd repo
+        ls
+        
