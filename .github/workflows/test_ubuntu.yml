@@ -20,7 +20,8 @@ jobs:
 
     - name: Unpack
       run: |
-        tar -xzf art.zip ./repo
+        mkdir repo
+        tar -xzf art.zip -C ./repo
 
     - name: check dir
       run: |
