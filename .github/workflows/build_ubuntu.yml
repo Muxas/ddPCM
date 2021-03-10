@@ -9,17 +9,23 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2.0.0
+      with:
+        path: repo
 
     - name: create build dir
       shell: cmake -P {0}
       run: |
-        file(MAKE_DIRECTORY build)
+        file(MAKE_DIRECTORY repo/build)
     
     - name: build
       run: |
-        cd build
+        cd repo/build
         cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
         cmake --build .
+
+    - name: pack
+      run: |
+        
 
     - name: Run tests
       shell: cmake -P {0}
@@ -39,5 +45,5 @@ jobs:
     - name: print cmake error log
       if: ${{ always() }}
       run: |
-        cat ./build/CMakeFiles/CMakeError.log
+        cat ./repo/build/CMakeFiles/CMakeError.log
         
