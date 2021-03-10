@@ -18,7 +18,12 @@ jobs:
         download_path: '.'
         download_filename: 'art.zip'
 
+    - name: Unpack
+      run: |
+        tar -xzf art.zip ./repo
+
     - name: check dir
       run: |
+        cd repo
         ls
         
