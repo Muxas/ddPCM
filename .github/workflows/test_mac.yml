@@ -22,13 +22,14 @@ jobs:
       run: |
         tar -xzf art.zip
 
+    - name: check dir
+      run: |
+        ls
+
     - name: Test
       run: |
         cd repo/build
         ctest
 
-    - name: check dir
-      run: |
-        cd repo
-        ls
+    
         
