@@ -21,6 +21,7 @@ jobs:
     - name: Unpack
       run: |
         tar -xzf art.zip
+        tar -xzf built_repo_mac.tar
 
     - name: check dir
       run: |
