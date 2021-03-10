@@ -8,9 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download Build
-      uses: actions/download-artifact@v2
+      uses: benday-inc/download-latest-artifact@main
       with:
-        name: built_repo_ubuntu
+         workflow_name: 'Build Ubuntu'
+         branch_name: 'ddX'
+         download_path: '.'
+         download_filename: 'art.zip'
 
     - name: check dir
       run: |
