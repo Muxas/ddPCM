@@ -25,6 +25,13 @@ jobs:
 
     - name: pack
       run: |
+        tar -cf built_repo_ubuntu.tar repo
+
+    - name: upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: built_repo_ubuntu
+        path: built_repo_ubuntu.tar
         
 
     - name: Run tests
