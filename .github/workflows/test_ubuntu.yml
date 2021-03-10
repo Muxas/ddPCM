@@ -21,7 +21,7 @@ jobs:
     - name: Unpack
       run: |
         mkdir repo
-        tar -xzf art.zip -C ./repo
+        tar -xzf art.zip
 
     - name: check dir
       run: |
