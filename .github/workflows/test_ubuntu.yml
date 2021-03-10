@@ -1,0 +1,19 @@
+name: Test Ubuntu
+
+on: [push]
+
+jobs:
+  test:
+    name: Ubuntu Test
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Download Build
+    - uses: actions/download-artifact@v2
+      with:
+        name: built_repo_ubuntu
+
+    - name: check dir
+      run: |
+        ls
+        
