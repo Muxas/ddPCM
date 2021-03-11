@@ -67,7 +67,7 @@ option(DOCS "Build documentation" ON)
 option(COVERAGE "Generate code coverage report" OFF)
 
 # Whether or not to use OpenMP
-option(OPENMP "Enable OpenMP" OFF)
+option(OPENMP "Enable OpenMP" ON)
 
 ###############################################################################
 ##                               CHECK OPTIONS                               ##
@@ -120,10 +120,10 @@ endif()
 
 # Check OpenMP option
 if(OPENMP)
-    message(WARNING "OpenMP is currently disabled, setting OPENMP to OFF")
-    set(OPENMP OFF)
-    #find_package(OpenMP REQUIRED)
-    #add_definitions(-DOPENMP)
+    #message(WARNING "OpenMP is currently disabled, setting OPENMP to OFF")
+    #set(OPENMP OFF)
+    find_package(OpenMP REQUIRED)
+    add_definitions(-DOPENMP)
 endif()
 
 ###############################################################################

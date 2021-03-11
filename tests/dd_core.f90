@@ -69,7 +69,6 @@ do i = 1, size(alpha)
     call check_p2m_m2p(p, alpha(i), iprint, 120*epsilon(zero))
 end do
 
-return
 ! Check P2L and L2P operations of the FMM
 do i = 1, size(alpha)
     call check_p2l_l2p(0, alpha(i), iprint, 6d-2)
@@ -787,15 +786,15 @@ subroutine check_p2m_m2p(p, alpha, iprint, threshold)
             call fmm_m2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
                 & coef(:, i), zero, coef2(j, i))
         end do
-        call fmm_m2p_adj(dst-csph(:, i), one, rsph(i), p, vscales, zero, &
+        call fmm_m2p_adj(dst-csph(:, i), one, rsph(i), p, vscales_rel, zero, &
             & coef(:, i))
         !!write(*, *) coef(:, i) - coef2(:, i)
         v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
             & dnrm2((p+1)**2, coef2(:, i), 1)
         write(*, *) "adj=", v(i)
-        write(*, *) maxval(abs(coef(:, i)-coef2(:, i)) / coef2(:, i))
+        !write(*, *) maxval(abs(coef(:, i)-coef2(:, i)) / coef2(:, i))
         if (v(i) .gt. 1d-15) stop 1
-        call fmm_m2p_adj(dst-csph(:, i), -one, rsph(i), p, vscales, two, &
+        call fmm_m2p_adj(dst-csph(:, i), -one, rsph(i), p, vscales_rel, two, &
             & coef(:, i))
         v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
             & dnrm2((p+1)**2, coef2(:, i), 1)
@@ -999,16 +998,16 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     end if
     ! Check beta=zero
     v(1) = zero
-    call fmm_l2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_l2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v0 = v(1)
-    call fmm_l2p(dst, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_l2p(dst, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     ok = v0 .eq. v(1)
     if (iprint .gt. 0) then
         write(*, *) "L2P beta=zero param check:", ok
     end if
     if (.not. ok) stop 1
     ! Check alpha=zero
-    call fmm_l2p(dst, alpha, p, vscales, zero, coef(:, 1), -one, v(1))
+    call fmm_l2p(dst, alpha, p, vscales_rel, zero, coef(:, 1), -one, v(1))
     ok = v0 .eq. -v(1)
     if (iprint .gt. 0) then
         write(*, *) "L2P alpha=zero param check:", ok
@@ -1016,13 +1015,13 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     if (.not. ok) stop 1
     ! Check non-zero alpha and beta
     v(1) = v0
-    call fmm_l2p(dst, alpha, p, vscales, one, coef(:, 1), one, v(1))
+    call fmm_l2p(dst, alpha, p, vscales_rel, one, coef(:, 1), one, v(1))
     ok = abs(v(1)/v0-two) .le. delta
     if (iprint .gt. 0) then
         write(*, *) "L2P alpha and beta params check:", ok
     end if
     if (.not. ok) stop 1
-    call fmm_l2p(dst, alpha, p, vscales, -two, coef(:, 1), pt5, v(1))
+    call fmm_l2p(dst, alpha, p, vscales_rel, -two, coef(:, 1), pt5, v(1))
     ok = abs(v(1)/v0+one) .le. delta
     if (iprint .gt. 0) then
         write(*, *) "L2P alpha and beta parameter check:", ok
@@ -1059,7 +1058,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
         write(*, *) "threshold=" , threshold
     end if
     call fmm_p2l(src, one, alpha, p, vscales, zero, coef(:, 1))
-    call fmm_l2p(dst0, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_l2p(dst0, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v0 = one / dnrm2(3, src, 1)
     v(1) = abs((v(1)-v0) / v0)
     if (iprint .gt. 0) then
@@ -1068,7 +1067,7 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     end if
     if (v(1) .gt. threshold) stop 1
     call fmm_p2l(src, one, alpha, p, vscales, zero, coef(:, 1))
-    call fmm_l2p(dst0, alpha, p, vscales, one, coef(:, 1), zero, v(1))
+    call fmm_l2p(dst0, alpha, p, vscales_rel, one, coef(:, 1), zero, v(1))
     v(1) = abs((v(1)-v0) / v0)
     if (iprint .gt. 0) then
         write(*, "(A,A,ES24.16E3)") "|| P2L(0) + L(0)2P - P2P ||  /  ", &
@@ -1082,8 +1081,8 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
     do i = 1, nsph
         call fmm_p2l(src-csph(:, i), one, rsph(i), p, vscales, zero, &
             & coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v(i))
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v(i))
         ! Finally check p2m+m2p
         v(i) = abs((v(i)-v0) / v0)
         if (iprint .gt. 0) then
@@ -1792,8 +1791,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     !! Get local coefficients of the main sphere (source of L2L) and
     !! corresponding potential
     call fmm_p2l(src-csph(:, 1), one, rsph(1), p, vscales, zero, coef(:, 1))
-    call fmm_l2p(dst-csph(:, 1), rsph(1), p, vscales, one, coef(:, 1), zero, &
-        & v0)
+    call fmm_l2p(dst-csph(:, 1), rsph(1), p, vscales_rel, one, coef(:, 1), &
+        & zero, v0)
     !! Check L2L OZ translation by fmm_l2l_ztranslate. Spheres 2 and 3 are
     !! explicitly aligned along OZ axis.
     if (iprint .gt. 0) then
@@ -1811,8 +1810,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     do i = 2, 3
         call fmm_l2l_ztranslate(-csph(3, i), rsph(1), rsph(i), p, vscales, &
             & vfact, one, coef(:, 1), zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -1821,8 +1820,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         if (.not. ok) stop 1
         call fmm_l2l_ztranslate(-csph(3, i), rsph(1), rsph(i), p, vscales, &
             & vfact, -one, coef(:, 1), two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -1833,8 +1832,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     ! Check L2L with zero OZ translation. Sphere 6 is explicitly set for this
     call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, one, &
         & coef(:, 1), zero, coef(:, 6))
-    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), zero, &
-        & v1)
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales_rel, one, coef(:, 6), &
+        & zero, v1)
     v1 = abs(v1/v0 - one)
     ok = v1 .le. threshold
     if (iprint .gt. 0) then
@@ -1843,8 +1842,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     if (.not. ok) stop 1
     call fmm_l2l_ztranslate(zero, rsph(1), rsph(6), p, vscales, vfact, -one, &
         & coef(:, 1), two, coef(:, 6))
-    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), zero, &
-        & v1)
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales_rel, one, coef(:, 6), &
+        & zero, v1)
     v1 = abs(v1/v0 - one)
     ok = v1 .le. threshold
     if (iprint .gt. 0) then
@@ -1873,8 +1872,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
             & vscales, vfact, ztranslate_mat)
         call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, one, coef(:, 1), &
             & zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -1882,8 +1881,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         end if
         call fmm_l2l_ztranslate_use_mat(p, ztranslate_mat, -one, coef(:, 1), &
             & two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -1892,7 +1891,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     end do
     ! L2L with 0 shift is simply scaling
     call fmm_l2l_scale(rsph(1), rsph(6), p, one, coef(:, 1), zero, coef(:, 6))
-    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), &
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales_rel, one, coef(:, 6), &
         & zero, v1)
     v1 = abs(v1/v0 - one)
     ok = v1 .le. threshold
@@ -1902,7 +1901,7 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     if (.not. ok) stop 1
     call fmm_l2l_scale(rsph(1), rsph(6), p, -one, coef(:, 1), two, &
         & coef(:, 6))
-    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales, one, coef(:, 6), &
+    call fmm_l2p(dst-csph(:, 6), rsph(6), p, vscales_rel, one, coef(:, 6), &
         & zero, v1)
     v1 = abs(v1/v0 - one)
     ok = v1 .le. threshold
@@ -2073,8 +2072,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     do i = 2, nsph
         call fmm_l2l_reflection(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2082,8 +2081,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         end if
         call fmm_l2l_reflection(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2115,8 +2114,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         call fmm_l2l_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
             & rsph(i), p, transform_mat, ztranslate_mat, one, coef(:, 1), &
             & zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2125,8 +2124,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         call fmm_l2l_reflection_use_mat(csph(:, 1)-csph(:, i), rsph(1), &
             & rsph(i), p, transform_mat, ztranslate_mat, -one, coef(:, 1), &
             & two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2260,8 +2259,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     do i = 2, nsph
         call fmm_l2l_reflection2(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2269,8 +2268,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         end if
         call fmm_l2l_reflection2(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2341,8 +2340,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
     do i = 2, nsph
         call fmm_l2l_rotation(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, one, coef(:, 1), zero, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2350,8 +2349,8 @@ subroutine check_l2l(p, alpha, iprint, threshold)
         end if
         call fmm_l2l_rotation(csph(:, 1)-csph(:, i), rsph(1), rsph(i), p, &
             & vscales, vfact, -one, coef(:, 1), two, coef(:, i))
-        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales, one, coef(:, i), &
-            & zero, v1)
+        call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+            & coef(:, i), zero, v1)
         v1 = abs(v1/v0 - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2470,8 +2469,8 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         call fmm_m2l_ztranslate(csph(3, i)-dst_csph(3, 1), rsph(i), &
             & dst_rsph(1), pm, pl, vscales, vfact, one, coefm(:, i), zero, &
             & coefl)
-        call fmm_l2p(dst(:, 1)-dst_csph(:, 1), dst_rsph(1), pl, vscales, one, &
-            & coefl, zero, v1)
+        call fmm_l2p(dst(:, 1)-dst_csph(:, 1), dst_rsph(1), pl, vscales_rel, &
+            & one, coefl, zero, v1)
         v1 = abs(v1/v0(1) - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2481,8 +2480,8 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
         call fmm_m2l_ztranslate(csph(3, i)-dst_csph(3, 1), rsph(i), &
             & dst_rsph(1), pm, pl, vscales, vfact, -one, coefm(:, i), two, &
             & coefl)
-        call fmm_l2p(dst(:, 1)-dst_csph(:, 1), dst_rsph(1), pl, vscales, one, &
-            & coefl, zero, v1)
+        call fmm_l2p(dst(:, 1)-dst_csph(:, 1), dst_rsph(1), pl, vscales_rel, &
+            & one, coefl, zero, v1)
         v1 = abs(v1/v0(1) - one)
         ok = v1 .le. threshold
         if (iprint .gt. 0) then
@@ -2670,8 +2669,8 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             call fmm_m2l_reflection(csph(:, i)-dst_csph(:, k), rsph(i), &
                 & dst_rsph(k), pm, pl, vscales, vfact, one, coefm(:, i), &
                 & zero, coefl)
-            call fmm_l2p(dst(:, k)-dst_csph(:, k), dst_rsph(k), pl, vscales, &
-                & one, coefl, zero, v1)
+            call fmm_l2p(dst(:, k)-dst_csph(:, k), dst_rsph(k), pl, &
+                & vscales_rel, one, coefl, zero, v1)
             v1 = abs(v1/v0(k) - one)
             ok = v1 .le. threshold
             if (iprint .gt. 0) then
@@ -2681,8 +2680,8 @@ subroutine check_m2l(pm, pl, alpha, iprint, threshold)
             call fmm_m2l_reflection(csph(:, i)-dst_csph(:, k), rsph(i), &
                 & dst_rsph(k), pm, pl, vscales, vfact, -one, coefm(:, i), &
                 & two, coefl)
-            call fmm_l2p(dst(:, k)-dst_csph(:, k), dst_rsph(k), pl, vscales, &
-                & one, coefl, zero, v1)
+            call fmm_l2p(dst(:, k)-dst_csph(:, k), dst_rsph(k), pl, &
+                & vscales_rel, one, coefl, zero, v1)
             v1 = abs(v1/v0(k) - one)
             ok = v1 .le. threshold
             if (iprint .gt. 0) then
@@ -3178,7 +3177,8 @@ subroutine check_tree_m2m(p, alpha, iprint, threshold)
         & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
         & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
         & dd_data % order(nsph), dd_data % vscales((p+1)**2), &
-        & dd_data % vfact(2*p+1))
+        & dd_data % vfact(2*p+1), dd_data % vscales_rel((p+1)**2), &
+        & dd_data % v4pi2lp1(p+1))
     ! Build a recursive inertial binary tree
     call tree_rib_build(nsph, csph2, rsph2, dd_data % order, &
         & dd_data % cluster, dd_data % children, dd_data % parent, &
@@ -3443,7 +3443,8 @@ subroutine check_tree_l2l(p, alpha, iprint, threshold)
         & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
         & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
         & dd_data % order(nsph), dd_data % vscales((p+1)**2), &
-        & dd_data % vfact(2*p+1))
+        & dd_data % vfact(2*p+1), dd_data % vscales_rel((p+1)**2), &
+        & dd_data % v4pi2lp1(p+1))
     ! Build a recursive inertial binary tree
     call tree_rib_build(nsph, csph2, rsph2, dd_data % order, &
         & dd_data % cluster, dd_data % children, dd_data % parent, &
@@ -3723,7 +3724,8 @@ subroutine check_tree_m2l(pm, pl, alpha, iprint, threshold)
         & dd_data % parent(2*nsph-1), dd_data % cnode(3, 2*nsph-1), &
         & dd_data % rnode(2*nsph-1), dd_data % snode(nsph), &
         & dd_data % order(nsph), dd_data % vscales((pm+pl+1)**2), &
-        & dd_data % vfact(2*(pm+pl)+1))
+        & dd_data % vfact(2*(pm+pl)+1), dd_data % vscales_rel((pm+pl+1)**2), &
+        & dd_data % v4pi2lp1(pm+pl+1))
     allocate(dd_data % nfar(dd_data % nclusters), &
         & dd_data % nnear(dd_data % nclusters))
     ! Build a recursive inertial binary tree
@@ -3795,7 +3797,7 @@ subroutine check_tree_m2l(pm, pl, alpha, iprint, threshold)
     call tree_l2l_rotation(dd_data, node_l)
     do i = 1, nsph
         call fmm_l2p(src(:, order(i))-csph2(:, i), rsph2(i), pl, &
-            & dd_data % vscales, one, node_l(:, dd_data % snode(i)), &
+            & dd_data % vscales_rel, one, node_l(:, dd_data % snode(i)), &
             & zero, far_p2p2(i))
     end do
     rel_err = dnrm2(nsph, far_p2p-far_p2p2, 1) / dnrm2(nsph, far_p2p, 1)
