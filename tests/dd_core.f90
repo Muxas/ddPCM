@@ -1092,6 +1092,29 @@ subroutine check_p2l_l2p(p, alpha, iprint, threshold)
         end if
         if (v(i) .gt. threshold) stop 1
     end do
+    !! Check adjoint L2P
+    do i = 1, nsph
+        do j = 1, (p+1)**2
+            coef(:, i) = zero
+            coef(j, i) = one
+            call fmm_l2p(dst-csph(:, i), rsph(i), p, vscales_rel, one, &
+                & coef(:, i), zero, coef2(j, i))
+        end do
+        call fmm_l2p_adj(dst-csph(:, i), one, rsph(i), p, vscales_rel, zero, &
+            & coef(:, i))
+        !!write(*, *) coef(:, i) - coef2(:, i)
+        v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
+            & dnrm2((p+1)**2, coef2(:, i), 1)
+        write(*, *) "adj=", v(i)
+        !write(*, *) maxval(abs(coef(:, i)-coef2(:, i)) / coef2(:, i))
+        if (v(i) .gt. 1d-15) stop 1
+        call fmm_l2p_adj(dst-csph(:, i), -one, rsph(i), p, vscales_rel, two, &
+            & coef(:, i))
+        v(i) = dnrm2((p+1)**2, coef(:, i)-coef2(:, i), 1) / &
+            & dnrm2((p+1)**2, coef2(:, i), 1)
+        write(*, *) "adj(beta!=0)=", v(i)
+        if (v(i) .gt. 1d-15) stop 1
+    end do
 end subroutine check_p2l_l2p
 
 ! Check M2M for spherical harmonics
