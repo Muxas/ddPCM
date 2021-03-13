@@ -124,6 +124,12 @@ type dd_data_type
     integer :: nfact
     !> Array of square roots of factorials of dimension (nfact)
     real(dp), allocatable :: vfact(:)
+    !> Array of square roots of combinatorial numbers C_n^k. Dimension is
+    !!      ((2*dmax+1)*(dmax+1)).
+    real(dp), allocatable :: vcnk(:)
+    !> Array of M2L coefficients for OZ translation. Dimension is
+    !!      (pm+1, pl+1, pl+1).
+    real(dp), allocatable :: m2l_ztranslate_coef(:, :, :)
     !> Coordinates of Lebedev quadrature points of dimension (3, ngrid)
     real(dp), allocatable :: cgrid(:, :)
     !> Weights of Lebedev quadrature points of dimension (ngrid)
@@ -318,7 +324,7 @@ contains
 
 !> Initialize ddX input with a full set of parameters
 !!
-!! @param[in] n: Number of atoms. n > 0.
+!! @param[in] nsph: Number of atoms. n > 0.
 !! @param[in] charge: Charges of atoms. Dimension is `(n)`
 !! @param[in] x: \f$ x \f$ coordinates of atoms. Dimension is `(n)`
 !! @param[in] y: \f$ y \f$ coordinates of atoms. Dimension is `(n)`
@@ -362,24 +368,24 @@ contains
 !!      = 0: Succesfull exit
 !!      < 0: If info=-i then i-th argument had an illegal value
 !!      > 0: Allocation of a buffer for the output dd_data failed
-subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
-        & pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
-        & tol, maxiter, ndiis, nproc, dd_data, info)
+subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
+        & fmm, pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, &
+        & itersolver, tol, maxiter, ndiis, nproc, dd_data, info)
     ! Inputs
-    integer, intent(in) :: n, model, lmax, force, fmm, pm, pl, &
+    integer, intent(in) :: nsph, model, lmax, force, fmm, pm, pl, &
         & fmm_precompute, iprint, itersolver, maxiter, ndiis
-    real(dp), intent(in):: charge(n), x(n), y(n), z(n), rvdw(n), se, eta, &
-        & eps, kappa, tol
+    real(dp), intent(in):: charge(nsph), x(nsph), y(nsph), z(nsph), &
+        & rvdw(nsph), se, eta, eps, kappa, tol
     ! Output
     type(dd_data_type), target, intent(out) :: dd_data
     integer, intent(out) :: info
     ! Inouts
     integer, intent(inout) :: ngrid, nproc
     ! Local variables
-    integer :: istatus, i, ii, inear, jnear, igrid, jgrid, isph, jsph, lnl, &
-        & l, indl, ithread
+    integer :: istatus, i, indi, j, ii, inear, jnear, igrid, jgrid, isph, &
+        & jsph, lnl, l, indl, ithread, k, n, indjn
     real(dp) :: v(3), maxv, ssqv, vv, t, swthr, fac, r, start_time, &
-        & finish_time
+        & finish_time, tmp1
     real(dp) :: rho, ctheta, stheta, cphi, sphi
     real(dp), allocatable :: sphcoo(:, :)
     double precision, external :: dnrm2
@@ -389,21 +395,22 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     ! Pointers for OMP, that can not use fields of a derived type in a depend
     ! clause. This is done to compute all the dd_data fields in a parallel way
     real(dp), pointer :: p_vscales(:), p_v4pi2lp1(:), p_vscales_rel(:), &
-        & p_vfact(:), p_cgrid(:, :), p_wgrid(:), &
+        & p_vfact(:), p_vcnk(:), p_m2l_ztranslate_coef(:, :, :), &
+        & p_cgrid(:, :), p_wgrid(:), &
         & p_vgrid(:, :), p_vwgrid(:, :), p_l2grid(:, :), p_tmp_vplm(:, :), &
         & p_tmp_vcos(:, :), p_tmp_vsin(:, :), p_fi(:, :), p_ui(:, :), &
         & p_zi(:, :, :)
     ! Reset info
     info = 0
     !!! Check input parameters
-    if (n .le. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `n`"
+    if (nsph .le. 0) then
+        !write(*, *) "ddinit: wrong value of parameter `nsph`"
         info = -1
         return
     end if
-    dd_data % nsph = n
-    allocate(dd_data % charge(n), dd_data % csph(3, n), dd_data % rsph(n), &
-        & stat=istatus)
+    dd_data % nsph = nsph
+    allocate(dd_data % charge(nsph), dd_data % csph(3, nsph), &
+        & dd_data % rsph(nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [1] allocation failed!"
         info = 1
@@ -428,7 +435,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     end if
     dd_data % lmax = lmax
     dd_data % nbasis = (lmax+1)**2
-    dd_data % n = n * dd_data % nbasis
+    dd_data % n = nsph * dd_data % nbasis
     if (ngrid .lt. 0) then
         !write(*, *) "ddinit: wrong value of parameter `ngrid`"
         info = -9
@@ -708,7 +715,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     swthr = one + (dd_data % se+one)*dd_data % eta/two
     ! Build list of neighbours in CSR format
     nngmax = 1
-    allocate(dd_data % inl(n+1), dd_data % nl(n*nngmax), stat=istatus)
+    allocate(dd_data % inl(nsph+1), dd_data % nl(nsph*nngmax), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) 'ddinit : [8] allocation failed !'
         info = 8
@@ -733,14 +740,14 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
                     i  = i + 1
                     lnl = lnl + 1
                     ! Extend dd_data % nl if needed
-                    if (i .gt. n*nngmax) then
-                        allocate(tmp_nl(n*nngmax), stat=istatus)
+                    if (i .gt. nsph*nngmax) then
+                        allocate(tmp_nl(nsph*nngmax), stat=istatus)
                         if (istatus .ne. 0) then
                             !write(*, *) 'ddinit : [8] allocation failed!'
                             info = 8
                             return
                         end if
-                        tmp_nl(1:n*nngmax) = dd_data % nl(1:n*nngmax)
+                        tmp_nl(1:nsph*nngmax) = dd_data % nl(1:nsph*nngmax)
                         deallocate(dd_data % nl, stat=istatus)
                         if (istatus .ne. 0) then
                             ! write(*, *) 'ddinit : [8] deallocation failed!'
@@ -748,13 +755,14 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
                             return
                         end if
                         nngmax = nngmax + 10
-                        allocate(dd_data % nl(n*nngmax), stat=istatus)
+                        allocate(dd_data % nl(nsph*nngmax), stat=istatus)
                         if (istatus .ne. 0) then
                             !write(*, *) 'ddinit : [8] allocation failed!'
                             info = 8
                             return
                         end if
-                        dd_data % nl(1:n*(nngmax-10)) = tmp_nl(1:n*(nngmax-10))
+                        dd_data % nl(1:nsph*(nngmax-10)) = &
+                            & tmp_nl(1:nsph*(nngmax-10))
                         deallocate(tmp_nl, stat=istatus)
                         if (istatus .ne. 0) then
                             ! write(*, *) 'ddinit : [8] deallocation failed!'
@@ -766,7 +774,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             end if
         end do
     end do
-    dd_data % inl(n+1) = lnl+1
+    dd_data % inl(nsph+1) = lnl+1
     dd_data % nngmax = nngmax
     ! Build arrays fi, ui, zi
     do isph = 1, dd_data % nsph
@@ -804,17 +812,17 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     enddo
     ! Debug printing
     if (iprint .ge. 4) then
-        call ptcart('fi', ngrid, n, 0, dd_data % fi)
-        call ptcart('ui', ngrid, n, 0, dd_data % ui)
+        call ptcart('fi', ngrid, nsph, 0, dd_data % fi)
+        call ptcart('ui', ngrid, nsph, 0, dd_data % ui)
     end if
     ! Build cavity array. At first get total count for each sphere
-    allocate(dd_data % ncav_sph(n), stat=istatus)
+    allocate(dd_data % ncav_sph(nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*,*)'ddinit : [11] allocation failed!'
         info = 11
         return
     endif
-    do isph = 1, n
+    do isph = 1, nsph
         dd_data % ncav_sph(isph) = 0
         ! Loop over integration points
         do i = 1, ngrid
@@ -826,7 +834,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     end do
     dd_data % ncav = sum(dd_data % ncav_sph)
     ! Allocate cavity array and CSR format for indexes of cavities
-    allocate(dd_data % ccav(3, dd_data % ncav), dd_data % icav_ia(n+1), &
+    allocate(dd_data % ccav(3, dd_data % ncav), dd_data % icav_ia(nsph+1), &
         & dd_data % icav_ja(dd_data % ncav), stat=istatus)
     if (istatus .ne. 0) then
         !write(*,*)'ddinit : [11] allocation failed!'
@@ -836,7 +844,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     ! Get actual cavity coordinates and indexes in CSR format
     dd_data % icav_ia(1) = 1
     i = 1
-    do isph = 1, n
+    do isph = 1, nsph
         dd_data % icav_ia(isph+1) = dd_data % icav_ia(isph) + &
             & dd_data % ncav_sph(isph)
         ! Loop over integration points
@@ -854,7 +862,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     end do
     ! Create preconditioner for PCM
     if (model .eq. 2) then
-        allocate(dd_data % rx_prc(dd_data % nbasis, dd_data % nbasis, n), &
+        allocate(dd_data % rx_prc(dd_data % nbasis, dd_data % nbasis, nsph), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [12] allocation failed!'
@@ -875,13 +883,13 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     !! Prepare FMM structures if needed
     if (fmm .eq. 1) then
         ! Allocate space for a cluster tree
-        allocate(dd_data % order(n), stat=istatus)
+        allocate(dd_data % order(nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [13] allocation failed!'
             info = 13
             return
         endif
-        dd_data % nclusters = 2*n - 1
+        dd_data % nclusters = 2*nsph - 1
         allocate(dd_data % cluster(2, dd_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [14] allocation failed!'
@@ -931,7 +939,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             return
         endif
         ! Get the tree
-        call tree_rib_build(n, dd_data % csph, dd_data % rsph, &
+        call tree_rib_build(nsph, dd_data % csph, dd_data % rsph, &
             & dd_data % order, dd_data % cluster, dd_data % children, &
             & dd_data % parent, dd_data % cnode, dd_data % rnode, &
             & dd_data % snode)
@@ -964,7 +972,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
                 return
             end if
             old_lwork = lwork
-            lwork = old_lwork + 1000*n
+            lwork = old_lwork + 1000*nsph
             allocate(work(3, lwork), stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Could not allocate space for workspace"
@@ -1014,31 +1022,55 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             info = 30
             return
         end if
-        allocate(dd_data % tmp_sph(dd_data % nbasis, n), stat=istatus)
+        ! Allocate square roots of combinatorial numbers C_n^k
+        allocate(dd_data % vcnk((2*dd_data % dmax+1)*(dd_data % dmax+1)), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "ddinit: [3] allocation failed!"
+            info = 3
+            return
+        end if
+        p_vcnk => dd_data % vcnk
+        ! Allocate space for M2L OZ translation coefficients
+        allocate(dd_data % m2l_ztranslate_coef(&
+            & (dd_data % pm+1), (dd_data % pl+1), (dd_data % pl+1)), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "ddinit: [3] allocation failed!"
+            info = 3
+            return
+        end if
+        p_m2l_ztranslate_coef => dd_data % m2l_ztranslate_coef
+        ! Compute combinatorial numbers C_n^k and M2L OZ translate coefficients
+        call fmm_constants(dd_data % dmax, dd_data % pm, dd_data % pl, &
+            & p_vcnk, p_m2l_ztranslate_coef)
+        allocate(dd_data % tmp_sph(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph2(dd_data % grad_nbasis, n), stat=istatus)
+        allocate(dd_data % tmp_sph2(dd_data % grad_nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_grad(dd_data % grad_nbasis, 3, n), stat=istatus)
+        allocate(dd_data % tmp_sph_grad(dd_data % grad_nbasis, 3, nsph), &
+            & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_l((dd_data % pl+1)**2, n), stat=istatus)
+        allocate(dd_data % tmp_sph_l((dd_data % pl+1)**2, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_l_grad((dd_data % pl+1)**2, 3, n), stat=istatus)
+        allocate(dd_data % tmp_sph_l_grad((dd_data % pl+1)**2, 3, nsph), &
+            & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
@@ -1122,7 +1154,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
             call tree_m2l_reflection_get_mat(dd_data)
             ! Get near-field M2P data
             dd_data % nnear_m2p = 0
-            do isph = 1, n
+            do isph = 1, nsph
                 dd_data % nnear_m2p = dd_data % nnear_m2p + &
                     & dd_data % ncav_sph(isph)*dd_data % nnear( &
                     & dd_data % snode(isph))
@@ -1143,73 +1175,73 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     if (model .eq. 1) then
     ! PCM model
     else if (model .eq. 2) then
-        allocate(dd_data % phi_grid(dd_data % ngrid, n), stat=istatus)
+        allocate(dd_data % phi_grid(dd_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phi(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % phi(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phiinf(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % phiinf(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phieps(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % phieps(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % xs(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % xs(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % s(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % s(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % sgrid(dd_data % ngrid, n), stat=istatus)
+        allocate(dd_data % sgrid(dd_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % y(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % y(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % ygrid(dd_data % ngrid, n), stat=istatus)
+        allocate(dd_data % ygrid(dd_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % g(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % g(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % q(dd_data % nbasis, n), stat=istatus)
+        allocate(dd_data % q(dd_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % qgrid(dd_data % ngrid, n), stat=istatus)
+        allocate(dd_data % qgrid(dd_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
@@ -1224,7 +1256,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     ! LPB model
     else if (model .eq. 3) then
     end if
-    allocate(dd_data % tmp_grid(dd_data % ngrid, n), stat=istatus)
+    allocate(dd_data % tmp_grid(dd_data % ngrid, nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "Error in allocation of a temporary"
         info = 38
@@ -1237,7 +1269,7 @@ subroutine ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
     ! Debug printing
     if (iprint .ge. 4) then
         write(*, "(A)") '    inl:'
-        write(*, "(10i6)") dd_data % inl(1:n+1)
+        write(*, "(10i6)") dd_data % inl(1:nsph+1)
         write(*,*)
         do isph = 1, dd_data % nsph
             write(6,1000) isph
@@ -1485,6 +1517,20 @@ subroutine ddfree(dd_data)
     end if
     if (allocated(dd_data % vfact)) then
         deallocate(dd_data % vfact, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [4] deallocation failed!"
+            stop 1
+        end if
+    end if
+    if (allocated(dd_data % vcnk)) then
+        deallocate(dd_data % vcnk, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [4] deallocation failed!"
+            stop 1
+        end if
+    end if
+    if (allocated(dd_data % m2l_ztranslate_coef)) then
+        deallocate(dd_data % m2l_ztranslate_coef, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [4] deallocation failed!"
             stop 1
@@ -1996,6 +2042,50 @@ subroutine ylmscale(p, vscales, v4pi2lp1, vscales_rel)
         end do
     end do
 end subroutine ylmscale
+
+subroutine fmm_constants(dmax, pm, pl, vcnk, m2l_ztranslate_coef)
+    integer, intent(in) :: dmax, pm, pl
+    real(dp), intent(out) :: vcnk((2*dmax+1)*(dmax+1)), &
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1)
+    integer :: i, indi, j, k, n, indjn
+    real(dp) :: tmp1
+    ! Compute combinatorial numbers C_n^k for n=0..dmax
+    ! C_0^0 = 1
+    vcnk(1) = one
+    do i = 2, 2*dmax+1
+        ! Offset to the C_{i-2}^{i-2}, next item to be stored is C_{i-1}^0
+        indi = (i-1) * i / 2
+        ! C_{i-1}^0 = 1
+        vcnk(indi+1) = one
+        ! C_{i-1}^{i-1} = 1
+        vcnk(indi+i) = one
+        ! C_{i-1}^{j-1} = C_{i-2}^{j-1} + C_{i-2}^{j-2}
+        ! Offset to C_{i-3}^{i-3} is indi-i+1
+        do j = 2, i-1
+            vcnk(indi+j) = vcnk(indi-i+j+1) + vcnk(indi-i+j)
+        end do
+    end do
+    ! Get square roots of C_n^k. sqrt(one) is one, so no need to update C_n^0
+    ! and C_n^n
+    do i = 3, 2*dmax+1
+        indi = (i-1) * i / 2
+        do j = 2, i-1
+            vcnk(indi+j) = sqrt(vcnk(indi+j))
+        end do
+    end do
+    ! Fill in m2l_ztranslate_coef
+    do j = 0, pl
+        do k = 0, j
+            tmp1 = one
+            do n = k, pm
+                indjn = (j+n)*(j+n+1)/2 + 1
+                m2l_ztranslate_coef(n-k+1, k+1, j+1) = &
+                    & tmp1 * vcnk(indjn+j-k) * vcnk(indjn+j+k)
+                tmp1 = -tmp1
+            end do
+        end do
+    end do
+end subroutine fmm_constants
 
 !> Compute arrays of \f$ \cos(m \phi) \f$ and \f$ \sin(m \phi) \f$
 !!
@@ -6633,23 +6723,23 @@ end subroutine fmm_sph_rotate_oxz_work
 !! @param[in] dst_r: Radius of new harmonics
 !! @parma[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multipler for `alpha`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
-subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, vfact, alpha, &
+subroutine fmm_m2m_ztranslate(z, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp) :: work(2*(p+1))
     ! Call corresponding work routine
-    call fmm_m2m_ztranslate_work(z, src_r, dst_r, p, vscales, vfact, alpha, &
+    call fmm_m2m_ztranslate_work(z, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
 end subroutine fmm_m2m_ztranslate
 
@@ -6670,78 +6760,160 @@ end subroutine fmm_m2m_ztranslate
 !! @param[in] dst_r: Radius of new harmonics
 !! @parma[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multipler for `alpha`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size (2*(p+1))
-subroutine fmm_m2m_ztranslate_work(z, src_r, dst_r, p, vscales, vfact, alpha, &
+subroutine fmm_m2m_ztranslate_work(z, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp), intent(out), target :: work(2*(p+1))
     ! Local variables
-    real(dp) :: r1, r2, tmp1, tmp2
-    integer :: j, k, n, indj, indn, indjn
+    real(dp) :: r1, r2, tmp1, tmp2, tmp3, res1, res2, pow_r1
+    integer :: j, k, n, indj, indjn, indjk1, indjk2
     ! Pointers for temporary values of powers
-    real(dp), pointer :: pow_r1(:), pow_r2(:)
-    ! Init output
-    if (beta .eq. zero) then
-        dst_m = zero
-    else
-        dst_m = beta * dst_m
+    real(dp), pointer :: pow_r2(:)
+    ! In case alpha is zero just do a proper scaling of output
+    if (alpha .eq. zero) then
+        if (beta .eq. zero) then
+            dst_m = zero
+        else
+            dst_m = beta * dst_m
+        end if
+        return
     end if
+    ! Now alpha is non-zero
     ! If harmonics have different centers
     if (z .ne. 0) then
         ! Prepare pointers
-        pow_r1(1:p+1) => work(1:p+1)
-        pow_r2(1:p+1) => work(p+2:2*(p+1))
-        ! Get powers of r1 and r2
+        pow_r2(1:p+1) => work(1:p+1)
+        ! Get ratios r1 and r2
         r1 = src_r / dst_r
         r2 = z / dst_r
-        pow_r1(1) = r1
+        ! Get powers of ratio r2/r1
+        r2 = r2 / r1
+        pow_r1 = r1
         pow_r2(1) = one
         do j = 2, p+1
-            pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
         end do
         ! Do actual M2M
-        do j = 0, p
-            indj = j*j + j + 1
-            do k = 0, j
-                tmp1 = alpha * vscales(indj) * vfact(j-k+1) * vfact(j+k+1)
-                do n = 0, j-k
-                    indn = n*n + n + 1
+        ! Overwrite output if beta is zero
+        if (beta .eq. zero) then
+            do j = 0, p
+                ! Offset for dst_m
+                indj = j*j + j + 1
+                ! k = 0
+                tmp1 = alpha * pow_r1 * vscales(indj)
+                pow_r1 = pow_r1 * r1
+                tmp2 = tmp1
+                res1 = zero
+                ! Offset for vcnk
+                indjk1 = j*(j+1)/2 + 1
+                do n = 0, j
+                    ! Offset for src_m
                     indjn = (j-n)**2 + (j-n) + 1
-                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
-                        & vscales(indjn) / vfact(n+1) / vfact(n+1) / &
-                        & vfact(j-n-k+1) / vfact(j-n+k+1)
-                    if (k .eq. 0) then
-                        dst_m(indj) = dst_m(indj) + tmp2*src_m(indjn)
-                    else
-                        dst_m(indj+k) = dst_m(indj+k) + tmp2*src_m(indjn+k)
-                        dst_m(indj-k) = dst_m(indj-k) + tmp2*src_m(indjn-k)
-                    end if
+                    tmp3 = pow_r2(n+1) / &
+                        & vscales(indjn) * vcnk(indjk1+n)**2
+                    res1 = res1 + tmp3*src_m(indjn)
+                end do
+                dst_m(indj) = tmp2 * res1
+                ! k != 0
+                do k = 1, j
+                    tmp2 = tmp1
+                    res1 = zero
+                    res2 = zero
+                    ! Offsets for vcnk
+                    indjk1 = (j-k)*(j-k+1)/2 + 1
+                    indjk2 = (j+k)*(j+k+1)/2 + 1
+                    do n = 0, j-k
+                        ! Offset for src_m
+                        indjn = (j-n)**2 + (j-n) + 1
+                        tmp3 = pow_r2(n+1) / &
+                            & vscales(indjn) * vcnk(indjk1+n) * &
+                            & vcnk(indjk2+n)
+                        res1 = res1 + tmp3*src_m(indjn+k)
+                        res2 = res2 + tmp3*src_m(indjn-k)
+                    end do
+                    dst_m(indj+k) = tmp2 * res1
+                    dst_m(indj-k) = tmp2 * res2
                 end do
             end do
-        end do
+        ! Update output if beta is non-zero
+        else
+            do j = 0, p
+                ! Offset for dst_m
+                indj = j*j + j + 1
+                ! k = 0
+                tmp1 = alpha * pow_r1 * vscales(indj)
+                pow_r1 = pow_r1 * r1
+                tmp2 = tmp1
+                res1 = zero
+                ! Offset for vcnk
+                indjk1 = j * (j+1) /2 + 1
+                do n = 0, j
+                    ! Offset for src_m
+                    indjn = (j-n)**2 + (j-n) + 1
+                    tmp3 = pow_r2(n+1) / &
+                        & vscales(indjn) * vcnk(indjk1+n)**2
+                    res1 = res1 + tmp3*src_m(indjn)
+                end do
+                dst_m(indj) = beta*dst_m(indj) + tmp2*res1
+                ! k != 0
+                do k = 1, j
+                    tmp2 = tmp1
+                    res1 = zero
+                    res2 = zero
+                    ! Offsets for vcnk
+                    indjk1 = (j-k)*(j-k+1)/2 + 1
+                    indjk2 = (j+k)*(j+k+1)/2 + 1
+                    do n = 0, j-k
+                        ! Offset for src_m
+                        indjn = (j-n)**2 + (j-n) + 1
+                        tmp3 = pow_r2(n+1) / &
+                            & vscales(indjn) * vcnk(indjk1+n) * &
+                            & vcnk(indjk2+n)
+                        res1 = res1 + tmp3*src_m(indjn+k)
+                        res2 = res2 + tmp3*src_m(indjn-k)
+                    end do
+                    dst_m(indj+k) = beta*dst_m(indj+k) + tmp2*res1
+                    dst_m(indj-k) = beta*dst_m(indj-k) + tmp2*res2
+                end do
+            end do
+        end if
     ! If harmonics are located at the same point
     else
-        r1 = src_r / dst_r
-        tmp1 = alpha * r1
-        do j = 0, p
-            indj = j*j + j + 1
-            do k = indj-j, indj+j
-                dst_m(k) = dst_m(k) + src_m(k)*tmp1
+        ! Overwrite output if beta is zero
+        if (beta .eq. zero) then
+            r1 = src_r / dst_r
+            tmp1 = alpha * r1
+            do j = 0, p
+                indj = j*j + j + 1
+                do k = indj-j, indj+j
+                    dst_m(k) = tmp1 * src_m(k)
+                end do
+                tmp1 = tmp1 * r1
             end do
-            tmp1 = tmp1 * r1
-        end do
+        ! Update output if beta is non-zero
+        else
+            r1 = src_r / dst_r
+            tmp1 = alpha * r1
+            do j = 0, p
+                indj = j*j + j + 1
+                do k = indj-j, indj+j
+                    dst_m(k) = beta*dst_m(k) + tmp1*src_m(k)
+                end do
+                tmp1 = tmp1 * r1
+            end do
+        end if
     end if
 end subroutine fmm_m2m_ztranslate_work
 
@@ -6762,23 +6934,23 @@ end subroutine fmm_m2m_ztranslate_work
 !! @param[in] dst_r: Radius of new harmonics
 !! @parma[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multipler for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
-subroutine fmm_m2m_ztranslate_adj(z, src_r, dst_r, p, vscales, vfact, &
+subroutine fmm_m2m_ztranslate_adj(z, src_r, dst_r, p, vscales, vcnk, &
         & alpha, src_m, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp) :: work(2*(p+1))
     ! Call corresponding work routine
-    call fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vfact, &
+    call fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vcnk, &
         & alpha, src_m, beta, dst_m, work)
 end subroutine fmm_m2m_ztranslate_adj
 
@@ -6799,32 +6971,35 @@ end subroutine fmm_m2m_ztranslate_adj
 !! @param[in] dst_r: Radius of new harmonics
 !! @parma[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multipler for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size (2*(p+1))
-subroutine fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vfact, &
+subroutine fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vcnk, &
         & alpha, src_m, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp), intent(out), target :: work(2*(p+1))
     ! Local variables
-    real(dp) :: r1, r2, tmp1, tmp2
-    integer :: j, k, n, indj, indn, indjn
+    real(dp) :: r1, r2, tmp1, tmp2, res1, res2
+    integer :: j, k, n, indj, indn, indjk1, indjk2
     ! Pointers for temporary values of powers
     real(dp), pointer :: pow_r1(:), pow_r2(:)
-    ! Init output
-    if (beta .eq. zero) then
-        dst_m = zero
-    else
-        dst_m = beta * dst_m
+    ! In case alpha is zero just do a proper scaling of output
+    if (alpha .eq. zero) then
+        if (beta .eq. zero) then
+            dst_m = zero
+        else
+            dst_m = beta * dst_m
+        end if
+        return
     end if
     ! If harmonics have different centers
     if (z .ne. 0) then
@@ -6840,25 +7015,81 @@ subroutine fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vfact, &
             pow_r1(j) = pow_r1(j-1) * r1
             pow_r2(j) = pow_r2(j-1) * r2
         end do
-        do j = 0, p
-            indj = j*j + j + 1
-            do k = 0, j
-                tmp1 = alpha * vscales(indj) * vfact(j-k+1) * vfact(j+k+1)
-                do n = 0, j-k
-                    indn = n*n + n + 1
-                    indjn = (j-n)**2 + (j-n) + 1
-                    tmp2 = tmp1 * pow_r1(j-n+1) * pow_r2(n+1) / &
-                        & vscales(indjn) / vfact(n+1) / vfact(n+1) / &
-                        & vfact(j-n-k+1) / vfact(j-n+k+1)
-                    if (k .eq. 0) then
-                        dst_m(indjn) = dst_m(indjn) + tmp2*src_m(indj)
-                    else
-                        dst_m(indjn+k) = dst_m(indjn+k) + tmp2*src_m(indj+k)
-                        dst_m(indjn-k) = dst_m(indjn-k) + tmp2*src_m(indj-k)
-                    end if
+        ! Do actual adjoint M2M
+        ! Overwrite output if beta is zero
+        if (beta .eq. zero) then
+            do n = 0, p
+                ! Offset for dst_m
+                indn = n*n + n + 1
+                tmp1 = alpha * pow_r1(n+1) / vscales(indn)
+                ! k = 0
+                res1 = zero
+                do j = n, p
+                    ! Offset for src_m
+                    indj = j*j + j + 1
+                    ! Offsets for vcnk
+                    indjk1 = j*(j+1)/2 + 1
+                    tmp2 = tmp1 * vscales(indj) * pow_r2(j-n+1) * &
+                        & vcnk(indjk1+j-n)**2
+                    res1 = res1 + tmp2*src_m(indj)
+                end do
+                dst_m(indn) = res1
+                ! k != 1
+                do k = 1, n
+                    res1 = zero
+                    res2 = zero
+                    do j = n, p
+                        ! Offset for src_m
+                        indj = j*j + j + 1
+                        ! Offsets for vcnk
+                        indjk1 = (j-k)*(j-k+1)/2 + 1
+                        indjk2 = (j+k)*(j+k+1)/2 + 1
+                        tmp2 = tmp1 * vscales(indj) * pow_r2(j-n+1) * &
+                            & vcnk(indjk1+j-n) * vcnk(indjk2+j-n)
+                        res1 = res1 + tmp2*src_m(indj+k)
+                        res2 = res2 + tmp2*src_m(indj-k)
+                    end do
+                    dst_m(indn+k) = res1
+                    dst_m(indn-k) = res2
                 end do
             end do
-        end do
+        else
+            do n = 0, p
+                ! Offset for dst_m
+                indn = n*n + n + 1
+                tmp1 = alpha * pow_r1(n+1) / vscales(indn)
+                ! k = 0
+                res1 = zero
+                do j = n, p
+                    ! Offset for src_m
+                    indj = j*j + j + 1
+                    ! Offsets for vcnk
+                    indjk1 = j*(j+1)/2 + 1
+                    tmp2 = tmp1 * vscales(indj) * pow_r2(j-n+1) * &
+                        & vcnk(indjk1+j-n)**2
+                    res1 = res1 + tmp2*src_m(indj)
+                end do
+                dst_m(indn) = beta*dst_m(indn) + res1
+                ! k != 1
+                do k = 1, n
+                    res1 = zero
+                    res2 = zero
+                    do j = n, p
+                        ! Offset for src_m
+                        indj = j*j + j + 1
+                        ! Offsets for vcnk
+                        indjk1 = (j-k)*(j-k+1)/2 + 1
+                        indjk2 = (j+k)*(j+k+1)/2 + 1
+                        tmp2 = tmp1 * vscales(indj) * pow_r2(j-n+1) * &
+                            & vcnk(indjk1+j-n) * vcnk(indjk2+j-n)
+                        res1 = res1 + tmp2*src_m(indj+k)
+                        res2 = res2 + tmp2*src_m(indj-k)
+                    end do
+                    dst_m(indn+k) = beta*dst_m(indn+k) + res1
+                    dst_m(indn-k) = beta*dst_m(indn-k) + res2
+                end do
+            end do
+        end if
     ! If harmonics are located at the same point
     else
         r1 = dst_r / src_r
@@ -7175,23 +7406,23 @@ end subroutine fmm_m2m_scale_adj
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
-subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, vfact, alpha, &
+subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp) :: work(6*p*p+19*p+8)
     ! Call corresponding work routine
-    call fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
+    call fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
 end subroutine fmm_m2m_rotation
 
@@ -7215,17 +7446,17 @@ end subroutine fmm_m2m_rotation
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: Normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: Expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size 6*p*p+19*p+8
-subroutine fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
+subroutine fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
@@ -7241,7 +7472,7 @@ subroutine fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
     ! If no need for rotations, just do translation along z
     if (stheta .eq. zero) then
         ! Workspace here is 2*(p+1)
-        call fmm_m2m_ztranslate_work(c(3), src_r, dst_r, p, vscales, vfact, &
+        call fmm_m2m_ztranslate_work(c(3), src_r, dst_r, p, vscales, vcnk, &
             & alpha, src_m, beta, dst_m, work)
         return
     end if
@@ -7264,7 +7495,7 @@ subroutine fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
     call fmm_sph_rotate_oxz_work(p, ctheta, -stheta, one, tmp_m, zero, &
         & tmp_m2, work)
     ! OZ translation, workspace here is 2*(p+1)
-    call fmm_m2m_ztranslate_work(rho, src_r, dst_r, p, vscales, vfact, one, &
+    call fmm_m2m_ztranslate_work(rho, src_r, dst_r, p, vscales, vcnk, one, &
         & tmp_m2, zero, tmp_m, work)
     ! Backward rotation in the OXZ plane, work size is 4*p*p+13*p+4
     call fmm_sph_rotate_oxz_work(p, ctheta, stheta, one, tmp_m, zero, tmp_m2, &
@@ -7293,21 +7524,21 @@ end subroutine fmm_m2m_rotation_work
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] src_m: expansion in old harmonics
 !! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2m_rotation_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
+subroutine fmm_m2m_rotation_adj(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
     real(dp) :: work(6*p*p + 19*p + 8)
     ! Call corresponding work routine
-    call fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
+    call fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
 end subroutine fmm_m2m_rotation_adj
 
@@ -7331,15 +7562,15 @@ end subroutine fmm_m2m_rotation_adj
 !! @param[in] dst_r: Radius of new harmonics
 !! @param[in] p: Maximal degree of spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] vcnk: Square roots of combinatorial numbers C_n^k
 !! @param[in] src_m: expansion in old harmonics
 !! @param[inout] dst_m: expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size 6*p*p+19*p+8
-subroutine fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vfact, &
+subroutine fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vcnk, &
         & alpha, src_m, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
+        & vcnk((2*p+1)*(p+1)), alpha, src_m((p+1)*(p+1)), beta
     integer, intent(in) :: p
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
@@ -7356,7 +7587,7 @@ subroutine fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vfact, &
     if (stheta .eq. 0) then
         ! Workspace here is 2*(p+1)
         call fmm_m2m_ztranslate_adj_work(c(3), src_r, dst_r, p, vscales, &
-            & vfact, alpha, src_m, beta, dst_m, work)
+            & vcnk, alpha, src_m, beta, dst_m, work)
         return
     end if
     ! Prepare pointers
@@ -7378,7 +7609,7 @@ subroutine fmm_m2m_rotation_adj_work(c, src_r, dst_r, p, vscales, vfact, &
     call fmm_sph_rotate_oxz_work(p, ctheta, -stheta, one, tmp_m, zero, &
         & tmp_m2, work)
     ! OZ translation, workspace here is 2*(p+1)
-    call fmm_m2m_ztranslate_adj_work(rho, src_r, dst_r, p, vscales, vfact, &
+    call fmm_m2m_ztranslate_adj_work(rho, src_r, dst_r, p, vscales, vcnk, &
         & one, tmp_m2, zero, tmp_m, work)
     ! Backward rotation in the OXZ plane, work size is 4*p*p+13*p+4
     call fmm_sph_rotate_oxz_work(p, ctheta, stheta, one, tmp_m, zero, tmp_m2, &
@@ -7442,253 +7673,6 @@ subroutine coord_reflect_get_mat(c, z, mat)
         end do
     end do
 end subroutine coord_reflect_get_mat
-
-!> Direct M2M translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2m_reflection(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
-    ! Temporary workspace
-    real(dp) :: work(2*(2*p+1)*(2*p+3)+2*(p+1)*(p+1))
-    ! Call corresponding work routine
-    call fmm_m2m_reflection_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m, work)
-end subroutine fmm_m2m_reflection
-
-!> Direct M2M translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: expansion in new harmonics
-!! @param[out] work: Temporary workspace of a size
-!!      (2*(2*p+1)*(2*p+3)+2*(p+1)*(p+1))
-subroutine fmm_m2m_reflection_work(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m, work)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
-    ! Temporary workspace
-    real(dp), intent(out), target :: work(2*(2*p+1)*(2*p+3)+2*(p+1)*(p+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3)
-    ! Pointers for temporary values of harmonics
-    real(dp), pointer :: tmp_m(:), tmp_m2(:)
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
-            & src_m, beta, dst_m)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    ! Prepare pointers
-    m = (p+1)**2
-    n = 2*(2*p+1)*(2*p+3)
-    tmp_m(1:m) => work(n+1:n+m)
-    n = n + m
-    tmp_m2(1:m) => work(n+1:n+m)
-    ! Run reflect->translate->reflect
-    call fmm_sph_transform_work(p, r1, alpha, src_m, zero, tmp_m, work)
-    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_m, &
-        & zero, tmp_m2)
-    call fmm_sph_transform_work(p, r1, one, tmp_m2, beta, dst_m, work)
-end subroutine fmm_m2m_reflection_work
-
-!> Adjoint M2M translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] src_m: expansion in old harmonics
-!! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2m_reflection_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
-        & tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
-            & alpha, src_m, beta, dst_m)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2m_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
-        & tmp_m, zero, tmp_m2)
-    call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
-end subroutine fmm_m2m_reflection_adj
-
-!> M2M translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_m2m_reflection
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: Multipole expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: Multipole expansion in new harmonics
-subroutine fmm_m2m_reflection2(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
-            & src_m, beta, dst_m)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2m_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_m, &
-        & zero, tmp_m2)
-    call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
-end subroutine fmm_m2m_reflection2
-
-!> Adjoint M2M translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_m2m_reflection
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: Multipole expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: Multipole expansion in new harmonics
-subroutine fmm_m2m_reflection2_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_m, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_m((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_m((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_m((p+1)*(p+1)), tmp_m2((p+1)*(p+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2m_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
-            & alpha, src_m, beta, dst_m)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(p, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2m_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
-        & tmp_m, zero, tmp_m2)
-    call fmm_sph_transform(p, r1, one, tmp_m2, beta, dst_m)
-end subroutine fmm_m2m_reflection2_adj
 
 !> Save matrices of M2M operation by 2 reflections and 1 translation
 !!
@@ -8940,24 +8924,25 @@ end subroutine fmm_l2l_reflection2_adj
 !! @parma[in] pm: Maximal degree of multipole spherical harmonics
 !! @parma[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_coef:
 !! @param[in] alpha: Scalar multipler for `src_m`
 !! @param[in] src_m: Expansion in old (multipole) harmonics
 !! @param[in] beta: Scalar multipler for `dst_l`
 !! @param[inout] dst_l: Expansion in new (local) harmonics
-subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l)
+subroutine fmm_m2l_ztranslate(z, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1), alpha, src_m((pm+1)*(pm+1)), &
+        & beta
     integer, intent(in) :: pm, pl
     ! Output
     real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
     ! Temporary workspace
-    real(dp) :: work(pm+pl+2)
+    real(dp) :: work((pm+2)*(pm+1))
     ! Call corresponding work routine
-    call fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l, work)
+    call fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l, work)
 end subroutine fmm_m2l_ztranslate
 
 !> Direct M2L translation over OZ axis
@@ -8978,76 +8963,142 @@ end subroutine fmm_m2l_ztranslate
 !! @parma[in] pm: Maximal degree of multipole spherical harmonics
 !! @parma[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_coef:
 !! @param[in] alpha: Scalar multipler for `src_m`
 !! @param[in] src_m: Expansion in old (multipole) harmonics
 !! @param[in] beta: Scalar multipler for `dst_l`
 !! @param[inout] dst_l: Expansion in new (local) harmonics
-!! @param[out] work: Temporary workspace of a size (pm+pl+2)
-subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l, work)
+!! @param[out] work: Temporary workspace of a size (pm+2)*(pm+1)
+subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l, work)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1), alpha, src_m((pm+1)*(pm+1)), &
+        & beta
     integer, intent(in) :: pm, pl
     ! Output
     real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
     ! Temporary workspace
-    real(dp), intent(out), target :: work(pm+pl+2)
+    real(dp), intent(out), target :: work((pm+2)*(pm+1))
     ! Local variables
-    real(dp) :: tmp1, tmp2, r1, r2
-    integer :: j, k, n, indj, indn
+    real(dp) :: tmp1, tmp2, r1, r2, res1, res2, pow_r2
+    integer :: j, k, n, indj, indjn, indk1, indk2
     ! Pointers for temporary values of powers
-    real(dp), pointer :: pow_r1(:), pow_r2(:)
-    ! Init output
-    if (beta .eq. zero) then
-        dst_l = zero
-    else
-        dst_l = beta * dst_l
+    real(dp), pointer :: src_m2(:), pow_r1(:)
+    ! In case alpha is zero just do a proper scaling of output
+    if (alpha .eq. zero) then
+        if (beta .eq. zero) then
+            dst_l = zero
+        else
+            dst_l = beta * dst_l
+        end if
+        return
     end if
+    ! Now alpha is non-zero
     ! z cannot be zero, as input sphere (multipole) must not intersect with
     ! output sphere (local)
     if (z .eq. zero) then
         return
     end if
     ! Prepare pointers
-    pow_r1(1:pm+1) => work(1:pm+1)
-    pow_r2(1:pl+1) => work(pm+2:pm+pl+2)
+    n = (pm+1) ** 2
+    src_m2(1:n) => work(1:n)
+    pow_r1(1:pm+1) => work(n+1:n+pm+1)
     ! Get powers of r1 and r2
     r1 = src_r / z
     r2 = dst_r / z
     ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
-    pow_r1(1) = abs(r1)
-    pow_r2(1) = one
-    do j = 2, pm+1
-        pow_r1(j) = pow_r1(j-1) * r1
+    tmp1 = abs(r1)
+    do j = 0, pm
+        indj = j*j + j + 1
+        pow_r1(j+1) = tmp1 / vscales(indj)
+        tmp1 = tmp1 * r1
     end do
-    do j = 2, pl+1
-        pow_r2(j) = pow_r2(j-1) * r2
+    pow_r2 = one
+    ! Reorder source harmonics from (degree, order) to (order, degree)
+    ! Zero order k=0 at first
+    do j = 0, pm
+        indj = j*j + j + 1
+        src_m2(j+1) = pow_r1(j+1) * src_m(indj)
+    end do
+    ! Non-zero orders next, a positive k followed by a negative -k
+    indk1 = pm + 2
+    do k = 1, pm
+        n = pm - k + 1
+        indk2 = indk1 + n
+        do j = k, pm
+            indj = j*j + j + 1
+            src_m2(indk1+j-k) = pow_r1(j+1) * src_m(indj+k)
+            src_m2(indk2+j-k) = pow_r1(j+1) * src_m(indj-k)
+        end do
+        indk1 = indk2 + n
     end do
     ! Do actual M2L
-    do j = 0, pl
-        indj = j*j + j + 1
-        do k = 0, j
-            tmp1 = alpha * vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
-                & vfact(j+k+1)
-            do n = k, pm
-                indn = n*n + n + 1
-                tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / vfact(n-k+1) / &
-                    & vfact(n+k+1) * (vfact(j+n+1)**2)
-                if (mod(n+k, 2) .eq. 1) then
-                    tmp2 = -tmp2
-                end if
-                if (k .eq. 0) then
-                    dst_l(indj) = dst_l(indj) + tmp2*src_m(indn)
-                else
-                    dst_l(indj+k) = dst_l(indj+k) + tmp2*src_m(indn+k)
-                    dst_l(indj-k) = dst_l(indj-k) + tmp2*src_m(indn-k)
-                end if
+    ! Overwrite output if beta is zero
+    if (beta .eq. zero) then
+        do j = 0, pl
+            ! Offset for dst_l
+            indj = j*j + j + 1
+            ! k = 0
+            tmp1 = alpha * vscales(indj) * pow_r2
+            res1 = zero
+            do n = 0, pm
+                res1 = res1 + m2l_ztranslate_coef(n+1, 1, j+1)*src_m2(n+1)
             end do
+            dst_l(indj) = tmp1*res1
+            ! k != 0
+            do k = 1, j
+                ! Offsets for src_m2
+                indk1 = pm + 2 + (2*pm-k+2)*(k-1)
+                indk2 = indk1 + pm - k + 1
+                res1 = zero
+                res2 = zero
+                do n = k, pm
+                    res1 = res1 + &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & src_m2(indk1+n-k)
+                    res2 = res2 + &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & src_m2(indk2+n-k)
+                end do
+                dst_l(indj+k) = tmp1 * res1
+                dst_l(indj-k) = tmp1 * res2
+            end do
+            pow_r2 = pow_r2 * r2
         end do
-    end do
+    else
+        do j = 0, pl
+            ! Offset for dst_l
+            indj = j*j + j + 1
+            ! k = 0
+            tmp1 = alpha * vscales(indj) * pow_r2
+            res1 = zero
+            do n = 0, pm
+                res1 = res1 + m2l_ztranslate_coef(n+1, 1, j+1)*src_m2(n+1)
+            end do
+            dst_l(indj) = beta*dst_l(indj) + tmp1*res1
+            ! k != 0
+            do k = 1, j
+                ! Offsets for src_m2
+                indk1 = pm + 2 + (2*pm-k+2)*(k-1)
+                indk2 = indk1 + pm - k + 1
+                res1 = zero
+                res2 = zero
+                do n = k, pm
+                    res1 = res1 + &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & src_m2(indk1+n-k)
+                    res2 = res2 + &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & src_m2(indk2+n-k)
+                end do
+                dst_l(indj+k) = beta*dst_l(indj+k) + tmp1*res1
+                dst_l(indj-k) = beta*dst_l(indj-k) + tmp1*res2
+            end do
+            pow_r2 = pow_r2 * r2
+        end do
+    end if
 end subroutine fmm_m2l_ztranslate_work
 
 !> Adjoint M2L translation over OZ axis
@@ -9082,7 +9133,7 @@ subroutine fmm_m2l_ztranslate_adj(z, src_r, dst_r, pl, pm, vscales, &
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Temporary workspace
-    real(dp) :: work(pm+pl+2)
+    real(dp) :: work(pl+1)
     ! Call corresponding work routine
     call fmm_m2l_ztranslate_adj_work(z, src_r, dst_r, pl, pm, vscales, &
         & vfact, alpha, src_l, beta, dst_m, work)
@@ -9120,60 +9171,109 @@ subroutine fmm_m2l_ztranslate_adj_work(z, src_r, dst_r, pl, pm, vscales, &
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Temporary workspace
-    real(dp), intent(out), target :: work(pm+pl+2)
+    real(dp), intent(out), target :: work(pl+1)
     ! Local variables
-    real(dp) :: tmp1, tmp2, r1, r2
+    real(dp) :: tmp1, tmp2, tmp3, r1, r2, pow_r1, res1, res2
     integer :: j, k, n, indj, indn
     ! Pointers for temporary values of powers
-    real(dp), pointer :: pow_r1(:), pow_r2(:)
-    ! Init output
-    if (beta .eq. zero) then
-        dst_m = zero
-    else
-        dst_m = beta * dst_m
+    real(dp), pointer :: pow_r2(:)
+    ! In case alpha is zero just do a proper scaling of output
+    if (alpha .eq. zero) then
+        if (beta .eq. zero) then
+            dst_m = zero
+        else
+            dst_m = beta * dst_m
+        end if
+        return
     end if
+    ! Now alpha is non-zero
     ! z cannot be zero, as input sphere (multipole) must not intersect with
     ! output sphere (local)
     if (z .eq. zero) then
         return
     end if
     ! Prepare pointers
-    pow_r1(1:pm+1) => work(1:pm+1)
-    pow_r2(1:pl+1) => work(pm+2:pm+pl+2)
+    pow_r2(1:pl+1) => work(1:pl+1)
     ! Get powers of r1 and r2
     r1 = -dst_r / z
     r2 = -src_r / z
     ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
-    pow_r1(1) = abs(r1)
+    pow_r1 = abs(r1)
     pow_r2(1) = one
-    do j = 2, pm+1
-        pow_r1(j) = pow_r1(j-1) * r1
-    end do
     do j = 2, pl+1
         pow_r2(j) = pow_r2(j-1) * r2
     end do
-    do j = 0, pl
-        indj = j*j + j + 1
-        do k = 0, j
-            tmp1 = alpha * vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
-                & vfact(j+k+1)
-            do n = k, pm
-                indn = n*n + n + 1
-                tmp2 = tmp1 * pow_r1(n+1) / vscales(indn) / vfact(n-k+1) / &
-                    & vfact(n+k+1) * (vfact(j+n+1)**2)
-                if (mod(n+k, 2) .eq. 1) then
-                    tmp2 = -tmp2
-                end if
-                if (k .eq. 0) then
-                    dst_m(indn) = dst_m(indn) + tmp2*src_l(indj)
-                else
-                    dst_m(indn+k) = dst_m(indn+k) + tmp2*src_l(indj+k)
-                    dst_m(indn-k) = dst_m(indn-k) + tmp2*src_l(indj-k)
-                end if
+    ! Do actual adjoint M2L
+    ! Overwrite output if beta is zero
+    if (beta .eq. zero) then
+        do n = 0, pm
+            indn = n*n + n + 1
+            tmp1 = alpha * pow_r1 / vscales(indn)
+            pow_r1 = -pow_r1 * r1
+            ! k = 0
+            tmp2 = tmp1 / vfact(n+1) / vfact(n+1)
+            tmp1 = -tmp1
+            res1 = zero
+            do j = 0, pl
+                indj = j*j + j + 1
+                tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j+1) / &
+                    & vfact(j+1) * (vfact(j+n+1)**2)
+                res1 = res1 + tmp3*src_l(indj)
+            end do
+            dst_m(indn) = tmp2 * res1
+            ! k != 0
+            do k = 1, n
+                tmp2 = tmp1 / vfact(n-k+1) / vfact(n+k+1)
+                tmp1 = -tmp1
+                res1 = zero
+                res2 = zero
+                do j = k, pl
+                    indj = j*j + j + 1
+                    tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
+                        & vfact(j+k+1) * (vfact(j+n+1)**2)
+                    res1 = res1 + tmp3*src_l(indj+k)
+                    res2 = res2 + tmp3*src_l(indj-k)
+                end do
+                dst_m(indn+k) = tmp2 * res1
+                dst_m(indn-k) = tmp2 * res2
             end do
         end do
-    end do
+    ! Update output if beta is non-zero
+    else
+        do n = 0, pm
+            indn = n*n + n + 1
+            tmp1 = alpha * pow_r1 / vscales(indn)
+            pow_r1 = -pow_r1 * r1
+            ! k = 0
+            tmp2 = tmp1 / vfact(n+1) / vfact(n+1)
+            tmp1 = -tmp1
+            res1 = zero
+            do j = 0, pl
+                indj = j*j + j + 1
+                tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j+1) / &
+                    & vfact(j+1) * (vfact(j+n+1)**2)
+                res1 = res1 + tmp3*src_l(indj)
+            end do
+            dst_m(indn) = beta*dst_m(indn) + tmp2*res1
+            ! k != 0
+            do k = 1, n
+                tmp2 = tmp1 / vfact(n-k+1) / vfact(n+k+1)
+                tmp1 = -tmp1
+                res1 = zero
+                res2 = zero
+                do j = k, pl
+                    indj = j*j + j + 1
+                    tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
+                        & vfact(j+k+1) * (vfact(j+n+1)**2)
+                    res1 = res1 + tmp3*src_l(indj+k)
+                    res2 = res2 + tmp3*src_l(indj-k)
+                end do
+                dst_m(indn+k) = beta*dst_m(indn+k) + tmp2*res1
+                dst_m(indn-k) = beta*dst_m(indn-k) + tmp2*res2
+            end do
+        end do
+    end if
 end subroutine fmm_m2l_ztranslate_adj_work
 
 !> Save matrix of M2L translation along OZ axis
@@ -9371,220 +9471,6 @@ subroutine fmm_m2l_ztranslate_use_mat_adj(pl, pm, mat, alpha, src_l, beta, &
     end do
 end subroutine fmm_m2l_ztranslate_use_mat_adj
 
-!> Direct M2L translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of multipole spherical harmonics
-!! @param[in] pl: Maximal degree of local spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_l: expansion in new harmonics
-subroutine fmm_m2l_reflection(c, src_r, dst_r, pm, pl, vscales, vfact, alpha, &
-        & src_m, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
-    integer, intent(in) :: pm, pl
-    ! Output
-    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
-        & tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, vfact, &
-            & alpha, src_m, beta, dst_l)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    call fmm_sph_transform(pm, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2l_ztranslate(rho, src_r, dst_r, pm, pl, vscales, vfact, one, &
-        & tmp_m, zero, tmp_l)
-    call fmm_sph_transform(pl, r1, one, tmp_l, beta, dst_l)
-end subroutine fmm_m2l_reflection
-
-!> Adjoint M2L translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] pl: Maximal degree of local spherical harmonics
-!! @param[in] pm: Maximal degree of multipole spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_l: expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2l_reflection_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
-        & alpha, src_l, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
-    integer, intent(in) :: pl, pm
-    ! Output
-    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
-        & tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2l_ztranslate_adj(c(3), src_r, dst_r, pl, pm, vscales, &
-            & vfact, alpha, src_l, beta, dst_m)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    call fmm_sph_transform(pl, r1, alpha, src_l, zero, tmp_l)
-    call fmm_m2l_ztranslate_adj(rho, src_r, dst_r, pl, pm, vscales, vfact, &
-        & one, tmp_l, zero, tmp_m)
-    call fmm_sph_transform(pm, r1, one, tmp_m, beta, dst_m)
-end subroutine fmm_m2l_reflection_adj
-
-!> Direct M2L translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_m2l_reflection
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] pm: Maximal degree of multipole spherical harmonics
-!! @param[in] pl: Maximal degree of local spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_m`
-!! @param[in] src_m: Multipole expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_l: Local expansion in new harmonics
-subroutine fmm_m2l_reflection2(c, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
-    integer, intent(in) :: pm, pl
-    ! Output
-    real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2l_ztranslate(c(3), src_r, dst_r, pm, pl, vscales, vfact, &
-            & alpha, src_m, beta, dst_l)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(pm, r1, alpha, src_m, zero, tmp_m)
-    call fmm_m2l_ztranslate(rho, src_r, dst_r, pm, pl, vscales, vfact, one, &
-        & tmp_m, zero, tmp_l)
-    call fmm_sph_transform(pl, r1, one, tmp_l, beta, dst_l)
-end subroutine fmm_m2l_reflection2
-
-!> Adjoint M2L translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_m2l_reflection
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] pl: Maximal degree of local spherical harmonics
-!! @param[in] pm: Maximal degree of multipole spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_l: Multipole expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_m`
-!! @param[inout] dst_m: Multipole expansion in new harmonics
-subroutine fmm_m2l_reflection2_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
-        & alpha, src_l, beta, dst_m)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
-    integer, intent(in) :: pl, pm
-    ! Output
-    real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_m((pm+1)*(pm+1)), tmp_l((pl+1)*(pl+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_m2l_ztranslate_adj(c(3), src_r, dst_r, pl, pm, vscales, &
-            & vfact, alpha, src_l, beta, dst_m)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(pl, r1, alpha, src_l, zero, tmp_l)
-    call fmm_m2l_ztranslate_adj(rho, src_r, dst_r, pl, pm, vscales, vfact, &
-        & one, tmp_l, zero, tmp_m)
-    call fmm_sph_transform(pm, r1, one, tmp_m, beta, dst_m)
-end subroutine fmm_m2l_reflection2_adj
-
 !> Save matrices of M2L operation by 2 reflections and 1 translation
 !!
 !! @param[in] c: Radius-vector from new to old centers of harmonics
@@ -9733,24 +9619,25 @@ end subroutine fmm_m2l_reflection_use_mat_adj
 !! @param[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] vscales: Normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_coef:
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_l`
 !! @param[inout] dst_l: Expansion in new harmonics
-subroutine fmm_m2l_rotation(c, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l)
+subroutine fmm_m2l_rotation(c, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1), alpha, src_m((pm+1)*(pm+1)), &
+        & beta
     integer, intent(in) :: pm, pl
     ! Output
     real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
     ! Temporary workspace
     real(dp) :: work(6*max(pm, pl)**2 + 19*max(pm, pl) + 8)
     ! Call corresponding work routine
-    call fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l, work)
+    call fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l, work)
 end subroutine fmm_m2l_rotation
 
 !> Direct M2L translation by 4 rotations and 1 translation
@@ -9774,18 +9661,19 @@ end subroutine fmm_m2l_rotation
 !! @param[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] vscales: Normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_coef:
 !! @param[in] alpha: Scalar multiplier for `src_m`
 !! @param[in] src_m: Expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_l`
 !! @param[inout] dst_l: Expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size 6*p*p+19*p+8 where p is a
 !!      maximum of pm and pl
-subroutine fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, vfact, &
-        & alpha, src_m, beta, dst_l, work)
+subroutine fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, alpha, src_m, beta, dst_l, work)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_m((pm+1)*(pm+1)), beta
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1), alpha, src_m((pm+1)*(pm+1)), &
+        & beta
     integer, intent(in) :: pm, pl
     ! Output
     real(dp), intent(inout) :: dst_l((pl+1)*(pl+1))
@@ -9801,9 +9689,9 @@ subroutine fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, vfact, &
     call carttosph(c, rho, ctheta, stheta, cphi, sphi)
     ! If no need for rotations, just do translation along z
     if (stheta .eq. zero) then
-        ! Workspace here is pm+pl+2
+        ! Workspace here is (pm+2)*(pm+1)
         call fmm_m2l_ztranslate_work(c(3), src_r, dst_r, pm, pl, vscales, &
-            & vfact, alpha, src_m, beta, dst_l, work)
+            & m2l_ztranslate_coef, alpha, src_m, beta, dst_l, work)
         return
     end if
     ! Prepare pointers
@@ -9825,9 +9713,9 @@ subroutine fmm_m2l_rotation_work(c, src_r, dst_r, pm, pl, vscales, vfact, &
     ! Perform rotation in the OXZ plane, work size is 4*pm*pm+13*pm+4
     call fmm_sph_rotate_oxz_work(pm, ctheta, -stheta, one, tmp_ml, zero, &
         & tmp_ml2, work)
-    ! OZ translation, workspace here is pm+pl+2
-    call fmm_m2l_ztranslate_work(rho, src_r, dst_r, pm, pl, vscales, vfact, &
-        & one, tmp_ml2, zero, tmp_ml, work)
+    ! OZ translation, workspace here is (pm+2)*(pm+1)
+    call fmm_m2l_ztranslate_work(rho, src_r, dst_r, pm, pl, vscales, &
+        & m2l_ztranslate_coef, one, tmp_ml2, zero, tmp_ml, work)
     ! Backward rotation in the OXZ plane, work size is 4*pl*pl+13*pl+4
     call fmm_sph_rotate_oxz_work(pl, ctheta, stheta, one, tmp_ml, zero, &
         & tmp_ml2, work)
@@ -10358,15 +10246,17 @@ subroutine tree_m2m_rotation_work(dd_data, node_m, work)
         j = dd_data % children(1, i)
         c1 = dd_data % cnode(:, j)
         r1 = dd_data % rnode(j)
-        call fmm_m2m_rotation_work(c1-c, r1, r, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, &
+        call fmm_m2m_rotation_work(c1-c, r1, r, &
+            & dd_data % pm, &
+            & dd_data % vscales, &
+            & dd_data % vcnk, one, &
             & node_m(:, j), zero, node_m(:, i), work)
         ! All other children update the same output
         do j = dd_data % children(1, i)+1, dd_data % children(2, i)
             c1 = dd_data % cnode(:, j)
             r1 = dd_data % rnode(j)
             call fmm_m2m_rotation_work(c1-c, r1, r, dd_data % pm, &
-                & dd_data % vscales, dd_data % vfact, one, &
+                & dd_data % vscales, dd_data % vcnk, one, &
                 & node_m(:, j), one, node_m(:, i), work)
         end do
     end do
@@ -10403,65 +10293,10 @@ subroutine tree_m2m_rotation_adj_work(dd_data, node_m, work)
         c1 = dd_data % cnode(:, i)
         r1 = dd_data % rnode(i)
         call fmm_m2m_rotation_adj_work(c-c1, r, r1, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, node_m(:, j), one, &
+            & dd_data % vscales, dd_data % vcnk, one, node_m(:, j), one, &
             & node_m(:, i), work)
     end do
 end subroutine tree_m2m_rotation_adj_work
-
-!> Transfer multipole coefficients over a tree
-subroutine tree_m2m_reflection(dd_data, node_m)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j
-    real(dp) :: c1(3), c(3), r1, r
-    ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
-        ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
-        ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
-        call fmm_m2m_reflection(c1-c, r1, r, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_m(:, j), zero, node_m(:, i))
-        ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_m2m_reflection(c1-c, r1, r, dd_data % pm, &
-                & dd_data % vscales, dd_data % vfact, one, &
-                & node_m(:, j), one, node_m(:, i))
-        end do
-    end do
-end subroutine tree_m2m_reflection
-
-!> Adjoint transfer multipole coefficients over a tree
-subroutine tree_m2m_reflection_adj(dd_data, node_m)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j, k
-    real(dp) :: c1(3), c(3), r1, r
-    ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_m2m_reflection_adj(c-c1, r, r1, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, node_m(:, j), one, &
-            & node_m(:, i))
-    end do
-end subroutine tree_m2m_reflection_adj
 
 !> Save M2M matrices for entire tree
 subroutine tree_m2m_reflection_get_mat(dd_data)
@@ -10766,6 +10601,9 @@ subroutine tree_m2l_rotation(dd_data, node_m, node_l)
     real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
     ! Output
     real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    ! Temporary workspace
+    real(dp) :: work(6*max(dd_data % pm, dd_data % pl)**2 + &
+        & 19*max(dd_data % pm, dd_data % pl) + 8)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
@@ -10782,16 +10620,17 @@ subroutine tree_m2l_rotation(dd_data, node_m, node_l)
         k = dd_data % far(dd_data % sfar(i))
         c1 = dd_data % cnode(:, k)
         r1 = dd_data % rnode(k)
-        call fmm_m2l_rotation(c1-c, r1, r, dd_data % pm, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_m(:, k), zero, node_l(:, i))
+        call fmm_m2l_rotation_work(c1-c, r1, r, dd_data % pm, dd_data % pl, &
+            & dd_data % vscales, dd_data % m2l_ztranslate_coef, one, &
+            & node_m(:, k), zero, node_l(:, i), work)
         do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
             k = dd_data % far(j)
             c1 = dd_data % cnode(:, k)
             r1 = dd_data % rnode(k)
-            call fmm_m2l_rotation(c1-c, r1, r, dd_data % pm, dd_data % pl, &
-                & dd_data % vscales, dd_data % vfact, one, &
-                & node_m(:, k), one, node_l(:, i))
+            call fmm_m2l_rotation_work(c1-c, r1, r, dd_data % pm, &
+                & dd_data % pl, dd_data % vscales, &
+                & dd_data % m2l_ztranslate_coef, one, node_m(:, k), one, &
+                & node_l(:, i), work)
         end do
     end do
 end subroutine tree_m2l_rotation
@@ -10832,80 +10671,6 @@ subroutine tree_m2l_rotation_adj(dd_data, node_l, node_m)
         end do
     end do
 end subroutine tree_m2l_rotation_adj
-
-!> Transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_reflection(dd_data, node_m, node_l)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
-    ! Output
-    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j, k
-    real(dp) :: c1(3), c(3), r1, r
-    ! Any order of this cycle is OK
-    do i = 1, dd_data % nclusters
-        ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
-            node_l(:, i) = zero
-            cycle
-        end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
-        ! Use the first far admissible pair to initialize output
-        k = dd_data % far(dd_data % sfar(i))
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_reflection(c1-c, r1, r, dd_data % pm, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_m(:, k), zero, node_l(:, i))
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_reflection(c1-c, r1, r, dd_data % pm, dd_data % pl, &
-                & dd_data % vscales, dd_data % vfact, one, &
-                & node_m(:, k), one, node_l(:, i))
-        end do
-    end do
-end subroutine tree_m2l_reflection
-
-!> Adjoint transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_reflection_adj(dd_data, node_l, node_m)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
-    ! Output
-    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j, k
-    real(dp) :: c1(3), c(3), r1, r
-    ! Any order of this cycle is OK
-    node_m = zero
-    do i = 1, dd_data % nclusters
-        ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
-            cycle
-        end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
-        ! Use the first far admissible pair to initialize output
-        k = dd_data % far(dd_data % sfar(i))
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_reflection_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_l(:, i), one, node_m(:, k))
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_reflection_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
-                & dd_data % vscales, dd_data % vfact, one, &
-                & node_l(:, i), one, node_m(:, k))
-        end do
-    end do
-end subroutine tree_m2l_reflection_adj
 
 !> Precompute M2L translations for all nodes
 subroutine tree_m2l_reflection_get_mat(dd_data)
