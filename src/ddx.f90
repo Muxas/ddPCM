@@ -41,7 +41,7 @@ subroutine ddsolve(ddx_data, phi_cav, gradphi_cav, psi, esolv, force)
             call ddcosmo(ddx_data, phi_cav, gradphi_cav, psi, esolv, force)
         ! PCM model
         case (2)
-            call ddcosmo(ddx_data, phi_cav, gradphi_cav, psi, esolv, force)
+            call ddpcm(ddx_data, phi_cav, gradphi_cav, psi, esolv, force)
         ! LPB model
         case (3)
             stop "LPB model is not yet fully supported"
