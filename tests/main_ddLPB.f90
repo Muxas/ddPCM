@@ -11,15 +11,14 @@
 !! @date 2021-02-11
 
 program main
-use dd_core
-use dd_operators
-use dd_solvers
-use dd_cosmo
-use dd_lpb
+use ddx_core
+use ddx_operators
+use ddx_solvers
+use ddx_lpb
 implicit none
 
 character(len=255) :: fname
-type(dd_data_type) :: dd_data
+type(ddx_type) :: ddx_data
 integer :: iprint, nproc, lmax, pmax, ngrid, iconv, igrad, n, force, fmm, model
 integer :: niter, ndiis=25, fmm_precompute, itersolver, maxiter
 logical :: ok
@@ -119,16 +118,16 @@ tol=1d-1**iconv
 maxiter=200
 call ddinit(n, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, pmax, pmax, &
     & fmm_precompute, iprint, se, eta, eps, kappa, itersolver, tol, maxiter, &
-    & ndiis, nproc, dd_data, info)
+    & ndiis, nproc, ddx_data, info)
 
-allocate(phi(dd_data % ncav), psi(dd_data % nbasis,n), gradphi(3, dd_data % ncav))
+allocate(phi(ddx_data % ncav), psi(ddx_data % nbasis,n), gradphi(3, ddx_data % ncav))
 
-call mkrhs(dd_data, phi, gradphi, psi)
+call mkrhs(ddx_data, phi, gradphi, psi)
 
 niter = 200
 ! Now, call the ddLPB solver
 !
-allocate (sigma(dd_data % nbasis ,n))
+allocate (sigma(ddx_data % nbasis ,n))
 !
 ! @param[in] phi      : Boundary conditions
 ! @param[in] charge   : Charge of atoms
@@ -139,15 +138,15 @@ allocate (sigma(dd_data % nbasis ,n))
 ! @param[out] sigma   : Solution of ddLPB
 ! @param[out] esolv   : Electrostatic solvation energy
 !
-call ddlpb(dd_data, phi, psi, gradphi, sigma, esolv, charge, ndiis, niter, iconv)
+call ddlpb(ddx_data, phi, psi, gradphi, sigma, esolv, charge, ndiis, niter, iconv)
 !call cosmo(.false., .true., phi, xx, psi, sigma, esolv)
 !
-if (iprint.ge.3) call prtsph('Solution to the ddLPB equation',dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, sigma)
+if (iprint.ge.3) call prtsph('Solution to the ddLPB equation',ddx_data % nbasis, ddx_data % lmax, ddx_data % nsph, 0, sigma)
 !
 write (6,'(1x,a,f14.6)') 'ddLPB Electrostatic Solvation Energy (kcal/mol):', esolv*tokcal
 deallocate(phi, psi, gradphi)
 deallocate(x, y, z, rvdw, charge)
-call ddfree(dd_data)
+call ddfree(ddx_data)
 
 end program main
 

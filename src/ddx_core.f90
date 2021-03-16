@@ -2,7 +2,7 @@
 !!
 !! ddX software
 !!
-!! @file src/dd_core.f90
+!! @file src/ddx_core.f90
 !! Core routines and parameters of entire ddX software
 !!
 !! @version 1.0.0
@@ -10,7 +10,7 @@
 !! @date 2021-02-25
 
 !> Core routines and parameters of ddX software
-module dd_core
+module ddx_core
 ! Enable OpenMP
 use omp_lib
 implicit none
@@ -40,63 +40,74 @@ integer, parameter :: ng0(nllg) = (/ 6, 14, 26, 38, 50, 74, 86, 110, 146, &
     & 2030, 2354, 2702, 3074, 3470, 3890, 4334, 4802, 5294, 5810 /)
 
 !> Main ddX type that stores all required information
-type dd_data_type
+type ddx_type
     !!!!!!!!!!!! Parameters
-    !> Model to use 1 for cosmo, 2 for pcm, 3 for lpb
+    !> Model to use 1 for cosmo, 2 for pcm, 3 for lpb.
     integer :: model
-    !> Printing flag
+    !> Verbosity level. 0 for no output, 1 for ... Larger value means more
+    !!      output.
     integer :: iprint
-    !> Number of OpenMP threads to be used
+    !> Number of OpenMP threads to be used. Currently, only nproc=1 is
+    !!      supported as ddX is sequential right now.
     integer :: nproc
-    !> Number of atoms with their centers and Van der Waals radii
+    !> Number of atoms in the molecule.
     integer :: nsph
-    !> Charges of atoms
+    !> Charges of atoms of a dimension (nsph).
     real(dp), allocatable :: charge(:)
-    !> Centers of atoms of dimension (3, nsph)
+    !> Centers of atoms of a dimension (3, nsph).
     real(dp), allocatable :: csph(:, :)
-    !> Array of radii of atoms of dimension (nsph)
+    !> Array of radii of atoms of a dimension (nsph).
     real(dp), allocatable :: rsph(:)
-    !> Dielectric permittivity inside
+    !> Dielectric permittivity inside cavity.
     real(dp) :: epsin
-    !> Dielectric permittivity outside
+    !> Dielectric permittivity outside cavity.
     real(dp) :: epsout
-    !> Relative dielectric permittivity
+    !> Relative dielectric permittivity.
     real(dp) :: eps
-    !> Debye H\"{u}ckel parameter
+    !> Debye H\"{u}ckel parameter. Referenced only in LPB model (model=3)
     real(dp) :: kappa
-    !> Shift of characteristic function
-    !!
-    !! -1 for interior, 0 for centered and 1 for outer regularization. ddCOSMO
-    !! and ddLPB use value -1 while ddPCM uses value 0 by default.
+    !> Shift of a characteristic function. -1 for interior, 0 for centered and
+    !!      1 for outer regularization.
     real(dp) :: se
-    !> Regularization parameter
+    !> Regularization parameter.
     real(dp) :: eta
     !> Iterative solver to be used. 1 for Jacobi/DIIS.
     !!
-    !! Other solvers might be added later
+    !! Other solvers might be added later.
     integer :: itersolver
-    !> Relative error threshold for an iterative solvers
+    !> Relative threshold for an iterative solvers.
     real(dp) :: tol
-    !> Maximum number of iterations for an iterative solver
+    !> Maximum number of iterations for an iterative solver.
     integer :: maxiter
-    !> Number of extrapolation points for Jacobi/DIIS solver
+    !> Number of extrapolation points for Jacobi/DIIS solver. Referenced only
+    !!      if Jacobi solver is used.
     integer :: ndiis
-    !> Maximal degree of modeling spherical harmonics
+    !> Maximal degree of modeling spherical harmonics.
     integer :: lmax
-    !> Number modeling spherical harmonics per sphere
+    !> Number modeling spherical harmonics per sphere.
     integer :: nbasis
-    !> Total number of modeling degrees of freedom
+    !> Total number of modeling degrees of freedom.
     !!
-    !! This is equal to `nsph*nbasis`
+    !! This is equal to `nsph*nbasis`.
     integer :: n
-    !> Number of Lebedev grid points on each sphere
+    !> Number of Lebedev grid points on each sphere.
     integer :: ngrid
-    !> Whether to compute (1) or not (0) forces
+    !> Whether to compute (1) or not (0) analytical forces.
     integer :: force
-    !> Enable (1) or disable (0) use of FMM techniques
+    !> Enable (1) or disable (0) use of FMM techniques.
     integer :: fmm
+    !> Maximum degree of spherical harmonics for M (multipole) expansion.
+    !!
+    !! If this value is -1 then no far-field FMM interactions are performed.
+    integer :: pm
+    !> Maximum degree of spherical harmonics for L (local) expansion.
+    !!
+    !! If this value is -1 then no far-field FMM interactions are performed.
+    integer :: pl
+    !> Flag if FMM transfer matrices have to be precomputed
+    integer :: fmm_precompute
     !!!!!!!!!!!!!! Constants, initialized by ddinit
-    !> Maximal degree of used real normalized spherical harmonics
+    !> Maximal degree of used real normalized spherical harmonics.
     !!
     !! For example, if FMM is
     !! used, its M2L operation requires computing spherical harmonics of all
@@ -104,175 +115,224 @@ type dd_data_type
     !! increased by 1 because certain implementations of analytical gradients
     !! might rely on spherical harmonics of +1 degree.
     integer :: dmax
-    !> Total number of used real spherical harmonics and a size of `vscales`
+    !> Total number of used real spherical harmonics and a size of `vscales`.
     integer :: nscales
-    !> Scales of real normalized spherical harmonics of degree up to dmax
+    !> Scales of real normalized spherical harmonics of degree up to dmax.
     !!
-    !! This array has `nscales` entries
+    !! This array has a dimension (nscales).
     real(dp), allocatable :: vscales(:)
-    !> Array of values 4pi/(2l+1), dimension is (dmax+1)
+    !> Array of values 4pi/(2l+1), dimension is (dmax+1). Referenced only if
+    !!      fmm=1, but allocated and computed in any case.
     real(dp), allocatable :: v4pi2lp1(:)
-    !> Relative scales of real normalized spherical harmonics
+    !> Relative scales of real normalized spherical harmonics.
     !!
-    !! Each values of vscales is multiplied by a corresponding 4pi/(2l+1).
-    !! This array has `nscales` entries.
+    !! Each values is multiplied by a corresponding 4pi/(2l+1). Dimension of
+    !! this array is (nscales). Referenced only if fmm=1, but allocated and
+    !! computed in any case.
     real(dp), allocatable :: vscales_rel(:)
-    !> Maximum sqrt of factorial precomputed
+    !> Number of precomputed square roots of factorials.
     !!
     !! Just like with `dmax` parameter, number of used factorials is either
-    !! `2*lmax+1` or `2*(pm+pl)+1` depending on whether FMM is used or not
+    !! `2*lmax+1` or `2*(pm+pl)+1` depending on whether FMM is used or not.
     integer :: nfact
-    !> Array of square roots of factorials of dimension (nfact)
+    !> Array of square roots of factorials of a dimension (nfact).
     real(dp), allocatable :: vfact(:)
-    !> Array of square roots of combinatorial numbers C_n^k. Dimension is
-    !!      ((2*dmax+1)*(dmax+1)).
+    !> Array of square roots of combinatorial numbers C_n^k.
+    !!
+    !! Dimension of this array is ((2*dmax+1)*(dmax+1)). Allocated, computed
+    !! and referenced only if fmm=1.
     real(dp), allocatable :: vcnk(:)
-    !> Array of M2L coefficients for OZ translation. Dimension is
-    !!      (pm+1, pl+1, pl+1).
+    !> Array of common M2L coefficients for any OZ translation.
+    !!
+    !! This array has a dimension (pm+1, pl+1, pl+1). Allocated, computed and
+    !! referenced only if fmm=1.
     real(dp), allocatable :: m2l_ztranslate_coef(:, :, :)
-    !> Coordinates of Lebedev quadrature points of dimension (3, ngrid)
+    !> Array of common M2L coefficients for any adjoint OZ translation.
+    !!
+    !! Dimension of this array is (pl+1, pl+1, pm+1). It is allocated, computed
+    !! and referenced only if fmm=1.
+    real(dp), allocatable :: m2l_ztranslate_adj_coef(:, :, :)
+    !> Coordinates of Lebedev quadrature points of a dimension (3, ngrid).
     real(dp), allocatable :: cgrid(:, :)
-    !> Weights of Lebedev quadrature points of dimension (ngrid)
+    !> Weights of Lebedev quadrature points of a dimension (ngrid).
     real(dp), allocatable :: wgrid(:)
-    !> Maximal degree of spherical harmonics evaluated at Lebedev grid points
+    !> Maximal degree of spherical harmonics evaluated at Lebedev grid points.
     !!
     !! Although we use spherical harmonics of degree up to `dmax`, only
     !! spherical harmonics of degree up to `lmax` and `pl` are evaluated
     !! at Lebedev grid points. In the case `force=1` this degrees might be
     !! increased by 1 depending on implementation of gradients.
     integer :: vgrid_dmax
-    !> Number of spherical harmonics evaluated at Lebedev grid points
+    !> Number of spherical harmonics evaluated at Lebedev grid points.
     integer :: vgrid_nbasis
-    !> Values of spherical harmonics at Lebedev grid points
+    !> Values of spherical harmonics at Lebedev grid points.
     !!
     !! Dimensions of this array are (vgrid_nbasis, ngrid)
     real(dp), allocatable :: vgrid(:, :)
-    !> Weighted values of spherical harmonics at Lebedev grid points
+    !> Weighted values of spherical harmonics at Lebedev grid points.
     !!
     !! vwgrid(:, igrid) = vgrid(:, igrid) * wgrid(igrid)
-    !! Dimensions of this array are (vgrid_nbasis, ngrid)
+    !! Dimension of this array is (vgrid_nbasis, ngrid).
     real(dp), allocatable :: vwgrid(:, :)
-    !> Values of L2P at grid points. Dimension is (vgrid_nbasis, ngrid)
+    !> Values of L2P at grid points. Dimension is (vgrid_nbasis, ngrid).
     real(dp), allocatable :: l2grid(:, :)
-    !> Maximum number of neighbours per sphere. Input from a user
+    !> Upper limit on a number of neighbours per sphere. This value is just an
+    !!      upper bound that is not guaranteed to be the actual maximum.
     integer :: nngmax
-    !> List of intersecting spheres in a CSR format. Dimension is (nsph+1)
+    !> List of intersecting spheres in a CSR format. Dimension is (nsph+1).
     integer, allocatable :: inl(:)
-    !> List of intersecting spheres in a CSR format. Dimension is (nsph*nngmax)
+    !> List of intersecting spheres in a CSR format. Dimension is
+    !!      (nsph*nngmax).
     integer, allocatable :: nl(:)
-    !> Characteristic function f. Dimension is (ngrid, npsh)
+    !> Values of a characteristic function f at all grid points of all spheres.
+    !!      Dimension is (ngrid, npsh).
     real(dp), allocatable :: fi(:, :)
-    !> Characteristic function U. Dimension is (ngrid, nsph)
+    !> Values of a characteristic function U at all grid points of all spheres.
+    !!      Dimension is (ngrid, nsph).
     real(dp), allocatable :: ui(:, :)
-    !> Derivative of characteristic function U. Dimension is (3, ngrid, nsph)
+    !> Derivative of the characteristic function U at all grid points of all
+    !!      spheres. Dimension is (3, ngrid, nsph).
     real(dp), allocatable :: zi(:, :, :)
-    !> Number of external Lebedev grid points on a molecule surface
+    !> Number of external Lebedev grid points on a molecular surface.
     integer :: ncav
-    !> Number of external Lebedev grid points on each sphere
+    !> Number of external Lebedev grid points on each sphere.
     integer, allocatable :: ncav_sph(:)
-    !> Coordinates of external Lebedev grid points of dimension (3, ncav)
+    !> Coordinates of external Lebedev grid points. Dimension is (3, ncav).
     real(dp), allocatable :: ccav(:, :)
-    !> Row index in CSR format of a cavity
+    !> Row indexes in CSR format of all cavity points. Dimension is (nsph+1).
     integer, allocatable :: icav_ia(:)
-    !> Column index in CSR format of a cavity
+    !> Column indexes in CSR format of all cavity points. Dimension is (ncav).
     integer, allocatable :: icav_ja(:)
-    !> Preconditioner for operator R_eps. Dimension is (nbasis, nbasis, nsph)
+    !> Preconditioner for an operator R_eps. Allocated and computed only for
+    !!      the PCM model (model=3). Dimension is (nbasis, nbasis, nsph).
     real(dp), allocatable :: rx_prc(:, :, :)
-    !> Maximum degree of spherical harmonics for M (multipole) expansion
-    !!
-    !! If this value is -1 then no far-field FMM interactions are performed.
-    integer :: pm
-    !> Maximum degree of spherical harmonics for L (local) expansion
-    !!
-    !! If this value is -1 then no far-field FMM interactions are performed.
-    integer :: pl
-    !> Flag if FMM transfer matrices have to be precomputed
-    integer :: fmm_precompute
-    !! Cluster tree information
-    !> Reordering of spheres for better locality of dimension (nsph)
+    !! Cluster tree information that is allocated and computed only if fmm=1.
+    !> Reordering of spheres for better locality. This array has a dimension
+    !!      (nsph) and is allocated/used only if fmm=1.
     integer, allocatable :: order(:)
-    !> Number of clusters
+    !> Number of clusters. Defined only if fmm=1.
     integer :: nclusters
-    !> The first and the last spheres of each node. Dimension is (2, nclusters)
+    !> The first and the last spheres of each node. Dimension of this array is
+    !!      (2, nclusters) and it is allocated/used only if fmm=1.
     integer, allocatable :: cluster(:, :)
-    !> Children of each cluster. Dimension is (2, nclusters)
+    !> Children of each cluster. Dimension is (2, nclusters). Allocated and
+    !!      used only if fmm=1.
     integer, allocatable :: children(:, :)
-    !> Parent of each cluster. Dimension is (nclusters)
+    !> Parent of each cluster. Dimension is (nclusters). Allocated and used
+    !!      only if fmm=1.
     integer, allocatable :: parent(:)
-    !> Center of bounding sphere of each cluster. Dimension is (3, nclusters)
+    !> Center of bounding sphere of each cluster. Dimension is (3, nclusters).
+    !!      This array is allocated and used only if fmm=1.
     real(dp), allocatable :: cnode(:, :)
-    !> Radius of bounding sphere of each cluster. Dimension is (nclusters)
+    !> Radius of bounding sphere of each cluster. Dimension is (nclusters).
+    !!      This array is allocated and used only if fmm=1.
     real(dp), allocatable :: rnode(:)
-    !> Which leaf node contains only given input sphere. Dimension is (nsph)
+    !> Which leaf node contains only given input sphere. Dimension is (nsph).
+    !!      This array is allocated and used only if fmm=1.
     integer, allocatable :: snode(:)
-    !> Total number of far admissible pairs
+    !> Total number of far admissible pairs. Defined only if fmm=1.
     integer :: nnfar
-    !> Total number of near admissible pairs
+    !> Total number of near admissible pairs. Defined only if fmm=1.
     integer :: nnnear
-    !> Number of admissible far pairs for each node. Dimension is nclusters
+    !> Number of admissible far pairs for each node. Dimension is (nclusters).
+    !!      This array is allocated and used only if fmm=1.
     integer, allocatable :: nfar(:)
-    !> Number of admissible near pairs for each node. Dimension is nclusters
+    !> Number of admissible near pairs for each node. Dimension is (nclusters).
+    !!      This array is allocated and used only if fmm=1.
     integer, allocatable :: nnear(:)
-    !> Arrays of admissible far pairs. Dimension is nnfar
+    !> Arrays of admissible far pairs. Dimension is (nnfar). This array is
+    !!      allocated and used only if fmm=1.
     integer, allocatable :: far(:)
-    !> Arrays of admissible near pairs. Dimension is nnnear
+    !> Arrays of admissible near pairs. Dimension is (nnnear). This array is
+    !!      allocated and used only if fmm=1.
     integer, allocatable :: near(:)
-    !> Index of first element of array of admissible far pairs. Dimension is
-    !!      nclusters+1
+    !> Index of the first element of array of all admissible far pairs stored
+    !!      in the array `far`. Dimension is (nclusters+1). This array is
+    !!      allocated and used only if fmm=1.
     integer, allocatable :: sfar(:)
-    !> Index of first element of array of admissible near pairs. Dimension is
-    !!      nclusters+1
+    !> Index of the first element of array of all admissible near pairs stored
+    !!      in the array `near`. Dimension is (nclusters+1). This array is
+    !!      allocated and used only if fmm=1.
     integer, allocatable :: snear(:)
-    !! Reflection matrices for M2M, M2L and L2L operations
-    !> Size of each M2M reflection matrix
+    !! Reflection matrices for M2M, M2L and L2L operations. Allocated and used
+    !! only if fmm=1 and fmm_precompute=1
+    !> Size of each M2M reflection matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: m2m_reflect_mat_size
-    !> Array of M2M reflection matrices
+    !> Array of M2M reflection matrices. Dimension is (m2m_reflect_mat_size,
+    !!      nclusters). Allocated and used only if fmm=1 and fmm_precompue=1.
     real(dp), allocatable :: m2m_reflect_mat(:, :)
-    !> Size of each M2M OZ translation matrices
+    !> Size of each M2M OZ translation matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: m2m_ztranslate_mat_size
-    !> Array of M2M OZ translation matrices
+    !> Array of M2M OZ translation matrices. Dimension is
+    !!      (m2m_ztranslate_mat_size, nclusters). Allocated and used if fmm=1
+    !!      and fmm_precompute=1.
     real(dp), allocatable :: m2m_ztranslate_mat(:, :)
-    !> Size of each L2L reflection matrix
+    !> Size of each L2L reflection matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: l2l_reflect_mat_size
-    !> Array of L2L reflection matrices
+    !> Array of L2L reflection matrices. Dimension is (l2l_reflect_mat_size,
+    !!      nclusters). Allocated and used if fmm=1 and fmm_precompute=1.
     real(dp), allocatable :: l2l_reflect_mat(:, :)
-    !> Size of each L2L OZ translation matrices
+    !> Size of each L2L OZ translation matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: l2l_ztranslate_mat_size
-    !> Array of L2L OZ translation matrices
+    !> Array of L2L OZ translation matrices. Dimension is
+    !!      (l2l_ztranslate_mat_size, nclusters). Allocated and used only if
+    !!      fmm=1 and fmm_precompute=1.
     real(dp), allocatable :: l2l_ztranslate_mat(:, :)
-    !> Size of each M2L reflection matrix
+    !> Size of each M2L reflection matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: m2l_reflect_mat_size
-    !> Array of M2L reflection matrices
+    !> Array of M2L reflection matrices. Dimension is (m2l_reflect_mat_size,
+    !!      nclusters). Allocated and used if fmm=1 and fmm_precompute=1.
     real(dp), allocatable :: m2l_reflect_mat(:, :)
-    !> Size of each M2L OZ translation matrices
+    !> Size of each M2L OZ translation matrix. Defined only if fmm=1 and
+    !!      fmm_precompute=1.
     integer :: m2l_ztranslate_mat_size
-    !> Array of M2L OZ translation matrices
+    !> Array of M2L OZ translation matrices. Dimension is
+    !!      (m2l_ztranslate_mat_size, nclusters). Allocated and used only if
+    !!      fmm=1 and fmm_precompute=1.
     real(dp), allocatable :: m2l_ztranslate_mat(:, :)
-    !> Number of near-field M2P interactions with cavity points
+    !> Number of near-field M2P interactions with cavity points. Defined only
+    !!      if fmm=1.
     integer :: nnear_m2p
-    !> Maximal degree of near-field M2P spherical harmonics
+    !> Maximal degree of near-field M2P spherical harmonics. Defined only if
+    !!      fmm=1.
     integer :: m2p_lmax
-    !> Number of spherical harmonics used for near-field M2P
+    !> Number of spherical harmonics used for near-field M2P. Defined only if
+    !!      fmm=1.
     integer :: m2p_nbasis
-    !> Near-field M2P matrices of a dimension (m2p_nbasis, nnear_m2p)
+    !> Near-field M2P matrices of a dimension (m2p_nbasis, nnear_m2p).
+    !!      Allocated and used only if fmm=1 and fmm_precompute=1.
     real(dp), allocatable :: m2p_mat(:, :)
-    !> Potential at all grid points. Dimension is (ngrid, nsph)
+    !> Potential at all grid points. Dimension is (ngrid, nsph). Allocated
+    !!      and used by COSMO (model=1) and PCM (model=2) models.
     real(dp), allocatable :: phi_grid(:, :)
-    !> Variable \f$ \Phi \f$ of a dimension (nbasis, nsph)
+    !> Variable \f$ \Phi \f$ of a dimension (nbasis, nsph). Allocated and used
+    !!      by COSMO (model=1) and PCM (model=2) models.
     real(dp), allocatable :: phi(:, :)
-    !> Variable \f$ \Phi_\infty \f$ of a dimension (nbasis, nsph)
+    !> Variable \f$ \Phi_\infty \f$ of a dimension (nbasis, nsph). Allocated
+    !!      and used only by PCM (model=2) model.
     real(dp), allocatable :: phiinf(:, :)
-    !> Variable \f$ \Phi_\varepsilon \f$ of a dimension (nbasis, nsph)
+    !> Variable \f$ \Phi_\varepsilon \f$ of a dimension (nbasis, nsph).
+    !!      Allocated and used only by PCM (model=2) model.
     real(dp), allocatable :: phieps(:, :)
-    !> Solution of the ddCOSMO system of a dimension (nbasis, nsph)
+    !> Solution of the ddCOSMO system of a dimension (nbasis, nsph). Allocated
+    !!      and used by COSMO (model=1) and PCM (model=2) models.
     real(dp), allocatable :: xs(:, :)
-    !> Solution of the adjoint ddCOSMO system of a dimension (nbasis, nsph)
+    !> Solution of the adjoint ddCOSMO system of a dimension (nbasis, nsph).
+    !!      Allocated and used by COSMO (model=1) and PCM (model=2) models.
     real(dp), allocatable :: s(:, :)
-    !> Values of s at grid points. Dimension is (ngrid, nsph)
+    !> Values of s at grid points. Dimension is (ngrid, nsph). Allocated and
+    !!      used by COSMO (model=1) and PCM (model=2) models.
     real(dp), allocatable :: sgrid(:, :)
-    !> Solution of the adjoint ddPCM system of a dimension (nbasis, nsph)
+    !> Solution of the adjoint ddPCM system of a dimension (nbasis, nsph).
+    !!      Allocated and used only by PCM (model=2) model.
     real(dp), allocatable :: y(:, :)
-    !> Values of y at grid points. Dimension is (ngrid, nsph)
+    !> Values of y at grid points. Dimension is (ngrid, nsph). Allocated and
+    !!      used only by PCM (model=2) model.
     real(dp), allocatable :: ygrid(:, :)
     !> Shortcut of \f$ \Phi_\varepsilon - \Phi \f$
     real(dp), allocatable :: g(:, :)
@@ -295,10 +355,12 @@ type dd_data_type
     !!      of each sphere. Dimension is (nbasis, nsph).
     real(dp), allocatable :: tmp_sph(:, :)
     !> Number of spherical harmonics of degree up to lmax+1 used for
-    !!      computation of forces (gradients).
+    !!      computation of forces (gradients). Allocated and used only if
+    !!      fmm=1.
     integer :: grad_nbasis
     !> Temporary workspace for multipole coefficients of a degree up to lmax+1
-    !!      of each sphere. Dimension is (grad_nbasis, nsph).
+    !!      of each sphere. Dimension is (grad_nbasis, nsph). Allocated and
+    !!      used only if fmm=1.
     real(dp), allocatable :: tmp_sph2(:, :)
     !> Temporary workspace for a gradient of M2M of harmonics of a degree up to
     !!      lmax+1 of each sphere. Dimension is ((grad_nbasis, 3, nsph).
@@ -318,7 +380,7 @@ type dd_data_type
     !> Temporary workspace for grid values of each sphere. Dimension is
     !!      (ngrid, nsph).
     real(dp), allocatable :: tmp_grid(:, :)
-end type dd_data_type
+end type ddx_type
 
 contains
 
@@ -344,12 +406,12 @@ contains
 !!      computed. `pl` >= -1.
 !! @param[in] fmm_precompute: 1 to precompute FMM matrices, 0 to compute them
 !!      on demand.
-!! @param[in] iprint: Level of printing debug info
+!! @param[in] iprint: Level of printing debug info.
 !! @param[in] se: Shift of characteristic function. -1 for interior, 0 for
 !!      centered and 1 for outer regularization
 !! @param[in] eta: Regularization parameter
 !! @param[in] eps: Relative dielectric permittivity
-!! @param[in] kappa: Debye H\"{u}ckel parameter
+!! @param[in] kappa: Debye-H\"{u}ckel parameter
 !! @param[in] itersolver: Iterative solver to be used. 1 for Jacobi iterative
 !!      solver. Other solvers might be added later.
 !! @param[in] tol: Relative error threshold for an iterative solver. tol must
@@ -363,21 +425,21 @@ contains
 !!      number of threads that ddX will use. If OpenMP support in ddX is
 !!      disabled, only possible input values are 0 or 1 and both inputs lead
 !!      to the same output nproc=1 since the library is not parallel.
-!! @param[out] dd_data: Object containing all inputs
+!! @param[out] ddx_data: Object containing all inputs
 !! @param[out] info: flag of succesfull exit
 !!      = 0: Succesfull exit
 !!      < 0: If info=-i then i-th argument had an illegal value
-!!      > 0: Allocation of a buffer for the output dd_data failed
+!!      > 0: Allocation of a buffer for the output ddx_data failed
 subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
         & fmm, pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, &
-        & itersolver, tol, maxiter, ndiis, nproc, dd_data, info)
+        & itersolver, tol, maxiter, ndiis, nproc, ddx_data, info)
     ! Inputs
     integer, intent(in) :: nsph, model, lmax, force, fmm, pm, pl, &
         & fmm_precompute, iprint, itersolver, maxiter, ndiis
     real(dp), intent(in):: charge(nsph), x(nsph), y(nsph), z(nsph), &
         & rvdw(nsph), se, eta, eps, kappa, tol
     ! Output
-    type(dd_data_type), target, intent(out) :: dd_data
+    type(ddx_type), target, intent(out) :: ddx_data
     integer, intent(out) :: info
     ! Inouts
     integer, intent(inout) :: ngrid, nproc
@@ -393,187 +455,218 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     integer, allocatable :: work(:, :), tmp_work(:, :), tmp_nl(:)
     logical :: use_omp
     ! Pointers for OMP, that can not use fields of a derived type in a depend
-    ! clause. This is done to compute all the dd_data fields in a parallel way
+    ! clause. This is done to compute all the ddx_data fields in a parallel way
     real(dp), pointer :: p_vscales(:), p_v4pi2lp1(:), p_vscales_rel(:), &
         & p_vfact(:), p_vcnk(:), p_m2l_ztranslate_coef(:, :, :), &
-        & p_cgrid(:, :), p_wgrid(:), &
+        & p_m2l_ztranslate_adj_coef(:, :, :), p_cgrid(:, :), p_wgrid(:), &
         & p_vgrid(:, :), p_vwgrid(:, :), p_l2grid(:, :), p_tmp_vplm(:, :), &
         & p_tmp_vcos(:, :), p_tmp_vsin(:, :), p_fi(:, :), p_ui(:, :), &
         & p_zi(:, :, :)
     ! Reset info
     info = 0
     !!! Check input parameters
+    ! Number of atoms
     if (nsph .le. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `nsph`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `nsph`"
         info = -1
         return
     end if
-    dd_data % nsph = nsph
-    allocate(dd_data % charge(nsph), dd_data % csph(3, nsph), &
-        & dd_data % rsph(nsph), stat=istatus)
+    ddx_data % nsph = nsph
+    ! Allocation of charge, csph and rsph
+    allocate(ddx_data % charge(nsph), ddx_data % csph(3, nsph), &
+        & ddx_data % rsph(nsph), stat=istatus)
     if (istatus .ne. 0) then
-        !write(*, *) "ddinit: [1] allocation failed!"
+        write(*, "(A)") "ddinit: allocation (charge, csph, rsph) failed!"
         info = 1
         return
     end if
     ! No checks for NaNs and Infs in input coordinates
-    dd_data % charge = charge
-    dd_data % csph(1, :) = x
-    dd_data % csph(2, :) = y
-    dd_data % csph(3, :) = z
-    dd_data % rsph = rvdw
+    ddx_data % charge = charge
+    ddx_data % csph(1, :) = x
+    ddx_data % csph(2, :) = y
+    ddx_data % csph(3, :) = z
+    ddx_data % rsph = rvdw
+    ! Model, 1=COSMO, 2=PCM, 3=LPB
     if ((model .lt. 1) .or. (model .gt. 3)) then
-        !write(*, *) "ddinit: wrong value of parameter `model`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `model`"
         info = -7
         return
     end if
-    dd_data % model = model
+    ddx_data % model = model
+    ! Degree of modeling spherical harmonics
     if (lmax .lt. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `lmax`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `lmax`"
         info = -8
         return
     end if
-    dd_data % lmax = lmax
-    dd_data % nbasis = (lmax+1)**2
-    dd_data % n = nsph * dd_data % nbasis
+    ddx_data % lmax = lmax
+    ! Total number of modeling spherical harmonics
+    ddx_data % nbasis = (lmax+1)**2
+    ! Total number of modeling degrees of freedom
+    ddx_data % n = nsph * ddx_data % nbasis
+    ! Number of Lebedev grid points
     if (ngrid .lt. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `ngrid`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `ngrid`"
         info = -9
         return
     end if
     ! Actual value of ngrid will be calculated later
+    ! Check if forces are needed
     if ((force .lt. 0) .or. (force .gt. 1)) then
-        !write(*, *) "ddinit: wrong value of parameter `force`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `force`"
         info = -10
         return
     end if
-    dd_data % force = force
+    ddx_data % force = force
+    ! Check if FMM-acceleration is needed
     if ((fmm .lt. 0) .or. (fmm .gt. 1)) then
-        !write(*, *) "ddinit: wrong value of parameter `fmm`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `fmm`"
         info = -11
         return
     end if
-    dd_data % fmm = fmm
+    ddx_data % fmm = fmm
+    ! Printing flag
     if (iprint .lt. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `iprint`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `iprint`"
         info = -15
         return
     end if
-    dd_data % iprint = iprint
+    ddx_data % iprint = iprint
+    ! Shift of a regularization
     if ((se .lt. -one) .or. (se .gt. one)) then
-        !write(*, *) "ddinit: wrong value of parameter `se`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `se`"
         info = -16
         return
     end if
-    dd_data % se = se
+    ddx_data % se = se
+    ! Regularization parameter
     if ((eta .lt. zero) .or. (eta .gt. one)) then
-        !write(*, *) "ddinit: wrong value of parameter `eta`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `eta`"
         info = -17
         return
     end if
-    dd_data % eta = eta
+    ddx_data % eta = eta
+    ! Relative dielectric permittivity
     if (eps .lt. zero) then
-        !write(*, *) "ddinit: wrong value of parameter `eps`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `eps`"
         info = -18
         return
     end if
-    dd_data % eps = eps
-    if (kappa .lt. zero) then
-        !write(*, *) "ddinit: wrong value of parameter `kappa`"
+    ddx_data % eps = eps
+    ! Debye-H\"{u}ckel parameter (only used in ddLPB)
+    if ((model .eq. 3) .and. (kappa .lt. zero)) then
+        write(*, "(A)") "ddinit: wrong value of a parameter `kappa`"
         info = -19
         return
     end if
-    dd_data % kappa = kappa
+    ddx_data % kappa = kappa
+    ! Iterative solver, 1=Jacobi
     if (itersolver .ne. 1) then
-        !write(*, *) "ddinit: wrong value of parameter `tol`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `tol`"
         info = -20
         return
     end if
-    dd_data % itersolver = itersolver
+    ddx_data % itersolver = itersolver
+    ! Relative threshold for an iterative solver
     if ((tol .lt. 1d-14) .or. (tol .gt. one)) then
-        !write(*, *) "ddinit: wrong value of parameter `tol`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `tol`"
         info = -21
         return
     end if
-    dd_data % tol = tol
+    ddx_data % tol = tol
+    ! Maximum number of iterations
     if (maxiter .le. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `maxiter`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `maxiter`"
         info = -22
         return
     end if
-    dd_data % maxiter = maxiter
+    ddx_data % maxiter = maxiter
+    ! Number of DIIS extrapolation points (ndiis=25 works)
     if (ndiis .lt. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `ndiis`"
+        write(*, "(A)") "ddinit: wrong value of a parameter `ndiis`"
         info = -23
         return
     end if
-    dd_data % ndiis = ndiis
-    ! As of now only sequential version with nproc=1 is supported
+    ddx_data % ndiis = ndiis
+    ! Number of OpenMP threads to be used
+    ! As of now only sequential version with nproc=1 is supported, providing
+    ! nproc=0 means it is up to ddX to decide on parallelism which will set
+    ! it to nproc=1
     if (nproc .ne. 1 .and. nproc .ne. 0) then
-        !write(*, *) "ddinit: wrong value of parameter `nproc`"
+        write(*, "(A)") "ddinit: wrong value of parameter `nproc`"
         info = -24
         return
     end if
     ! Only 1 thread is used (due to disabled OpenMP)
     nproc = 1
-    dd_data % nproc = nproc
-    ! Set FMM parameters
-    if(fmm .eq. 1) then
-        if(pm .lt. -1) then
-            !write(*, *) "ddinit: wrong value of parameter `pm`"
+    ddx_data % nproc = nproc
+    ! Set FMM parameters if FMM is needed
+    if (ddx_data % fmm .eq. 1) then
+        ! Maximal degree of multipole spherical harmonics. Value -1 means no 
+        ! far-field interactions are to be computed, only near-field
+        ! interactions are taken into account.
+        if (pm .lt. -1) then
+            write(*, "(A)") "ddinit: wrong value of a parameter `pm`"
             info = -12
             return
         end if
-        if(pl .lt. -1) then
-            !write(*, *) "ddinit: wrong value of parameter `pl`"
+        ! Maximal degree of local spherical harmonics. Value -1 means no 
+        ! far-field interactions are to be computed, only near-field
+        ! interactions are taken into account.
+        if (pl .lt. -1) then
+            write(*, "(A)") "ddinit: wrong value of a parameter `pl`"
             info = -13
             return
         end if
         ! If far-field interactions are to be ignored
-        if((pl .eq. -1) .or. (pm .eq. -1)) then
-            dd_data % pm = -1
-            dd_data % pl = -1
+        if ((pl .eq. -1) .or. (pm .eq. -1)) then
+            ddx_data % pm = -1
+            ddx_data % pl = -1
         ! If far-field interactions are to be taken into account
         else
-            dd_data % pm = pm
-            dd_data % pl = pl
+            ddx_data % pm = pm
+            ddx_data % pl = pl
         end if
-        if((fmm_precompute .lt. 0) .or. (fmm_precompute .gt. 1)) then
-            !write(*, *) "ddinit: wrong value of parameter `fmm_precompute`"
+        ! Whether FMM translation matrices are to be computed. This might
+        ! require lots of RAM.
+        if ((fmm_precompute .lt. 0) .or. (fmm_precompute .gt. 1)) then
+            write(*, "(A)") &
+                & "ddinit: wrong value of a parameter `fmm_precompute`"
             info = -14
             return
         end if
-        dd_data % fmm_precompute = fmm_precompute
+        ddx_data % fmm_precompute = fmm_precompute
     else
         ! These values are ignored if fmm flag is 0
-        dd_data % pm = -2
-        dd_data % pl = -2
-        dd_data % fmm_precompute = -1
+        ddx_data % pm = -2
+        ddx_data % pl = -2
+        ddx_data % fmm_precompute = -1
     end if
     !!! Generate constants and auxiliary arrays
     ! Compute sizes of auxiliary arrays for `fmm=0`
-    if (dd_data % fmm .eq. 0) then
-        dd_data % dmax = dd_data % lmax
-        dd_data % vgrid_dmax = dd_data % lmax
+    if (ddx_data % fmm .eq. 0) then
+        ddx_data % dmax = ddx_data % lmax
+        ddx_data % vgrid_dmax = ddx_data % lmax
     ! Compute sizes of arrays if `fmm=1`
     else
         ! If forces are required then we need M2P of degree lmax+1 for
         ! near-field analytical gradients
         if (force .eq. 1) then
-            dd_data % dmax = max(dd_data % pm+dd_data % pl, dd_data % lmax+1)
-            dd_data % m2p_lmax = dd_data % lmax + 1
+            ddx_data % dmax = max(ddx_data % pm+ddx_data % pl, &
+                & ddx_data % lmax+1)
+            ddx_data % m2p_lmax = ddx_data % lmax + 1
         else
-            dd_data % dmax = max(dd_data % pm+dd_data % pl, dd_data % lmax)
-            dd_data % m2p_lmax = dd_data % lmax
+            ddx_data % dmax = max(ddx_data % pm+ddx_data % pl, ddx_data % lmax)
+            ddx_data % m2p_lmax = ddx_data % lmax
         end if
-        dd_data % vgrid_dmax = max(dd_data % pl, dd_data % lmax)
-        dd_data % m2p_nbasis = (dd_data % m2p_lmax+1) ** 2
+        ddx_data % vgrid_dmax = max(ddx_data % pl, ddx_data % lmax)
+        ddx_data % m2p_nbasis = (ddx_data % m2p_lmax+1) ** 2
+        ddx_data % grad_nbasis = (ddx_data % lmax+2) ** 2
     end if
-    ! Compute sizes of vgrid, vfact, vscales and tmp_sph_grad
-    dd_data % vgrid_nbasis = (dd_data % vgrid_dmax+1) ** 2
-    dd_data % nfact = 2*dd_data % dmax+1
-    dd_data % nscales = (dd_data % dmax+1) ** 2
-    dd_data % grad_nbasis = (dd_data % lmax+2) ** 2
+    ! Compute sizes of vgrid, vfact and vscales that are used for both 
+    ddx_data % vgrid_nbasis = (ddx_data % vgrid_dmax+1) ** 2
+    ddx_data % nfact = 2*ddx_data % dmax+1
+    ddx_data % nscales = (ddx_data % dmax+1) ** 2
     ! Get nearest number of Lebedev grid points
     igrid = 0
     inear = 100000
@@ -586,50 +679,50 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     end do
     ! Update inout parameter `ngrid` also
     ngrid = ng0(igrid)
-    dd_data % ngrid = ngrid
+    ddx_data % ngrid = ngrid
     !! Now all constants are initialized, continue with memory allocations
     ! Allocate space for scaling factors of spherical harmonics
-    allocate(dd_data % vscales(dd_data % nscales), stat=istatus)
+    allocate(ddx_data % vscales(ddx_data % nscales), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [2] allocation failed!"
         info = 2
         return
     end if
-    p_vscales => dd_data % vscales
-    allocate(dd_data % v4pi2lp1(dd_data % dmax+1), stat=istatus)
+    p_vscales => ddx_data % vscales
+    allocate(ddx_data % v4pi2lp1(ddx_data % dmax+1), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [2] allocation failed!"
         info = 2
         return
     end if
-    p_v4pi2lp1 => dd_data % v4pi2lp1
-    allocate(dd_data % vscales_rel(dd_data % nscales), stat=istatus)
+    p_v4pi2lp1 => ddx_data % v4pi2lp1
+    allocate(ddx_data % vscales_rel(ddx_data % nscales), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [2] allocation failed!"
         info = 2
         return
     end if
-    p_vscales_rel => dd_data % vscales_rel
+    p_vscales_rel => ddx_data % vscales_rel
     ! Allocate square roots of factorials
-    allocate(dd_data % vfact(dd_data % nfact), stat=istatus)
+    allocate(ddx_data % vfact(ddx_data % nfact), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [3] allocation failed!"
         info = 3
         return
     end if
-    p_vfact => dd_data % vfact
+    p_vfact => ddx_data % vfact
     ! Allocate space for Lebedev grid coordinates and weights
-    allocate(dd_data % cgrid(3, dd_data % ngrid), &
-        & dd_data % wgrid(dd_data % ngrid), stat=istatus)
+    allocate(ddx_data % cgrid(3, ddx_data % ngrid), &
+        & ddx_data % wgrid(ddx_data % ngrid), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [4] allocation failed!"
         info = 4
         return
     end if
-    p_cgrid => dd_data % cgrid
-    p_wgrid => dd_data % wgrid
+    p_cgrid => ddx_data % cgrid
+    p_wgrid => ddx_data % wgrid
     ! Allocate temporary arrays for spherical coordinates
-    allocate(sphcoo(5, dd_data % nproc), stat=istatus)
+    allocate(sphcoo(5, ddx_data % nproc), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [5] allocation failed!"
         info = 5
@@ -637,85 +730,85 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     end if
     ! Allocate temporary arrays for associated Legendre polynomials and
     ! arrays of cosinuses and sinuses
-    allocate(dd_data % tmp_vplm(dd_data % vgrid_nbasis, dd_data % nproc), &
-        & dd_data % tmp_vcos(dd_data % vgrid_dmax+1, dd_data % nproc), &
-        & dd_data % tmp_vsin(dd_data % vgrid_dmax+1, dd_data % nproc), &
+    allocate(ddx_data % tmp_vplm(ddx_data % vgrid_nbasis, ddx_data % nproc), &
+        & ddx_data % tmp_vcos(ddx_data % vgrid_dmax+1, ddx_data % nproc), &
+        & ddx_data % tmp_vsin(ddx_data % vgrid_dmax+1, ddx_data % nproc), &
         & stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [5] allocation failed!"
         info = 5
         return
     end if
-    p_tmp_vplm => dd_data % tmp_vplm
-    p_tmp_vcos => dd_data % tmp_vcos
-    p_tmp_vsin => dd_data % tmp_vsin
+    p_tmp_vplm => ddx_data % tmp_vplm
+    p_tmp_vcos => ddx_data % tmp_vcos
+    p_tmp_vsin => ddx_data % tmp_vsin
     ! Allocate space for values of non-weighted and weighted spherical
     ! harmonics at Lebedev grid points
-    allocate(dd_data % vgrid(dd_data % vgrid_nbasis, dd_data % ngrid), &
-        & dd_data % vwgrid(dd_data % vgrid_nbasis, dd_data % ngrid), &
-        & dd_data % l2grid(dd_data % vgrid_nbasis, dd_data % ngrid), &
+    allocate(ddx_data % vgrid(ddx_data % vgrid_nbasis, ddx_data % ngrid), &
+        & ddx_data % vwgrid(ddx_data % vgrid_nbasis, ddx_data % ngrid), &
+        & ddx_data % l2grid(ddx_data % vgrid_nbasis, ddx_data % ngrid), &
         & stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "ddinit: [6] allocation failed!"
         info = 6
         return
     end if
-    p_vgrid => dd_data % vgrid
-    p_vwgrid => dd_data % vwgrid
-    p_l2grid => dd_data % l2grid
+    p_vgrid => ddx_data % vgrid
+    p_vwgrid => ddx_data % vwgrid
+    p_l2grid => ddx_data % l2grid
     ! Allocate space for characteristic functions fi and ui
-    allocate(dd_data % fi(dd_data % ngrid, dd_data % nsph), &
-        & dd_data % ui(dd_data % ngrid, dd_data % nsph), stat=istatus)
+    allocate(ddx_data % fi(ddx_data % ngrid, ddx_data % nsph), &
+        & ddx_data % ui(ddx_data % ngrid, ddx_data % nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) 'ddinit : [9] allocation failed !'
         info = 9
         return
     end if
-    dd_data % fi = zero
-    dd_data % ui = zero
-    p_fi => dd_data % fi
-    p_ui => dd_data % ui
+    ddx_data % fi = zero
+    ddx_data % ui = zero
+    p_fi => ddx_data % fi
+    p_ui => ddx_data % ui
     ! Allocate space for force-related arrays
     if (force .eq. 1) then
-        allocate(dd_data % zi(3, dd_data % ngrid, dd_data % nsph), &
+        allocate(ddx_data % zi(3, ddx_data % ngrid, ddx_data % nsph), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) 'ddinit : [10] allocation failed !'
             info = 10
             return
         endif
-        dd_data % zi = zero
-        p_zi => dd_data % zi
+        ddx_data % zi = zero
+        p_zi => ddx_data % zi
     end if
     ! Compute scaling factors of spherical harmonics
-    call ylmscale(dd_data % dmax, p_vscales, p_v4pi2lp1, p_vscales_rel)
+    call ylmscale(ddx_data % dmax, p_vscales, p_v4pi2lp1, p_vscales_rel)
     ! Compute square roots of factorials
     p_vfact(1) = 1
-    do i = 2, dd_data % nfact
+    do i = 2, ddx_data % nfact
         p_vfact(i) = p_vfact(i-1) * sqrt(dble(i-1))
     end do
     ! Get weights and coordinates of Lebedev grid points
-    call llgrid(dd_data % ngrid, p_wgrid, p_cgrid)
+    call llgrid(ddx_data % ngrid, p_wgrid, p_cgrid)
     ! Compute non-weighted and weighted spherical harmonics and the single
     ! layer operator at Lebedev grid points
     ithread = 1
-    do igrid = 1, dd_data % ngrid
+    do igrid = 1, ddx_data % ngrid
         call ylmbas2(p_cgrid(:, igrid), sphcoo(:, ithread), &
-            & dd_data % vgrid_dmax, p_vscales, &
+            & ddx_data % vgrid_dmax, p_vscales, &
             & p_vgrid(:, igrid), p_tmp_vplm(:, ithread), &
             & p_tmp_vcos(:, ithread), p_tmp_vsin(:, ithread))
         p_vwgrid(:, igrid) = p_wgrid(igrid) * p_vgrid(:, igrid)
-        do l = 0, dd_data % pl
+        do l = 0, ddx_data % pl
             indl = l*l + l + 1
             p_l2grid(indl-l:indl+l, igrid) = &
                 & p_vgrid(indl-l:indl+l, igrid) / p_vscales(indl)**2
         end do
     end do
     ! Upper bound of switch region. Defines intersection criterion for spheres
-    swthr = one + (dd_data % se+one)*dd_data % eta/two
+    swthr = one + (ddx_data % se+one)*ddx_data % eta/two
     ! Build list of neighbours in CSR format
     nngmax = 1
-    allocate(dd_data % inl(nsph+1), dd_data % nl(nsph*nngmax), stat=istatus)
+    allocate(ddx_data % inl(nsph+1), ddx_data % nl(nsph*nngmax), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) 'ddinit : [8] allocation failed !'
         info = 8
@@ -723,11 +816,11 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     end if
     i = 1
     lnl = 0
-    do isph = 1, dd_data % nsph
-        dd_data % inl(isph) = lnl + 1
-        do jsph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
+        ddx_data % inl(isph) = lnl + 1
+        do jsph = 1, ddx_data % nsph
             if (isph .ne. jsph) then
-                v = dd_data % csph(:, isph)-dd_data % csph(:, jsph)
+                v = ddx_data % csph(:, isph)-ddx_data % csph(:, jsph)
                 maxv = max(abs(v(1)), abs(v(2)), abs(v(3)))
                 ssqv = (v(1)/maxv)**2 + (v(2)/maxv)**2 + (v(3)/maxv)**2
                 vv = maxv * sqrt(ssqv)
@@ -736,10 +829,10 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
                 ! switch region `swthr`.
                 r = rvdw(isph) + swthr*rvdw(jsph)
                 if (vv .le. r) then
-                    dd_data % nl(i) = jsph
+                    ddx_data % nl(i) = jsph
                     i  = i + 1
                     lnl = lnl + 1
-                    ! Extend dd_data % nl if needed
+                    ! Extend ddx_data % nl if needed
                     if (i .gt. nsph*nngmax) then
                         allocate(tmp_nl(nsph*nngmax), stat=istatus)
                         if (istatus .ne. 0) then
@@ -747,21 +840,21 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
                             info = 8
                             return
                         end if
-                        tmp_nl(1:nsph*nngmax) = dd_data % nl(1:nsph*nngmax)
-                        deallocate(dd_data % nl, stat=istatus)
+                        tmp_nl(1:nsph*nngmax) = ddx_data % nl(1:nsph*nngmax)
+                        deallocate(ddx_data % nl, stat=istatus)
                         if (istatus .ne. 0) then
                             ! write(*, *) 'ddinit : [8] deallocation failed!'
                             info = 8
                             return
                         end if
                         nngmax = nngmax + 10
-                        allocate(dd_data % nl(nsph*nngmax), stat=istatus)
+                        allocate(ddx_data % nl(nsph*nngmax), stat=istatus)
                         if (istatus .ne. 0) then
                             !write(*, *) 'ddinit : [8] allocation failed!'
                             info = 8
                             return
                         end if
-                        dd_data % nl(1:nsph*(nngmax-10)) = &
+                        ddx_data % nl(1:nsph*(nngmax-10)) = &
                             & tmp_nl(1:nsph*(nngmax-10))
                         deallocate(tmp_nl, stat=istatus)
                         if (istatus .ne. 0) then
@@ -774,175 +867,175 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
             end if
         end do
     end do
-    dd_data % inl(nsph+1) = lnl+1
-    dd_data % nngmax = nngmax
+    ddx_data % inl(nsph+1) = lnl+1
+    ddx_data % nngmax = nngmax
     ! Build arrays fi, ui, zi
-    do isph = 1, dd_data % nsph
-        do igrid = 1, dd_data % ngrid
+    do isph = 1, ddx_data % nsph
+        do igrid = 1, ddx_data % ngrid
             ! Loop over neighbours of i-th sphere
-            do inear = dd_data % inl(isph), dd_data % inl(isph+1)-1
+            do inear = ddx_data % inl(isph), ddx_data % inl(isph+1)-1
                 ! Neighbour's index
-                jsph = dd_data % nl(inear)
+                jsph = ddx_data % nl(inear)
                 ! Compute t_n^ij
-                v = dd_data % csph(:, isph) - dd_data % csph(:, jsph) + &
-                    & rvdw(isph)*dd_data % cgrid(:, igrid)
+                v = ddx_data % csph(:, isph) - ddx_data % csph(:, jsph) + &
+                    & rvdw(isph)*ddx_data % cgrid(:, igrid)
                 maxv = max(abs(v(1)), abs(v(2)), abs(v(3)))
                 ssqv = (v(1)/maxv)**2 + (v(2)/maxv)**2 + (v(3)/maxv)**2
                 vv = maxv * sqrt(ssqv)
-                t = vv / dd_data % rsph(jsph)
+                t = vv / ddx_data % rsph(jsph)
                 ! Accumulate characteristic function \chi(t_n^ij)
-                dd_data % fi(igrid, isph) = dd_data % fi(igrid, isph) + &
-                    & fsw(t, dd_data % se, dd_data % eta)
+                ddx_data % fi(igrid, isph) = ddx_data % fi(igrid, isph) + &
+                    & fsw(t, ddx_data % se, ddx_data % eta)
                 ! Check if gradients are required
-                if (dd_data % force .eq. 1) then
+                if (ddx_data % force .eq. 1) then
                     ! Check if t_n^ij belongs to switch region
-                    if ((t .lt. swthr) .and. (t .gt. swthr-dd_data % eta)) then
+                    if ((t .lt. swthr) .and. (t .gt. swthr-ddx_data % eta)) then
                         ! Accumulate gradient of characteristic function \chi
-                        fac = dfsw(t, dd_data % se, dd_data % eta) / rvdw(jsph)
-                        dd_data % zi(:, igrid, isph) = &
-                            & dd_data % zi(:, igrid, isph) + fac/vv*v
+                        fac = dfsw(t, ddx_data % se, ddx_data % eta) / rvdw(jsph)
+                        ddx_data % zi(:, igrid, isph) = &
+                            & ddx_data % zi(:, igrid, isph) + fac/vv*v
                     end if
                 end if
             enddo
             ! Compute characteristic function of a molecular surface ui
-            if (dd_data % fi(igrid, isph) .le. one) then
-                dd_data % ui(igrid, isph) = one - dd_data % fi(igrid, isph)
+            if (ddx_data % fi(igrid, isph) .le. one) then
+                ddx_data % ui(igrid, isph) = one - ddx_data % fi(igrid, isph)
             end if
         enddo
     enddo
     ! Debug printing
     if (iprint .ge. 4) then
-        call ptcart('fi', ngrid, nsph, 0, dd_data % fi)
-        call ptcart('ui', ngrid, nsph, 0, dd_data % ui)
+        call ptcart('fi', ngrid, nsph, 0, ddx_data % fi)
+        call ptcart('ui', ngrid, nsph, 0, ddx_data % ui)
     end if
     ! Build cavity array. At first get total count for each sphere
-    allocate(dd_data % ncav_sph(nsph), stat=istatus)
+    allocate(ddx_data % ncav_sph(nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*,*)'ddinit : [11] allocation failed!'
         info = 11
         return
     endif
     do isph = 1, nsph
-        dd_data % ncav_sph(isph) = 0
+        ddx_data % ncav_sph(isph) = 0
         ! Loop over integration points
         do i = 1, ngrid
             ! Positive contribution from integration point
-            if (dd_data % ui(i, isph) .gt. zero) then
-                dd_data % ncav_sph(isph) = dd_data % ncav_sph(isph) + 1
+            if (ddx_data % ui(i, isph) .gt. zero) then
+                ddx_data % ncav_sph(isph) = ddx_data % ncav_sph(isph) + 1
             end if
         end do
     end do
-    dd_data % ncav = sum(dd_data % ncav_sph)
+    ddx_data % ncav = sum(ddx_data % ncav_sph)
     ! Allocate cavity array and CSR format for indexes of cavities
-    allocate(dd_data % ccav(3, dd_data % ncav), dd_data % icav_ia(nsph+1), &
-        & dd_data % icav_ja(dd_data % ncav), stat=istatus)
+    allocate(ddx_data % ccav(3, ddx_data % ncav), ddx_data % icav_ia(nsph+1), &
+        & ddx_data % icav_ja(ddx_data % ncav), stat=istatus)
     if (istatus .ne. 0) then
         !write(*,*)'ddinit : [11] allocation failed!'
         info = 11
         return
     endif
     ! Get actual cavity coordinates and indexes in CSR format
-    dd_data % icav_ia(1) = 1
+    ddx_data % icav_ia(1) = 1
     i = 1
     do isph = 1, nsph
-        dd_data % icav_ia(isph+1) = dd_data % icav_ia(isph) + &
-            & dd_data % ncav_sph(isph)
+        ddx_data % icav_ia(isph+1) = ddx_data % icav_ia(isph) + &
+            & ddx_data % ncav_sph(isph)
         ! Loop over integration points
         do igrid = 1, ngrid
             ! Ignore zero contribution
-            if (dd_data % ui(igrid, isph) .eq. zero) cycle
+            if (ddx_data % ui(igrid, isph) .eq. zero) cycle
             ! Store coordinates
-            dd_data % ccav(:, i) = dd_data % csph(:, isph) + &
-                & rvdw(isph)*dd_data % cgrid(:, igrid)
+            ddx_data % ccav(:, i) = ddx_data % csph(:, isph) + &
+                & rvdw(isph)*ddx_data % cgrid(:, igrid)
             ! Store index
-            dd_data % icav_ja(i) = igrid
+            ddx_data % icav_ja(i) = igrid
             ! Advance cavity array index
             i = i + 1
         end do
     end do
     ! Create preconditioner for PCM
     if (model .eq. 2) then
-        allocate(dd_data % rx_prc(dd_data % nbasis, dd_data % nbasis, nsph), &
+        allocate(ddx_data % rx_prc(ddx_data % nbasis, ddx_data % nbasis, nsph), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [12] allocation failed!'
             info = 12
             return
         endif
-        call mkprec(dd_data)
+        call mkprec(ddx_data)
     end if
     ! Again some debug output
     1100  format(t3,i8,3f14.6)
     if (iprint .ge. 4) then
         write(6, *) '   external cavity points:'
-        do ii = 1, dd_data % ncav
-            write(6,1100) ii, dd_data % ccav(:, ii)
+        do ii = 1, ddx_data % ncav
+            write(6,1100) ii, ddx_data % ccav(:, ii)
         end do
         write(6, *)
     end if
     !! Prepare FMM structures if needed
     if (fmm .eq. 1) then
         ! Allocate space for a cluster tree
-        allocate(dd_data % order(nsph), stat=istatus)
+        allocate(ddx_data % order(nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [13] allocation failed!'
             info = 13
             return
         endif
-        dd_data % nclusters = 2*nsph - 1
-        allocate(dd_data % cluster(2, dd_data % nclusters), stat=istatus)
+        ddx_data % nclusters = 2*nsph - 1
+        allocate(ddx_data % cluster(2, ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [14] allocation failed!'
             info = 14
             return
         endif
-        allocate(dd_data % children(2, dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % children(2, ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [15] allocation failed!'
             info = 15
             return
         endif
-        allocate(dd_data % parent(dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % parent(ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [16] allocation failed!'
             info = 16
             return
         endif
-        allocate(dd_data % cnode(3, dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % cnode(3, ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [17] allocation failed!'
             info = 17
             return
         endif
-        allocate(dd_data % rnode(dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % rnode(ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [18] allocation failed!'
             info = 18
             return
         endif
-        allocate(dd_data % snode(dd_data % nsph), stat=istatus)
+        allocate(ddx_data % snode(ddx_data % nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [19] allocation failed!'
             info = 19
             return
         endif
-        allocate(dd_data % nfar(dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % nfar(ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [20] allocation failed!'
             info = 20
             return
         endif
-        allocate(dd_data % nnear(dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % nnear(ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*,*)'ddinit : [21] allocation failed!'
             info = 21
             return
         endif
         ! Get the tree
-        call tree_rib_build(nsph, dd_data % csph, dd_data % rsph, &
-            & dd_data % order, dd_data % cluster, dd_data % children, &
-            & dd_data % parent, dd_data % cnode, dd_data % rnode, &
-            & dd_data % snode)
+        call tree_rib_build(nsph, ddx_data % csph, ddx_data % rsph, &
+            & ddx_data % order, ddx_data % cluster, ddx_data % children, &
+            & ddx_data % parent, ddx_data % cnode, ddx_data % rnode, &
+            & ddx_data % snode)
         ! Get number of far and near admissible pairs
         iwork = 0
         jwork = 1
@@ -987,35 +1080,35 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
                 info = 26
                 return
             end if
-            call tree_get_farnear_work(dd_data % nclusters, &
-                & dd_data % children, dd_data % cnode, &
-                & dd_data % rnode, lwork, iwork, jwork, work, &
-                & dd_data % nnfar, dd_data % nfar, dd_data % nnnear, &
-                & dd_data % nnear)
+            call tree_get_farnear_work(ddx_data % nclusters, &
+                & ddx_data % children, ddx_data % cnode, &
+                & ddx_data % rnode, lwork, iwork, jwork, work, &
+                & ddx_data % nnfar, ddx_data % nfar, ddx_data % nnnear, &
+                & ddx_data % nnear)
         end do
-        allocate(dd_data % sfar(dd_data % nclusters+1), &
-            & dd_data % snear(dd_data % nclusters+1), stat=istatus)
+        allocate(ddx_data % sfar(ddx_data % nclusters+1), &
+            & ddx_data % snear(ddx_data % nclusters+1), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation"
             info = 27
             return
         end if
-        allocate(dd_data % far(dd_data % nnfar), stat=istatus)
+        allocate(ddx_data % far(ddx_data % nnfar), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation"
             info = 28
             return
         end if
-        allocate(dd_data % near(dd_data % nnnear), stat=istatus)
+        allocate(ddx_data % near(ddx_data % nnnear), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation"
             info = 29
             return
         end if
-        call tree_get_farnear(jwork, lwork, work, dd_data % nclusters, &
-            & dd_data % nnfar, dd_data % nfar, dd_data % sfar, dd_data % far, &
-            & dd_data % nnnear, dd_data % nnear, dd_data % snear, &
-            & dd_data % near)
+        call tree_get_farnear(jwork, lwork, work, ddx_data % nclusters, &
+            & ddx_data % nnfar, ddx_data % nfar, ddx_data % sfar, ddx_data % far, &
+            & ddx_data % nnnear, ddx_data % nnear, ddx_data % snear, &
+            & ddx_data % near)
         deallocate(work, stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in deallocation of workspace"
@@ -1023,125 +1116,135 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
             return
         end if
         ! Allocate square roots of combinatorial numbers C_n^k
-        allocate(dd_data % vcnk((2*dd_data % dmax+1)*(dd_data % dmax+1)), &
+        allocate(ddx_data % vcnk((2*ddx_data % dmax+1)*(ddx_data % dmax+1)), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "ddinit: [3] allocation failed!"
             info = 3
             return
         end if
-        p_vcnk => dd_data % vcnk
+        p_vcnk => ddx_data % vcnk
         ! Allocate space for M2L OZ translation coefficients
-        allocate(dd_data % m2l_ztranslate_coef(&
-            & (dd_data % pm+1), (dd_data % pl+1), (dd_data % pl+1)), &
+        allocate(ddx_data % m2l_ztranslate_coef(&
+            & (ddx_data % pm+1), (ddx_data % pl+1), (ddx_data % pl+1)), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "ddinit: [3] allocation failed!"
             info = 3
             return
         end if
-        p_m2l_ztranslate_coef => dd_data % m2l_ztranslate_coef
+        p_m2l_ztranslate_coef => ddx_data % m2l_ztranslate_coef
+        ! Allocate space for adjoint M2L OZ translation coefficients
+        allocate(ddx_data % m2l_ztranslate_adj_coef(&
+            & (ddx_data % pl+1), (ddx_data % pl+1), (ddx_data % pm+1)), &
+            & stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "ddinit: [3] allocation failed!"
+            info = 3
+            return
+        end if
+        p_m2l_ztranslate_adj_coef => ddx_data % m2l_ztranslate_adj_coef
         ! Compute combinatorial numbers C_n^k and M2L OZ translate coefficients
-        call fmm_constants(dd_data % dmax, dd_data % pm, dd_data % pl, &
-            & p_vcnk, p_m2l_ztranslate_coef)
-        allocate(dd_data % tmp_sph(dd_data % nbasis, nsph), stat=istatus)
+        call fmm_constants(ddx_data % dmax, ddx_data % pm, ddx_data % pl, &
+            & p_vcnk, p_m2l_ztranslate_coef, p_m2l_ztranslate_adj_coef)
+        allocate(ddx_data % tmp_sph(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph2(dd_data % grad_nbasis, nsph), stat=istatus)
+        allocate(ddx_data % tmp_sph2(ddx_data % grad_nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_grad(dd_data % grad_nbasis, 3, nsph), &
+        allocate(ddx_data % tmp_sph_grad(ddx_data % grad_nbasis, 3, nsph), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_l((dd_data % pl+1)**2, nsph), stat=istatus)
+        allocate(ddx_data % tmp_sph_l((ddx_data % pl+1)**2, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_sph_l_grad((dd_data % pl+1)**2, 3, nsph), &
+        allocate(ddx_data % tmp_sph_l_grad((ddx_data % pl+1)**2, 3, nsph), &
             & stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 38
             return
         end if
-        allocate(dd_data % tmp_node_m((dd_data % pm+1)**2, &
-            & dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % tmp_node_m((ddx_data % pm+1)**2, &
+            & ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 30
             return
         end if
-        allocate(dd_data % tmp_node_l((dd_data % pl+1)**2, &
-            & dd_data % nclusters), stat=istatus)
+        allocate(ddx_data % tmp_node_l((ddx_data % pl+1)**2, &
+            & ddx_data % nclusters), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of a temporary"
             info = 30
             return
         end if
         if (fmm_precompute .eq. 1) then
-            dd_data % m2m_ztranslate_mat_size = (pm+1)*(pm+2)*(pm+3)/6
-            dd_data % m2m_reflect_mat_size = (pm+1)*(2*pm+1)*(2*pm+3)/3
-            dd_data % l2l_ztranslate_mat_size = (pl+1)*(pl+2)*(pl+3)/6
-            dd_data % l2l_reflect_mat_size = (pl+1)*(2*pl+1)*(2*pl+3)/3
-            dd_data % m2l_ztranslate_mat_size = (min(pm,pl)+1) * &
+            ddx_data % m2m_ztranslate_mat_size = (pm+1)*(pm+2)*(pm+3)/6
+            ddx_data % m2m_reflect_mat_size = (pm+1)*(2*pm+1)*(2*pm+3)/3
+            ddx_data % l2l_ztranslate_mat_size = (pl+1)*(pl+2)*(pl+3)/6
+            ddx_data % l2l_reflect_mat_size = (pl+1)*(2*pl+1)*(2*pl+3)/3
+            ddx_data % m2l_ztranslate_mat_size = (min(pm,pl)+1) * &
                 & (min(pm,pl)+2) * (3*max(pm,pl)+3-min(pm,pl)) / 6
-            dd_data % m2l_reflect_mat_size = max( &
-                & dd_data % m2m_reflect_mat_size, &
-                & dd_data % l2l_reflect_mat_size)
-            allocate(dd_data % m2m_ztranslate_mat( &
-                & dd_data % m2m_ztranslate_mat_size, dd_data % nclusters), &
+            ddx_data % m2l_reflect_mat_size = max( &
+                & ddx_data % m2m_reflect_mat_size, &
+                & ddx_data % l2l_reflect_mat_size)
+            allocate(ddx_data % m2m_ztranslate_mat( &
+                & ddx_data % m2m_ztranslate_mat_size, ddx_data % nclusters), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2M matrices"
                 info = 31
                 return
             end if
-            allocate(dd_data % m2m_reflect_mat( &
-                & dd_data % m2m_reflect_mat_size, dd_data % nclusters), &
+            allocate(ddx_data % m2m_reflect_mat( &
+                & ddx_data % m2m_reflect_mat_size, ddx_data % nclusters), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2M matrices"
                 info = 32
                 return
             end if
-            allocate(dd_data % l2l_ztranslate_mat( &
-                & dd_data % l2l_ztranslate_mat_size, dd_data % nclusters), &
+            allocate(ddx_data % l2l_ztranslate_mat( &
+                & ddx_data % l2l_ztranslate_mat_size, ddx_data % nclusters), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of L2L matrices"
                 info = 33
                 return
             end if
-            allocate(dd_data % l2l_reflect_mat( &
-                & dd_data % l2l_reflect_mat_size, dd_data % nclusters), &
+            allocate(ddx_data % l2l_reflect_mat( &
+                & ddx_data % l2l_reflect_mat_size, ddx_data % nclusters), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of L2L matrices"
                 info = 34
                 return
             end if
-            allocate(dd_data % m2l_ztranslate_mat( &
-                & dd_data % m2l_ztranslate_mat_size, dd_data % nnfar), &
+            allocate(ddx_data % m2l_ztranslate_mat( &
+                & ddx_data % m2l_ztranslate_mat_size, ddx_data % nnfar), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2L matrices"
                 info = 35
                 return
             end if
-            allocate(dd_data % m2l_reflect_mat( &
-                & dd_data % m2l_reflect_mat_size, dd_data % nnfar), &
+            allocate(ddx_data % m2l_reflect_mat( &
+                & ddx_data % m2l_reflect_mat_size, ddx_data % nnfar), &
                 & stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2L matrices"
@@ -1149,105 +1252,141 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
                 return
             end if
             ! Precompute M2M, L2L and M2L matrices
-            call tree_m2m_reflection_get_mat(dd_data)
-            call tree_l2l_reflection_get_mat(dd_data)
-            call tree_m2l_reflection_get_mat(dd_data)
+            call tree_m2m_reflection_get_mat(ddx_data)
+            call tree_l2l_reflection_get_mat(ddx_data)
+            call tree_m2l_reflection_get_mat(ddx_data)
             ! Get near-field M2P data
-            dd_data % nnear_m2p = 0
+            ddx_data % nnear_m2p = 0
             do isph = 1, nsph
-                dd_data % nnear_m2p = dd_data % nnear_m2p + &
-                    & dd_data % ncav_sph(isph)*dd_data % nnear( &
-                    & dd_data % snode(isph))
+                ddx_data % nnear_m2p = ddx_data % nnear_m2p + &
+                    & ddx_data % ncav_sph(isph)*ddx_data % nnear( &
+                    & ddx_data % snode(isph))
             end do
-            allocate(dd_data % m2p_mat(dd_data % m2p_nbasis, &
-                & dd_data % nnear_m2p), stat=istatus)
+            allocate(ddx_data % m2p_mat(ddx_data % m2p_nbasis, &
+                & ddx_data % nnear_m2p), stat=istatus)
             if (istatus .ne. 0) then
                 !write(*, *) "Error in allocation of M2P matrices"
                 info = 37
                 return
             end if
             ! Precompute M2P matrices
-            call tree_m2p_get_mat(dd_data)
+            call tree_m2p_get_mat(ddx_data)
         end if
     end if
     !! Per-model allocations
     ! COSMO model
     if (model .eq. 1) then
+        allocate(ddx_data % phi_grid(ddx_data % ngrid, nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(ddx_data % phi(ddx_data % nbasis, nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(ddx_data % xs(ddx_data % nbasis, nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(ddx_data % s(ddx_data % nbasis, nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(ddx_data % sgrid(ddx_data % ngrid, nsph), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
+        allocate(ddx_data % zeta(ddx_data % ncav), stat=istatus)
+        if (istatus .ne. 0) then
+            !write(*, *) "Error in allocation of M2P matrices"
+            info = 38
+            return
+        end if
     ! PCM model
     else if (model .eq. 2) then
-        allocate(dd_data % phi_grid(dd_data % ngrid, nsph), stat=istatus)
+        allocate(ddx_data % phi_grid(ddx_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phi(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % phi(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phiinf(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % phiinf(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % phieps(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % phieps(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % xs(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % xs(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % s(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % s(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % sgrid(dd_data % ngrid, nsph), stat=istatus)
+        allocate(ddx_data % sgrid(ddx_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % y(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % y(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % ygrid(dd_data % ngrid, nsph), stat=istatus)
+        allocate(ddx_data % ygrid(ddx_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % g(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % g(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % q(dd_data % nbasis, nsph), stat=istatus)
+        allocate(ddx_data % q(ddx_data % nbasis, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % qgrid(dd_data % ngrid, nsph), stat=istatus)
+        allocate(ddx_data % qgrid(ddx_data % ngrid, nsph), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
             return
         end if
-        allocate(dd_data % zeta(dd_data % ncav), stat=istatus)
+        allocate(ddx_data % zeta(ddx_data % ncav), stat=istatus)
         if (istatus .ne. 0) then
             !write(*, *) "Error in allocation of M2P matrices"
             info = 38
@@ -1256,7 +1395,7 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     ! LPB model
     else if (model .eq. 3) then
     end if
-    allocate(dd_data % tmp_grid(dd_data % ngrid, nsph), stat=istatus)
+    allocate(ddx_data % tmp_grid(ddx_data % ngrid, nsph), stat=istatus)
     if (istatus .ne. 0) then
         !write(*, *) "Error in allocation of a temporary"
         info = 38
@@ -1269,12 +1408,12 @@ subroutine ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, &
     ! Debug printing
     if (iprint .ge. 4) then
         write(*, "(A)") '    inl:'
-        write(*, "(10i6)") dd_data % inl(1:nsph+1)
+        write(*, "(10i6)") ddx_data % inl(1:nsph+1)
         write(*,*)
-        do isph = 1, dd_data % nsph
+        do isph = 1, ddx_data % nsph
             write(6,1000) isph
-            write(6,1010) dd_data % nl(dd_data % inl(isph): &
-                & dd_data % inl(isph+1)-1)
+            write(6,1010) ddx_data % nl(ddx_data % inl(isph): &
+                & ddx_data % inl(isph+1)-1)
         end do
         write(6,*)
     end if
@@ -1283,16 +1422,16 @@ end subroutine ddinit
 !> Read configuration from a file
 !!
 !! @param[in] fname: Filename containing all the required info
-!! @param[out] dd_data: Object containing all inputs
+!! @param[out] ddx_data: Object containing all inputs
 !! @param[out] info: flag of succesfull exit
 !!      = 0: Succesfull exit
 !!      < 0: If info=-i then i-th argument had an illegal value
-!!      > 0: Allocation of a buffer for the output dd_data failed
-subroutine ddfromfile(fname, dd_data, info)
+!!      > 0: Allocation of a buffer for the output ddx_data failed
+subroutine ddfromfile(fname, ddx_data, info)
     ! Input
     character(len=*), intent(in) :: fname
     ! Outputs
-    type(dd_data_type), intent(out) :: dd_data
+    type(ddx_type), intent(out) :: ddx_data
     integer, intent(out) :: info
     ! Local variables
     integer :: iprint, nproc, model, lmax, ngrid, force, fmm, pm, pl, &
@@ -1452,10 +1591,10 @@ subroutine ddfromfile(fname, dd_data, info)
     y = y * tobohr
     z = z * tobohr
     rvdw = rvdw * tobohr
-    !! Initialize dd_data object
+    !! Initialize ddx_data object
     call ddinit(nsph, charge, x, y, z, rvdw, model, lmax, ngrid, force, fmm, &
         & pm, pl, fmm_precompute, iprint, se, eta, eps, kappa, itersolver, &
-        & tol, maxiter, ndiis, nproc, dd_data, info)
+        & tol, maxiter, ndiis, nproc, ddx_data, info)
     !! Clean local temporary data
     deallocate(charge, x, y, z, rvdw, stat=istatus)
     if(istatus .ne. 0) then
@@ -1467,406 +1606,413 @@ end subroutine ddfromfile
 
 !> Deallocate object with corresponding data
 !!
-!! @param[inout] dd_data: object to deallocate
-subroutine ddfree(dd_data)
+!! @param[inout] ddx_data: object to deallocate
+subroutine ddfree(ddx_data)
     ! Input/output
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     ! Local variables
     integer :: istatus
-    if (allocated(dd_data % charge)) then
-        deallocate(dd_data % charge, stat=istatus)
+    if (allocated(ddx_data % charge)) then
+        deallocate(ddx_data % charge, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [1] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % csph)) then
-        deallocate(dd_data % csph, stat=istatus)
+    if (allocated(ddx_data % csph)) then
+        deallocate(ddx_data % csph, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [1] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % rsph)) then
-        deallocate(dd_data % rsph, stat=istatus)
+    if (allocated(ddx_data % rsph)) then
+        deallocate(ddx_data % rsph, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [2] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vscales)) then
-        deallocate(dd_data % vscales, stat=istatus)
+    if (allocated(ddx_data % vscales)) then
+        deallocate(ddx_data % vscales, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [3] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % v4pi2lp1)) then
-        deallocate(dd_data % v4pi2lp1, stat=istatus)
+    if (allocated(ddx_data % v4pi2lp1)) then
+        deallocate(ddx_data % v4pi2lp1, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [3] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vscales_rel)) then
-        deallocate(dd_data % vscales_rel, stat=istatus)
+    if (allocated(ddx_data % vscales_rel)) then
+        deallocate(ddx_data % vscales_rel, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [3] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vfact)) then
-        deallocate(dd_data % vfact, stat=istatus)
+    if (allocated(ddx_data % vfact)) then
+        deallocate(ddx_data % vfact, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [4] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vcnk)) then
-        deallocate(dd_data % vcnk, stat=istatus)
+    if (allocated(ddx_data % vcnk)) then
+        deallocate(ddx_data % vcnk, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [4] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % m2l_ztranslate_coef)) then
-        deallocate(dd_data % m2l_ztranslate_coef, stat=istatus)
+    if (allocated(ddx_data % m2l_ztranslate_coef)) then
+        deallocate(ddx_data % m2l_ztranslate_coef, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [4] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % cgrid)) then
-        deallocate(dd_data % cgrid, stat=istatus)
+    if (allocated(ddx_data % m2l_ztranslate_adj_coef)) then
+        deallocate(ddx_data % m2l_ztranslate_adj_coef, stat=istatus)
+        if (istatus .ne. 0) then
+            write(*, *) "ddfree: [4] deallocation failed!"
+            stop 1
+        end if
+    end if
+    if (allocated(ddx_data % cgrid)) then
+        deallocate(ddx_data % cgrid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [5] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % wgrid)) then
-        deallocate(dd_data % wgrid, stat=istatus)
+    if (allocated(ddx_data % wgrid)) then
+        deallocate(ddx_data % wgrid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [6] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vgrid)) then
-        deallocate(dd_data % vgrid, stat=istatus)
+    if (allocated(ddx_data % vgrid)) then
+        deallocate(ddx_data % vgrid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [7] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % vwgrid)) then
-        deallocate(dd_data % vwgrid, stat=istatus)
+    if (allocated(ddx_data % vwgrid)) then
+        deallocate(ddx_data % vwgrid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [8] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % l2grid)) then
-        deallocate(dd_data % l2grid, stat=istatus)
+    if (allocated(ddx_data % l2grid)) then
+        deallocate(ddx_data % l2grid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [8+] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % inl)) then
-        deallocate(dd_data % inl, stat=istatus)
+    if (allocated(ddx_data % inl)) then
+        deallocate(ddx_data % inl, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [9] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % nl)) then
-        deallocate(dd_data % nl, stat=istatus)
+    if (allocated(ddx_data % nl)) then
+        deallocate(ddx_data % nl, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [10] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % fi)) then
-        deallocate(dd_data % fi, stat=istatus)
+    if (allocated(ddx_data % fi)) then
+        deallocate(ddx_data % fi, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [11] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % ui)) then
-        deallocate(dd_data % ui, stat=istatus)
+    if (allocated(ddx_data % ui)) then
+        deallocate(ddx_data % ui, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [12] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % zi)) then
-        deallocate(dd_data % zi, stat=istatus)
+    if (allocated(ddx_data % zi)) then
+        deallocate(ddx_data % zi, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [13] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % ncav_sph)) then
-        deallocate(dd_data % ncav_sph, stat=istatus)
+    if (allocated(ddx_data % ncav_sph)) then
+        deallocate(ddx_data % ncav_sph, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [14] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % icav_ia)) then
-        deallocate(dd_data % icav_ia, stat=istatus)
+    if (allocated(ddx_data % icav_ia)) then
+        deallocate(ddx_data % icav_ia, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [14] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % icav_ja)) then
-        deallocate(dd_data % icav_ja, stat=istatus)
+    if (allocated(ddx_data % icav_ja)) then
+        deallocate(ddx_data % icav_ja, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [14] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % ccav)) then
-        deallocate(dd_data % ccav, stat=istatus)
+    if (allocated(ddx_data % ccav)) then
+        deallocate(ddx_data % ccav, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [14] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % rx_prc)) then
-        deallocate(dd_data % rx_prc, stat=istatus)
+    if (allocated(ddx_data % rx_prc)) then
+        deallocate(ddx_data % rx_prc, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [15] deallocation failed!"
             stop 1
         end if
     end if
-    if (allocated(dd_data % order)) then
-        deallocate(dd_data % order, stat=istatus)
+    if (allocated(ddx_data % order)) then
+        deallocate(ddx_data % order, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [16] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % cluster)) then
-        deallocate(dd_data % cluster, stat=istatus)
+    if (allocated(ddx_data % cluster)) then
+        deallocate(ddx_data % cluster, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [17] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % children)) then
-        deallocate(dd_data % children, stat=istatus)
+    if (allocated(ddx_data % children)) then
+        deallocate(ddx_data % children, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [18] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % parent)) then
-        deallocate(dd_data % parent, stat=istatus)
+    if (allocated(ddx_data % parent)) then
+        deallocate(ddx_data % parent, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [19] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % cnode)) then
-        deallocate(dd_data % cnode, stat=istatus)
+    if (allocated(ddx_data % cnode)) then
+        deallocate(ddx_data % cnode, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [20] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % rnode)) then
-        deallocate(dd_data % rnode, stat=istatus)
+    if (allocated(ddx_data % rnode)) then
+        deallocate(ddx_data % rnode, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [21] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % snode)) then
-        deallocate(dd_data % snode, stat=istatus)
+    if (allocated(ddx_data % snode)) then
+        deallocate(ddx_data % snode, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [22] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % nfar)) then
-        deallocate(dd_data % nfar, stat=istatus)
+    if (allocated(ddx_data % nfar)) then
+        deallocate(ddx_data % nfar, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [23] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % nnear)) then
-        deallocate(dd_data % nnear, stat=istatus)
+    if (allocated(ddx_data % nnear)) then
+        deallocate(ddx_data % nnear, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [24] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % sfar)) then
-        deallocate(dd_data % sfar, stat=istatus)
+    if (allocated(ddx_data % sfar)) then
+        deallocate(ddx_data % sfar, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [25] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % snear)) then
-        deallocate(dd_data % snear, stat=istatus)
+    if (allocated(ddx_data % snear)) then
+        deallocate(ddx_data % snear, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [26] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % far)) then
-        deallocate(dd_data % far, stat=istatus)
+    if (allocated(ddx_data % far)) then
+        deallocate(ddx_data % far, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [27] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % near)) then
-        deallocate(dd_data % near, stat=istatus)
+    if (allocated(ddx_data % near)) then
+        deallocate(ddx_data % near, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % tmp_sph)) then
-        deallocate(dd_data % tmp_sph, stat=istatus)
+    if (allocated(ddx_data % tmp_sph)) then
+        deallocate(ddx_data % tmp_sph, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % tmp_node_m)) then
-        deallocate(dd_data % tmp_node_m, stat=istatus)
+    if (allocated(ddx_data % tmp_node_m)) then
+        deallocate(ddx_data % tmp_node_m, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % tmp_node_l)) then
-        deallocate(dd_data % tmp_node_l, stat=istatus)
+    if (allocated(ddx_data % tmp_node_l)) then
+        deallocate(ddx_data % tmp_node_l, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % tmp_grid)) then
-        deallocate(dd_data % tmp_grid, stat=istatus)
+    if (allocated(ddx_data % tmp_grid)) then
+        deallocate(ddx_data % tmp_grid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [28] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % m2m_ztranslate_mat)) then
-        deallocate(dd_data % m2m_ztranslate_mat, stat=istatus)
+    if (allocated(ddx_data % m2m_ztranslate_mat)) then
+        deallocate(ddx_data % m2m_ztranslate_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [29] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % m2m_reflect_mat)) then
-        deallocate(dd_data % m2m_reflect_mat, stat=istatus)
+    if (allocated(ddx_data % m2m_reflect_mat)) then
+        deallocate(ddx_data % m2m_reflect_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [30] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % l2l_ztranslate_mat)) then
-        deallocate(dd_data % l2l_ztranslate_mat, stat=istatus)
+    if (allocated(ddx_data % l2l_ztranslate_mat)) then
+        deallocate(ddx_data % l2l_ztranslate_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [31] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % l2l_reflect_mat)) then
-        deallocate(dd_data % l2l_reflect_mat, stat=istatus)
+    if (allocated(ddx_data % l2l_reflect_mat)) then
+        deallocate(ddx_data % l2l_reflect_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [32] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % m2l_ztranslate_mat)) then
-        deallocate(dd_data % m2l_ztranslate_mat, stat=istatus)
+    if (allocated(ddx_data % m2l_ztranslate_mat)) then
+        deallocate(ddx_data % m2l_ztranslate_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [33] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % m2l_reflect_mat)) then
-        deallocate(dd_data % m2l_reflect_mat, stat=istatus)
+    if (allocated(ddx_data % m2l_reflect_mat)) then
+        deallocate(ddx_data % m2l_reflect_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [34] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % m2p_mat)) then
-        deallocate(dd_data % m2p_mat, stat=istatus)
+    if (allocated(ddx_data % m2p_mat)) then
+        deallocate(ddx_data % m2p_mat, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [35] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % phi)) then
-        deallocate(dd_data % phi, stat=istatus)
+    if (allocated(ddx_data % phi)) then
+        deallocate(ddx_data % phi, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % phiinf)) then
-        deallocate(dd_data % phiinf, stat=istatus)
+    if (allocated(ddx_data % phiinf)) then
+        deallocate(ddx_data % phiinf, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % phieps)) then
-        deallocate(dd_data % phieps, stat=istatus)
+    if (allocated(ddx_data % phieps)) then
+        deallocate(ddx_data % phieps, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % xs)) then
-        deallocate(dd_data % xs, stat=istatus)
+    if (allocated(ddx_data % xs)) then
+        deallocate(ddx_data % xs, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % s)) then
-        deallocate(dd_data % s, stat=istatus)
+    if (allocated(ddx_data % s)) then
+        deallocate(ddx_data % s, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % y)) then
-        deallocate(dd_data % y, stat=istatus)
+    if (allocated(ddx_data % y)) then
+        deallocate(ddx_data % y, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % ygrid)) then
-        deallocate(dd_data % ygrid, stat=istatus)
+    if (allocated(ddx_data % ygrid)) then
+        deallocate(ddx_data % ygrid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % g)) then
-        deallocate(dd_data % g, stat=istatus)
+    if (allocated(ddx_data % g)) then
+        deallocate(ddx_data % g, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
         endif
     end if
-    if (allocated(dd_data % tmp_grid)) then
-        deallocate(dd_data % tmp_grid, stat=istatus)
+    if (allocated(ddx_data % tmp_grid)) then
+        deallocate(ddx_data % tmp_grid, stat=istatus)
         if (istatus .ne. 0) then
             write(*, *) "ddfree: [36] deallocation failed!"
             stop 1
@@ -1984,16 +2130,16 @@ end subroutine ptcart
 !! @param[in] label : Label to print
 !! @param[in] vector: Vector to print
 
-subroutine print_ddvector(dd_data, label, vector)
+subroutine print_ddvector(ddx_data, label, vector)
     implicit none
-    type(dd_data_type), intent(in)  :: dd_data
+    type(ddx_type), intent(in)  :: ddx_data
     character(len=*) :: label
-    real(dp) :: vector(dd_data % nbasis, dd_data % nsph)
+    real(dp) :: vector(ddx_data % nbasis, ddx_data % nsph)
     integer :: isph, lm
   
     write(6,*) label
-    do isph = 1, dd_data % nsph
-      do lm = 1, dd_data % nbasis
+    do isph = 1, ddx_data % nsph
+      do lm = 1, ddx_data % nbasis
         write(6,'(F15.8)') vector(lm,isph)
       end do
     end do
@@ -2043,10 +2189,12 @@ subroutine ylmscale(p, vscales, v4pi2lp1, vscales_rel)
     end do
 end subroutine ylmscale
 
-subroutine fmm_constants(dmax, pm, pl, vcnk, m2l_ztranslate_coef)
+subroutine fmm_constants(dmax, pm, pl, vcnk, m2l_ztranslate_coef, &
+        & m2l_ztranslate_adj_coef)
     integer, intent(in) :: dmax, pm, pl
     real(dp), intent(out) :: vcnk((2*dmax+1)*(dmax+1)), &
-        & m2l_ztranslate_coef(pm+1, pl+1, pl+1)
+        & m2l_ztranslate_coef(pm+1, pl+1, pl+1), &
+        & m2l_ztranslate_adj_coef(pl+1, pl+1, pm+1)
     integer :: i, indi, j, k, n, indjn
     real(dp) :: tmp1
     ! Compute combinatorial numbers C_n^k for n=0..dmax
@@ -2073,14 +2221,16 @@ subroutine fmm_constants(dmax, pm, pl, vcnk, m2l_ztranslate_coef)
             vcnk(indi+j) = sqrt(vcnk(indi+j))
         end do
     end do
-    ! Fill in m2l_ztranslate_coef
+    ! Fill in m2l_ztranslate_coef and m2l_ztranslate_adj_coef
     do j = 0, pl
         do k = 0, j
             tmp1 = one
             do n = k, pm
                 indjn = (j+n)*(j+n+1)/2 + 1
-                m2l_ztranslate_coef(n-k+1, k+1, j+1) = &
+                m2l_ztranslate_coef(n-k+1, k+1, j-k+1) = &
                     & tmp1 * vcnk(indjn+j-k) * vcnk(indjn+j+k)
+                m2l_ztranslate_adj_coef(j-k+1, k+1, n-k+1) = &
+                    & m2l_ztranslate_coef(n-k+1, k+1, j-k+1)
                 tmp1 = -tmp1
             end do
         end do
@@ -2981,12 +3131,12 @@ end subroutine intrhs
 !! TODO: rewrite code and fill description. Computing sqrt(one-cthe*cthe)
 !! reduces effective range of input double precision values. cthe*cthe for
 !! cthe=1d+155 is NaN.
-subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
-    type(dd_data_type) :: dd_data
+subroutine dbasis(ddx_data, x, basloc, dbsloc, vplm, vcos, vsin)
+    type(ddx_type) :: ddx_data
     real(dp), dimension(3),        intent(in)    :: x
-    real(dp), dimension((dd_data % lmax+1)**2),   intent(inout) :: basloc, vplm
-    real(dp), dimension(3,(dd_data % lmax +1)**2), intent(inout) :: dbsloc
-    real(dp), dimension(dd_data % lmax+1),   intent(inout) :: vcos, vsin
+    real(dp), dimension((ddx_data % lmax+1)**2),   intent(inout) :: basloc, vplm
+    real(dp), dimension(3,(ddx_data % lmax +1)**2), intent(inout) :: dbsloc
+    real(dp), dimension(ddx_data % lmax+1),   intent(inout) :: vcos, vsin
     integer :: l, m, ind
     real(dp)  :: cthe, sthe, cphi, sphi, plm, fln, pp1, pm1, pp, VC, VS
     real(dp)  :: et(3), ep(3)
@@ -3022,7 +3172,7 @@ subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
     VS=cthe
     !     evaluate the generalized legendre polynomials. Temporary workspace
     !       is of size (p+1) here, so we use vcos for that purpose
-    call polleg_work( cthe, sthe, dd_data % lmax, vplm, vcos )
+    call polleg_work( cthe, sthe, ddx_data % lmax, vplm, vcos )
     !
     !     evaluate cos(m*phi) and sin(m*phi) arrays. notice that this is 
     !     pointless if z = 1, as the only non vanishing terms will be the 
@@ -3030,7 +3180,7 @@ subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
     !
     !     not ( NORTH or SOUTH pole )
     if ( sthe.ne.zero ) then
-        call trgev( cphi, sphi, dd_data % lmax, vcos, vsin )
+        call trgev( cphi, sphi, ddx_data % lmax, vcos, vsin )
         !     NORTH or SOUTH pole
     else
         vcos = one
@@ -3041,10 +3191,10 @@ subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
     !
     basloc = zero
     dbsloc = zero
-    do l = 0, dd_data % lmax
+    do l = 0, ddx_data % lmax
         ind = l*l + l + 1
         ! m = 0
-        fln = dd_data % vscales(ind)   
+        fln = ddx_data % vscales(ind)   
         basloc(ind) = fln*vplm(ind)
         if (l.gt.0) then
             dbsloc(:,ind) = fln*vplm(ind+1)*et(:)
@@ -3053,7 +3203,7 @@ subroutine dbasis(dd_data, x, basloc, dbsloc, vplm, vcos, vsin)
         end if
         !dir$ simd
         do m = 1, l
-            fln = dd_data % vscales(ind+m)
+            fln = ddx_data % vscales(ind+m)
             plm = fln*vplm(ind+m)   
             pp1 = zero
             if (m.lt.l) pp1 = -pt5*vplm(ind+m+1)
@@ -3110,12 +3260,12 @@ end subroutine dbasis
 !------------------------------------------------------------------------------------------------
 !
 !!> TODO
-real(dp) function intmlp( dd_data, t, sigma, basloc )
+real(dp) function intmlp( ddx_data, t, sigma, basloc )
 !  
       implicit none
-      type(dd_data_type) :: dd_data
+      type(ddx_type) :: ddx_data
       real(dp), intent(in) :: t
-      real(dp), dimension((dd_data % lmax+1)**2), intent(in) :: sigma, basloc
+      real(dp), dimension((ddx_data % lmax+1)**2), intent(in) :: sigma, basloc
 !
       integer :: l, ind
       real(dp)  :: tt, ss, fac
@@ -3129,12 +3279,12 @@ real(dp) function intmlp( dd_data, t, sigma, basloc )
       ss = zero
 !
 !     loop over l
-      do l = 0, dd_data % lmax
+      do l = 0, ddx_data % lmax
 !      
         ind = l*l + l + 1
 !
 !       update factor 4pi / (2l+1) * t^l
-        fac = tt / dd_data % vscales(ind)**2
+        fac = tt / ddx_data % vscales(ind)**2
 !
 !       contract over l,m and accumulate
         ss = ss + fac * dot_product( basloc(ind-l:ind+l), &
@@ -3154,14 +3304,14 @@ end function intmlp
 ! Purpose : weigh potential at cavity points by characteristic function "ui"
 !------------------------------------------------------------------------------------------------
 !> TODO
-subroutine wghpot( dd_data, phi, phi_grid, g)
+subroutine wghpot( ddx_data, phi, phi_grid, g)
 !
       implicit none
 !
-    type(dd_data_type) :: dd_data
-      real(dp), dimension(dd_data % ncav),       intent(in)  :: phi
-      real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: g
-      real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(out) :: phi_grid
+    type(ddx_type) :: ddx_data
+      real(dp), dimension(ddx_data % ncav),       intent(in)  :: phi
+      real(dp), dimension(ddx_data % ngrid, ddx_data % nsph), intent(out) :: g
+      real(dp), dimension(ddx_data % ngrid, ddx_data % nsph), intent(out) :: phi_grid
 !
     integer isph, ig, ic
 !
@@ -3172,20 +3322,20 @@ subroutine wghpot( dd_data, phi, phi_grid, g)
     phi_grid = zero
 !      
 !   loop over spheres
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
 !
 !   loop over points
-      do ig = 1, dd_data % ngrid
+      do ig = 1, ddx_data % ngrid
 !
 !       nonzero contribution from point
-        if ( dd_data % ui(ig,isph).ne.zero ) then
+        if ( ddx_data % ui(ig,isph).ne.zero ) then
 !
 !         advance cavity point counter
           ic = ic + 1
           phi_grid(ig, isph) = phi(ic)
 !            
 !         weigh by (negative) characteristic function
-          g(ig,isph) = -dd_data % ui(ig,isph) * phi(ic)
+          g(ig,isph) = -ddx_data % ui(ig,isph) * phi(ic)
         endif
 !          
        enddo
@@ -3195,11 +3345,11 @@ end subroutine wghpot
 ! Purpose : compute H-norm
 !------------------------------------------------------------------------------------------------
 !> TODO
-subroutine hsnorm( dd_data, u, unorm )
+subroutine hsnorm( ddx_data, u, unorm )
 !          
       implicit none
-      type(dd_data_type) :: dd_data
-      real(dp), dimension((dd_data % lmax+1)**2), intent(in)    :: u
+      type(ddx_type) :: ddx_data
+      real(dp), dimension((ddx_data % lmax+1)**2), intent(in)    :: u
       real(dp),                    intent(inout) :: unorm
 !
       integer :: l, m, ind
@@ -3211,7 +3361,7 @@ subroutine hsnorm( dd_data, u, unorm )
       unorm = zero
 !      
 !     loop over l
-      do l = 0, dd_data % lmax
+      do l = 0, ddx_data % lmax
 !      
 !       first index associated to l
         ind = l*l + l + 1
@@ -3241,9 +3391,9 @@ end subroutine hsnorm
 !-------------------------------------------------------------------------------
 !
 !> TODO
-real(dp) function hnorm(dd_data, x)
-    type(dd_data_type), intent(in) :: dd_data
-      real(dp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in) :: x
+real(dp) function hnorm(ddx_data, x)
+    type(ddx_type), intent(in) :: ddx_data
+      real(dp),  dimension(ddx_data % nbasis, ddx_data % nsph), intent(in) :: x
 !
       integer                                     :: isph, istatus
       real(dp)                                      :: vrms, vmax
@@ -3252,21 +3402,21 @@ real(dp) function hnorm(dd_data, x)
 !-------------------------------------------------------------------------------
 !
 !     allocate workspace
-      allocate( u(dd_data % nsph) , stat=istatus )
+      allocate( u(ddx_data % nsph) , stat=istatus )
       if ( istatus.ne.0 ) then
         write(*,*) 'hnorm: allocation failed !'
         stop
       endif
 !
 !     loop over spheres
-      do isph = 1, dd_data % nsph
+      do isph = 1, ddx_data % nsph
 !
 !       compute norm contribution
-        call hsnorm(dd_data, x(:,isph), u(isph))
+        call hsnorm(ddx_data, x(:,isph), u(isph))
       enddo
 !
 !     compute rms of norms
-      call rmsvec( dd_data % nsph, u, vrms, vmax )
+      call rmsvec( ddx_data % nsph, u, vrms, vmax )
 !
 !     return value
       hnorm = vrms
@@ -3343,52 +3493,52 @@ endsubroutine rmsvec
 !-----------------------------------------------------------------------------------
 !
 !> TODO
-subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
+subroutine adjrhs( ddx_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
 !
       implicit none
-      type(dd_data_type), intent(in) :: dd_data
+      type(ddx_type), intent(in) :: ddx_data
       integer,                       intent(in)    :: isph
-      real(dp), dimension(dd_data % ngrid, dd_data % nsph), intent(in)    :: xi
-      real(dp), dimension((dd_data % lmax+1)**2),     intent(inout) :: vlm
-      real(dp), dimension((dd_data % lmax+1)**2),     intent(inout) :: basloc, vplm
-      real(dp), dimension(dd_data % lmax+1),     intent(inout) :: vcos, vsin
+      real(dp), dimension(ddx_data % ngrid, ddx_data % nsph), intent(in)    :: xi
+      real(dp), dimension((ddx_data % lmax+1)**2),     intent(inout) :: vlm
+      real(dp), dimension((ddx_data % lmax+1)**2),     intent(inout) :: basloc, vplm
+      real(dp), dimension(ddx_data % lmax+1),     intent(inout) :: vcos, vsin
 !
       integer :: ij, jsph, ig, l, ind, m
       real(dp)  :: vji(3), vvji, tji, sji(3), xji, oji, fac, ffac, t
       real(dp) :: rho, ctheta, stheta, cphi, sphi
-      real(dp) :: work((dd_data % lmax+1)*(dd_data % lmax+1)+3*dd_data % lmax)
+      real(dp) :: work((ddx_data % lmax+1)*(ddx_data % lmax+1)+3*ddx_data % lmax)
 !      
 !-----------------------------------------------------------------------------------
 !
 !     loop over neighbors of i-sphere
-      do ij = dd_data % inl(isph), dd_data % inl(isph+1)-1
+      do ij = ddx_data % inl(isph), ddx_data % inl(isph+1)-1
 !
 !       j-sphere is neighbor
-        jsph = dd_data % nl(ij)
+        jsph = ddx_data % nl(ij)
 !
 !       loop over integration points
-        do ig = 1, dd_data % ngrid
+        do ig = 1, ddx_data % ngrid
 !        
 !         compute t_n^ji = | r_j + \rho_j s_n - r_i | / \rho_i
-          vji  = dd_data % csph(:,jsph) + dd_data % rsph(jsph)* &
-              & dd_data % cgrid(:,ig) - dd_data % csph(:,isph)
+          vji  = ddx_data % csph(:,jsph) + ddx_data % rsph(jsph)* &
+              & ddx_data % cgrid(:,ig) - ddx_data % csph(:,isph)
           vvji = sqrt(dot_product(vji,vji))
-          tji  = vvji/dd_data % rsph(isph)
+          tji  = vvji/ddx_data % rsph(isph)
 !
 !         point is INSIDE i-sphere (+ transition layer)
 !         ---------------------------------------------
-          if ( tji.lt.( one + (dd_data % se+one)/two*dd_data % eta ) ) then
+          if ( tji.lt.( one + (ddx_data % se+one)/two*ddx_data % eta ) ) then
 !                  
 !           compute s_n^ji
             !sji = vji/vvji
 !
 !           compute \chi( t_n^ji )
-            xji = fsw( tji, dd_data % se, dd_data % eta )
+            xji = fsw( tji, ddx_data % se, ddx_data % eta )
 !
 !           compute W_n^ji
-            if ( dd_data % fi(ig,jsph).gt.one ) then
+            if ( ddx_data % fi(ig,jsph).gt.one ) then
 !                    
-              oji = xji/ dd_data % fi(ig,jsph)
+              oji = xji/ ddx_data % fi(ig,jsph)
 !              
             else
 !                    
@@ -3398,25 +3548,25 @@ subroutine adjrhs( dd_data, isph, xi, vlm, basloc, vplm, vcos, vsin )
 !            
 !           compute Y_l^m( s_n^ji )
             !call ylmbas(sji, rho, ctheta, stheta, cphi, sphi, &
-            !    & dd_data % lmax, dd_data % vscales, basloc, vplm, &
+            !    & ddx_data % lmax, ddx_data % vscales, basloc, vplm, &
             !    & vcos, vsin )
 !            
 !           initialize ( t_n^ji )^l
             !t = one
 !            
 !           compute w_n * xi(n,j) * W_n^ji
-            fac = dd_data % wgrid(ig) * xi(ig,jsph) * oji
+            fac = ddx_data % wgrid(ig) * xi(ig,jsph) * oji
 
-            call fmm_l2p_adj_work(vji, fac, dd_data % rsph(isph), &
-                & dd_data % lmax, dd_data % vscales_rel, one, vlm, work)
+            call fmm_l2p_adj_work(vji, fac, ddx_data % rsph(isph), &
+                & ddx_data % lmax, ddx_data % vscales_rel, one, vlm, work)
 !            
 !           loop over l
-            !do l = 0, dd_data % lmax
+            !do l = 0, ddx_data % lmax
 !            
             !  ind  = l*l + l + 1
 !
 !             compute 4pi / (2l+1) * ( t_n^ji )^l * w_n * xi(n,j) * W_n^ji
-            !  ffac = fac*t/ dd_data % vscales(ind)**2
+            !  ffac = fac*t/ ddx_data % vscales(ind)**2
 !
 !             loop over m
             !  do m = -l,l
@@ -3456,26 +3606,26 @@ end subroutine adjrhs
 !------------------------------------------------------------------------
 !
 !> TODO
-subroutine calcv( dd_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
+subroutine calcv( ddx_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
 !
-    type(dd_data_type) :: dd_data
+    type(ddx_type) :: ddx_data
       logical,                        intent(in)    :: first
       integer,                        intent(in)    :: isph
-      real(dp), dimension((dd_data % lmax+1)**2, dd_data % nsph), intent(in)    :: sigma
-      real(dp), dimension(dd_data % ngrid),       intent(inout) :: pot
-      real(dp), dimension((dd_data % lmax+1)**2),      intent(inout) :: basloc
-      real(dp), dimension((dd_data % lmax+1)**2),      intent(inout) :: vplm
-      real(dp), dimension(dd_data % lmax+1),      intent(inout) :: vcos
-      real(dp), dimension(dd_data % lmax+1),      intent(inout) :: vsin
+      real(dp), dimension((ddx_data % lmax+1)**2, ddx_data % nsph), intent(in)    :: sigma
+      real(dp), dimension(ddx_data % ngrid),       intent(inout) :: pot
+      real(dp), dimension((ddx_data % lmax+1)**2),      intent(inout) :: basloc
+      real(dp), dimension((ddx_data % lmax+1)**2),      intent(inout) :: vplm
+      real(dp), dimension(ddx_data % lmax+1),      intent(inout) :: vcos
+      real(dp), dimension(ddx_data % lmax+1),      intent(inout) :: vsin
 !
       integer :: its, ij, jsph
       real(dp)  :: vij(3), sij(3)
       real(dp)  :: vvij, tij, xij, oij, stslm, stslm2, stslm3, &
           & thigh, rho, ctheta, stheta, cphi, sphi
-      real(dp) :: work((dd_data % lmax+1)*(dd_data % lmax+1)+3*dd_data % lmax)
+      real(dp) :: work((ddx_data % lmax+1)*(ddx_data % lmax+1)+3*ddx_data % lmax)
 !
 !------------------------------------------------------------------------
-      thigh = one + pt5*(dd_data % se + one)*dd_data % eta
+      thigh = one + pt5*(ddx_data % se + one)*ddx_data % eta
 !
 !     initialize
       pot(:) = zero
@@ -3484,22 +3634,22 @@ subroutine calcv( dd_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
       if ( first )  return
 !
 !     loop over grid points
-      do its = 1, dd_data % ngrid
+      do its = 1, ddx_data % ngrid
 !
 !       contribution from integration point present
-        if ( dd_data % ui(its,isph).lt.one ) then
+        if ( ddx_data % ui(its,isph).lt.one ) then
 !
 !         loop over neighbors of i-sphere
-          do ij = dd_data % inl(isph), dd_data % inl(isph+1)-1
+          do ij = ddx_data % inl(isph), ddx_data % inl(isph+1)-1
 !
 !           neighbor is j-sphere
-            jsph = dd_data % nl(ij)
+            jsph = ddx_data % nl(ij)
 !            
 !           compute t_n^ij = | r_i + \rho_i s_n - r_j | / \rho_j
-            vij  = dd_data % csph(:,isph) + dd_data % rsph(isph)* &
-                & dd_data % cgrid(:,its) - dd_data % csph(:,jsph)
+            vij  = ddx_data % csph(:,isph) + ddx_data % rsph(isph)* &
+                & ddx_data % cgrid(:,its) - ddx_data % csph(:,jsph)
             vvij = sqrt( dot_product( vij, vij ) )
-            tij  = vvij / dd_data % rsph(jsph) 
+            tij  = vvij / ddx_data % rsph(jsph) 
 !
 !           point is INSIDE j-sphere
 !           ------------------------
@@ -3509,12 +3659,12 @@ subroutine calcv( dd_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
 !              sij = vij / vvij
 !!            
 !!             compute \chi( t_n^ij )
-              xij = fsw( tij, dd_data % se, dd_data % eta )
+              xij = fsw( tij, ddx_data % se, ddx_data % eta )
 !!
 !!             compute W_n^ij
-              if ( dd_data % fi(its,isph).gt.one ) then
+              if ( ddx_data % fi(its,isph).gt.one ) then
 !!
-                oij = xij / dd_data % fi(its,isph)
+                oij = xij / ddx_data % fi(its,isph)
 !!
               else
 !!
@@ -3524,14 +3674,14 @@ subroutine calcv( dd_data, first, isph, pot, sigma, basloc, vplm, vcos, vsin )
 !!
 !!             compute Y_l^m( s_n^ij )
 !              !call ylmbas( sij, basloc, vplm, vcos, vsin )
-!              call ylmbas(sij, rho, ctheta, stheta, cphi, sphi, dd_data % lmax, &
-!                  & dd_data % vscales, basloc, vplm, vcos, vsin)
+!              call ylmbas(sij, rho, ctheta, stheta, cphi, sphi, ddx_data % lmax, &
+!                  & ddx_data % vscales, basloc, vplm, vcos, vsin)
 !!                    
 !!             accumulate over j, l, m
-!              pot(its) = pot(its) + oij * intmlp( dd_data, tij, sigma(:,jsph), basloc )
+!              pot(its) = pot(its) + oij * intmlp( ddx_data, tij, sigma(:,jsph), basloc )
 !!              
-                call fmm_l2p_work(vij, dd_data % rsph(jsph), dd_data % lmax, &
-                    & dd_data % vscales_rel, oij, sigma(:, jsph), one, pot(its), &
+                call fmm_l2p_work(vij, ddx_data % rsph(jsph), ddx_data % lmax, &
+                    & ddx_data % vscales_rel, oij, sigma(:, jsph), one, pot(its), &
                     & work)
             endif
           end do
@@ -3552,20 +3702,20 @@ end subroutine calcv
 !  l,m
 !
 !------------------------------------------------------------------------
-subroutine ddmkxi( dd_data, s, xi)
+subroutine ddmkxi( ddx_data, s, xi)
 !
-    type(dd_data_type) :: dd_data
-       real(dp), dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: s
-       real(dp), dimension(dd_data % ncav),      intent(inout) :: xi
+    type(ddx_type) :: ddx_data
+       real(dp), dimension(ddx_data % nbasis, ddx_data % nsph), intent(in)    :: s
+       real(dp), dimension(ddx_data % ncav),      intent(inout) :: xi
 !
        integer :: its, isph, ii
 !
        ii = 0
-       do isph = 1, dd_data % nsph
-         do its = 1, dd_data % ngrid
-           if (dd_data % ui(its,isph) .gt. zero) then
+       do isph = 1, ddx_data % nsph
+         do its = 1, ddx_data % ngrid
+           if (ddx_data % ui(its,isph) .gt. zero) then
              ii     = ii + 1
-             xi(ii) = dd_data % ui(its,isph)*dot_product(dd_data % vwgrid(:,its),s(:,isph))
+             xi(ii) = ddx_data % ui(its,isph)*dot_product(ddx_data % vwgrid(:,its),s(:,isph))
            end if
          end do
        end do
@@ -3582,26 +3732,26 @@ end subroutine ddmkxi
 !              l,m
 !
 !------------------------------------------------------------------------
-subroutine ddmkzeta( dd_data, s, zeta)
+subroutine ddmkzeta( ddx_data, s, zeta)
 !
-    type(dd_data_type) :: dd_data
-       real(dp), dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: s
-       real(dp), dimension(dd_data % ncav),      intent(inout) :: zeta
+    type(ddx_type) :: ddx_data
+       real(dp), dimension(ddx_data % nbasis, ddx_data % nsph), intent(in)    :: s
+       real(dp), dimension(ddx_data % ncav),      intent(inout) :: zeta
 !
        integer :: its, isph, ii
 !
        ii = 0
-       do isph = 1, dd_data % nsph
-         do its = 1, dd_data % ngrid
-           if (dd_data % ui(its,isph) .gt. zero) then
+       do isph = 1, ddx_data % nsph
+         do its = 1, ddx_data % ngrid
+           if (ddx_data % ui(its,isph) .gt. zero) then
              ii     = ii + 1
-             zeta(ii) = dd_data % ui(its,isph)* &
-                 & dot_product(dd_data % vwgrid(:,its),s(:,isph))
+             zeta(ii) = ddx_data % ui(its,isph)* &
+                 & dot_product(ddx_data % vwgrid(:,its),s(:,isph))
            end if
          end do
        end do
 !
-       zeta = pt5*((dd_data % eps-one)/dd_data % eps)*zeta
+       zeta = pt5*((ddx_data % eps-one)/ddx_data % eps)*zeta
        return
 end subroutine ddmkzeta
 
@@ -3609,55 +3759,55 @@ end subroutine ddmkzeta
 !!
 !! assemble the diagonal blocks of the reps matrix
 !! then invert them to build the preconditioner
-subroutine mkprec(dd_data)
+subroutine mkprec(ddx_data)
     ! Inouts
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     integer :: isph, lm, ind, l1, m1, ind1, its, istatus
     real(dp)  :: f, f1
     integer, allocatable :: ipiv(:)
     real(dp),  allocatable :: work(:)
     external :: dgetrf, dgetri
     ! Allocation of temporaries
-    allocate(ipiv(dd_data % nbasis),work(dd_data % nbasis**2),stat=istatus)
+    allocate(ipiv(ddx_data % nbasis),work(ddx_data % nbasis**2),stat=istatus)
     if (istatus.ne.0) then
         write(*,*) 'mkprec : allocation failed !'
         stop
     endif
     ! Init
-    dd_data % rx_prc = zero
+    ddx_data % rx_prc = zero
     ! Off-diagonal part
-    do isph = 1, dd_data % nsph
-        do its = 1, dd_data % ngrid
-            f = twopi* dd_data % ui(its,isph) * dd_data % wgrid(its)
-            do l1 = 0, dd_data % lmax
+    do isph = 1, ddx_data % nsph
+        do its = 1, ddx_data % ngrid
+            f = twopi* ddx_data % ui(its,isph) * ddx_data % wgrid(its)
+            do l1 = 0, ddx_data % lmax
                 ind1 = l1*l1 + l1 + 1
                 do m1 = -l1, l1
-                    f1 = f*dd_data % vgrid(ind1 + m1,its)/(two*dble(l1) + one)
-                    do lm = 1, dd_data % nbasis
-                        dd_data % rx_prc(lm,ind1 + m1,isph) = dd_data % rx_prc(lm,ind1 + m1,isph) + &
-                            & f1*dd_data % vgrid(lm,its)
+                    f1 = f*ddx_data % vgrid(ind1 + m1,its)/(two*dble(l1) + one)
+                    do lm = 1, ddx_data % nbasis
+                        ddx_data % rx_prc(lm,ind1 + m1,isph) = ddx_data % rx_prc(lm,ind1 + m1,isph) + &
+                            & f1*ddx_data % vgrid(lm,its)
                     end do
                 end do
             end do
         end do
     end do
     ! add diagonal
-    f = twopi*(dd_data % eps + one)/(dd_data % eps - one)
-    do isph = 1, dd_data % nsph
-        do lm = 1, dd_data % nbasis
-            dd_data % rx_prc(lm,lm,isph) = dd_data % rx_prc(lm,lm,isph) + f
+    f = twopi*(ddx_data % eps + one)/(ddx_data % eps - one)
+    do isph = 1, ddx_data % nsph
+        do lm = 1, ddx_data % nbasis
+            ddx_data % rx_prc(lm,lm,isph) = ddx_data % rx_prc(lm,lm,isph) + f
         end do
     end do
     ! invert the blocks
-    do isph = 1, dd_data % nsph
-        call dgetrf(dd_data % nbasis, dd_data % nbasis, &
-            & dd_data % rx_prc(:,:,isph), dd_data % nbasis, ipiv, istatus)
+    do isph = 1, ddx_data % nsph
+        call dgetrf(ddx_data % nbasis, ddx_data % nbasis, &
+            & ddx_data % rx_prc(:,:,isph), ddx_data % nbasis, ipiv, istatus)
         if (istatus.ne.0) then 
             write(6,*) 'lu failed in mkprc'
             stop
         end if
-        call dgetri(dd_data % nbasis, dd_data % rx_prc(:,:,isph), &
-            & dd_data % nbasis, ipiv, work, dd_data % nbasis**2, istatus)
+        call dgetri(ddx_data % nbasis, ddx_data % rx_prc(:,:,isph), &
+            & ddx_data % nbasis, ipiv, work, ddx_data % nbasis**2, istatus)
         if (istatus.ne.0) then 
             write(6,*) 'inversion failed in mkprc'
             stop
@@ -7053,6 +7203,7 @@ subroutine fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vcnk, &
                     dst_m(indn-k) = res2
                 end do
             end do
+        ! Update output if beta is non-zero
         else
             do n = 0, p
                 ! Offset for dst_m
@@ -7092,15 +7243,31 @@ subroutine fmm_m2m_ztranslate_adj_work(z, src_r, dst_r, p, vscales, vcnk, &
         end if
     ! If harmonics are located at the same point
     else
-        r1 = dst_r / src_r
-        tmp1 = alpha * r1
-        do j = 0, p
-            indj = j*j + j + 1
-            do k = indj-j, indj+j
-                dst_m(k) = dst_m(k) + src_m(k)*tmp1
+        ! Overwrite output if beta is zero
+        if (beta .eq. zero) then
+            r1 = dst_r / src_r
+            tmp1 = alpha * r1
+            do j = 0, p
+                indj = j*j + j + 1
+                res1 = zero
+                do k = indj-j, indj+j
+                    dst_m(k) = tmp1 * src_m(k)
+                end do
+                tmp1 = tmp1 * r1
             end do
-            tmp1 = tmp1 * r1
-        end do
+        ! Update output if beta is non-zero
+        else
+            r1 = dst_r / src_r
+            tmp1 = alpha * r1
+            do j = 0, p
+                indj = j*j + j + 1
+                res1 = zero
+                do k = indj-j, indj+j
+                    dst_m(k) = beta*dst_m(k) + tmp1*src_m(k)
+                end do
+                tmp1 = tmp1 * r1
+            end do
+        end if
     end if
 end subroutine fmm_m2m_ztranslate_adj_work
 
@@ -7420,7 +7587,7 @@ subroutine fmm_m2m_rotation(c, src_r, dst_r, p, vscales, vcnk, alpha, &
     ! Output
     real(dp), intent(inout) :: dst_m((p+1)*(p+1))
     ! Temporary workspace
-    real(dp) :: work(6*p*p+19*p+8)
+    real(dp) :: work(6*p*p + 19*p + 8)
     ! Call corresponding work routine
     call fmm_m2m_rotation_work(c, src_r, dst_r, p, vscales, vcnk, alpha, &
         & src_m, beta, dst_m, work)
@@ -8573,142 +8740,6 @@ subroutine fmm_l2l_rotation_adj_work(c, src_r, dst_r, p, vscales, vfact, &
     call fmm_sph_rotate_oz_work(p, vcos, vsin, one, tmp_l2, beta, dst_l)
 end subroutine fmm_l2l_rotation_adj_work
 
-!> Direct L2L translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_l: Expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_l: Expansion in new harmonics
-subroutine fmm_l2l_reflection(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_l, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_l((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_l((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
-        & tmp_l((p+1)*(p+1)), tmp_l2((p+1)*(p+1))
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_l2l_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
-            & src_l, beta, dst_l)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    call fmm_sph_transform(p, r1, alpha, src_l, zero, tmp_l)
-    call fmm_l2l_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_l, &
-        & zero, tmp_l2)
-    call fmm_sph_transform(p, r1, one, tmp_l2, beta, dst_l)
-end subroutine fmm_l2l_reflection
-
-!> Adjoint L2L translation by 2 reflections and 1 translation
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_l: Expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_l: Expansion in new harmonics
-subroutine fmm_l2l_reflection_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_l, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_l((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_l((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: max123, ssq123, rho, c1(3), c1_norm, r1(3, 3), &
-        & tmp_l((p+1)*(p+1)), tmp_l2((p+1)*(p+1))
-    integer :: m, n
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_l2l_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
-            & alpha, src_l, beta, dst_l)
-        return
-    end if
-    ! Compute rho, c(1:2) != zero already
-    if (abs(c(1)) .gt. abs(c(2))) then
-        max123 = abs(c(1))
-        ssq123 = one + (c(2)/c(1))**2
-    else
-        max123 = abs(c(2))
-        ssq123 = one + (c(1)/c(2))**2
-    end if
-    if (abs(c(3)) .gt. max123) then
-        rho = one + ssq123*(max123/c(3))**2
-        rho = abs(c(3)) * sqrt(rho)
-    else
-        rho = ssq123 + (c(3)/max123)**2
-        rho = max123 * sqrt(rho)
-    end if
-    ! Reorder (x,y,z) -> (y,z,x) and set proper reflection normal vector c1
-    if (c(3) .ge. zero) rho = -rho
-    c1(1) = c(2)
-    c1(2) = c(3) - rho ! -rho and c(3) have the same sign
-    c1(3) = c(1)
-    ! Normalize vector c1. We know for sure c1(2) is maximum and is non-zero
-    max123 = abs(c1(2))
-    ssq123 = one + (c1(1)/c1(2))**2 + (c1(3)/c1(2))**2
-    c1_norm = max123 * sqrt(ssq123)
-    c1 = c1 / c1_norm
-    r1 = 0
-    do m = 1, 3
-        r1(m, m) = 1
-        do n = 1, 3
-            r1(n, m) = r1(n, m) - two*c1(n)*c1(m)
-        end do
-    end do
-    call fmm_sph_transform(p, r1, alpha, src_l, zero, tmp_l)
-    call fmm_l2l_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
-        & tmp_l, zero, tmp_l2)
-    call fmm_sph_transform(p, r1, one, tmp_l2, beta, dst_l)
-end subroutine fmm_l2l_reflection_adj
-
 !> Save matrices of L2L operation by 2 reflections and 1 translation
 !!
 !! @param[in] c: Radius-vector from new to old centers of harmonics
@@ -8831,80 +8862,6 @@ subroutine fmm_l2l_reflection_use_mat_adj(c, src_r, dst_r, p, transform_mat, &
         & tmp_l2)
     call fmm_sph_transform_use_mat(p, transform_mat, one, tmp_l2, beta, dst_l)
 end subroutine fmm_l2l_reflection_use_mat_adj
-
-!> Direct L2L translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_l2l_reflection
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_m: Expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_m: Expansion in new harmonics
-subroutine fmm_l2l_reflection2(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_l, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_l((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_l((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_l((p+1)*(p+1)), tmp_l2((p+1)*(p+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_l2l_ztranslate(c(3), src_r, dst_r, p, vscales, vfact, alpha, &
-            & src_l, beta, dst_l)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(p, r1, alpha, src_l, zero, tmp_l)
-    call fmm_l2l_ztranslate(rho, src_r, dst_r, p, vscales, vfact, one, tmp_l, &
-        & zero, tmp_l2)
-    call fmm_sph_transform(p, r1, one, tmp_l2, beta, dst_l)
-end subroutine fmm_l2l_reflection2
-
-!> Adjoint L2L translation by 2 reflections and 1 translation
-!!
-!! Slightly shorter implementation of @ref fmm_l2l_reflection_adj
-!!
-!! @param[in] c: Radius-vector from new to old centers of harmonics
-!! @param[in] src_r: Radius of old harmonics
-!! @param[in] dst_r: Radius of new harmonics
-!! @param[in] p: Maximal degree of spherical harmonics
-!! @param[in] vscales: Normalization constants for \f$ Y_\ell^m \f$
-!! @param[in] vfact: Square roots of factorials
-!! @param[in] alpha: Scalar multiplier for `src_l`
-!! @param[in] src_m: Expansion in old harmonics
-!! @param[in] beta: Scalar multiplier for `dst_l`
-!! @param[inout] dst_m: Expansion in new harmonics
-subroutine fmm_l2l_reflection2_adj(c, src_r, dst_r, p, vscales, vfact, alpha, &
-        & src_l, beta, dst_l)
-    ! Inputs
-    real(dp), intent(in) :: c(3), src_r, dst_r, vscales((p+1)*(p+1)), &
-        & vfact(2*p+1), alpha, src_l((p+1)*(p+1)), beta
-    integer, intent(in) :: p
-    ! Output
-    real(dp), intent(inout) :: dst_l((p+1)*(p+1))
-    ! Local variables
-    real(dp) :: rho, r1(3, 3), tmp_l((p+1)*(p+1)), tmp_l2((p+1)*(p+1))
-    ! If no need for transformation, just do translation along z
-    if ((c(1) .eq. zero) .and. (c(2) .eq. zero)) then
-        call fmm_l2l_ztranslate_adj(c(3), src_r, dst_r, p, vscales, vfact, &
-            & alpha, src_l, beta, dst_l)
-        return
-    end if
-    call coord_reflect_get_mat(c, rho, r1)
-    call fmm_sph_transform(p, r1, alpha, src_l, zero, tmp_l)
-    call fmm_l2l_ztranslate_adj(rho, src_r, dst_r, p, vscales, vfact, one, &
-        & tmp_l, zero, tmp_l2)
-    call fmm_sph_transform(p, r1, one, tmp_l2, beta, dst_l)
-end subroutine fmm_l2l_reflection2_adj
 
 !> Direct M2L translation over OZ axis
 !!
@@ -9042,11 +8999,12 @@ subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
             indj = j*j + j + 1
             ! k = 0
             tmp1 = alpha * vscales(indj) * pow_r2
+            pow_r2 = pow_r2 * r2
             res1 = zero
             do n = 0, pm
                 res1 = res1 + m2l_ztranslate_coef(n+1, 1, j+1)*src_m2(n+1)
             end do
-            dst_l(indj) = tmp1*res1
+            dst_l(indj) = tmp1 * res1
             ! k != 0
             do k = 1, j
                 ! Offsets for src_m2
@@ -9056,16 +9014,15 @@ subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
                 res2 = zero
                 do n = k, pm
                     res1 = res1 + &
-                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j-k+1)* &
                         & src_m2(indk1+n-k)
                     res2 = res2 + &
-                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j-k+1)* &
                         & src_m2(indk2+n-k)
                 end do
                 dst_l(indj+k) = tmp1 * res1
                 dst_l(indj-k) = tmp1 * res2
             end do
-            pow_r2 = pow_r2 * r2
         end do
     else
         do j = 0, pl
@@ -9073,6 +9030,7 @@ subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
             indj = j*j + j + 1
             ! k = 0
             tmp1 = alpha * vscales(indj) * pow_r2
+            pow_r2 = pow_r2 * r2
             res1 = zero
             do n = 0, pm
                 res1 = res1 + m2l_ztranslate_coef(n+1, 1, j+1)*src_m2(n+1)
@@ -9087,16 +9045,15 @@ subroutine fmm_m2l_ztranslate_work(z, src_r, dst_r, pm, pl, vscales, &
                 res2 = zero
                 do n = k, pm
                     res1 = res1 + &
-                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j-k+1)* &
                         & src_m2(indk1+n-k)
                     res2 = res2 + &
-                        & m2l_ztranslate_coef(n-k+1, k+1, j+1)* &
+                        & m2l_ztranslate_coef(n-k+1, k+1, j-k+1)* &
                         & src_m2(indk2+n-k)
                 end do
                 dst_l(indj+k) = beta*dst_l(indj+k) + tmp1*res1
                 dst_l(indj-k) = beta*dst_l(indj-k) + tmp1*res2
             end do
-            pow_r2 = pow_r2 * r2
         end do
     end if
 end subroutine fmm_m2l_ztranslate_work
@@ -9119,24 +9076,25 @@ end subroutine fmm_m2l_ztranslate_work
 !! @parma[in] pl: Maximal degree of local spherical harmonics
 !! @parma[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_adj_coef:
 !! @param[in] alpha: Scalar multipler for `src_l`
 !! @param[in] src_l: Expansion in old (local) harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new (multipole) harmonics
 subroutine fmm_m2l_ztranslate_adj(z, src_r, dst_r, pl, pm, vscales, &
-        & vfact, alpha, src_l, beta, dst_m)
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+        & m2l_ztranslate_adj_coef(pl+1, pl+1, pm+1), alpha, &
+        & src_l((pl+1)*(pl+1)), beta
     integer, intent(in) :: pl, pm
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Temporary workspace
-    real(dp) :: work(pl+1)
+    real(dp) :: work((pl+2)*(pl+1))
     ! Call corresponding work routine
     call fmm_m2l_ztranslate_adj_work(z, src_r, dst_r, pl, pm, vscales, &
-        & vfact, alpha, src_l, beta, dst_m, work)
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m, work)
 end subroutine fmm_m2l_ztranslate_adj
 
 !> Adjoint M2L translation over OZ axis
@@ -9157,26 +9115,27 @@ end subroutine fmm_m2l_ztranslate_adj
 !! @parma[in] pl: Maximal degree of local spherical harmonics
 !! @parma[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] vscales: Normalization constants for harmonics
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_adj_coef:
 !! @param[in] alpha: Scalar multipler for `src_l`
 !! @param[in] src_l: Expansion in old (local) harmonics
 !! @param[in] beta: Scalar multipler for `dst_m`
 !! @param[inout] dst_m: Expansion in new (multipole) harmonics
 subroutine fmm_m2l_ztranslate_adj_work(z, src_r, dst_r, pl, pm, vscales, &
-        & vfact, alpha, src_l, beta, dst_m, work)
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: z, src_r, dst_r, vscales((pm+pl+1)*(pm+pl+1)), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+        & m2l_ztranslate_adj_coef(pl+1, pl+1, pm+1), alpha, &
+        & src_l((pl+1)*(pl+1)), beta
     integer, intent(in) :: pl, pm
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Temporary workspace
-    real(dp), intent(out), target :: work(pl+1)
+    real(dp), intent(out), target :: work((pl+2)*(pl+1))
     ! Local variables
     real(dp) :: tmp1, tmp2, tmp3, r1, r2, pow_r1, res1, res2
-    integer :: j, k, n, indj, indn
+    integer :: j, k, n, indj, indn, indk1, indk2
     ! Pointers for temporary values of powers
-    real(dp), pointer :: pow_r2(:)
+    real(dp), pointer :: pow_r2(:), src_l2(:)
     ! In case alpha is zero just do a proper scaling of output
     if (alpha .eq. zero) then
         if (beta .eq. zero) then
@@ -9193,84 +9152,104 @@ subroutine fmm_m2l_ztranslate_adj_work(z, src_r, dst_r, pl, pm, vscales, &
         return
     end if
     ! Prepare pointers
-    pow_r2(1:pl+1) => work(1:pl+1)
+    n = (pl+1) ** 2
+    src_l2(1:n) => work(1:n)
+    pow_r2(1:pl+1) => work(n+1:n+pl+1)
     ! Get powers of r1 and r2
     r1 = -dst_r / z
     r2 = -src_r / z
     ! This abs(r1) makes it possible to work with negative z to avoid
     ! unnecessary rotation to positive z
+    tmp1 = one
+    do j = 0, pl
+        indj = j*j + j + 1
+        pow_r2(j+1) = tmp1 * vscales(indj)
+        tmp1 = tmp1 * r2
+    end do
     pow_r1 = abs(r1)
-    pow_r2(1) = one
-    do j = 2, pl+1
-        pow_r2(j) = pow_r2(j-1) * r2
+    ! Reorder source harmonics from (degree, order) to (order, degree)
+    ! Zero order k=0 at first
+    do j = 0, pl
+        indj = j*j + j + 1
+        src_l2(j+1) = pow_r2(j+1) * src_l(indj)
+    end do
+    ! Non-zero orders next, a positive k followed by a negative -k
+    indk1 = pl + 2
+    do k = 1, pl
+        n = pl - k + 1
+        indk2 = indk1 + n
+        do j = k, pl
+            indj = j*j + j + 1
+            src_l2(indk1+j-k) = pow_r2(j+1) * src_l(indj+k)
+            src_l2(indk2+j-k) = pow_r2(j+1) * src_l(indj-k)
+        end do
+        indk1 = indk2 + n
     end do
     ! Do actual adjoint M2L
     ! Overwrite output if beta is zero
     if (beta .eq. zero) then
         do n = 0, pm
             indn = n*n + n + 1
-            tmp1 = alpha * pow_r1 / vscales(indn)
-            pow_r1 = -pow_r1 * r1
             ! k = 0
-            tmp2 = tmp1 / vfact(n+1) / vfact(n+1)
-            tmp1 = -tmp1
+            tmp1 = alpha * pow_r1 / vscales(indn)
+            pow_r1 = pow_r1 * r1
             res1 = zero
             do j = 0, pl
                 indj = j*j + j + 1
-                tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j+1) / &
-                    & vfact(j+1) * (vfact(j+n+1)**2)
-                res1 = res1 + tmp3*src_l(indj)
+                res1 = res1 + m2l_ztranslate_adj_coef(j+1, 1, n+1)*src_l2(j+1)
             end do
-            dst_m(indn) = tmp2 * res1
+            dst_m(indn) = tmp1 * res1
             ! k != 0
             do k = 1, n
-                tmp2 = tmp1 / vfact(n-k+1) / vfact(n+k+1)
-                tmp1 = -tmp1
+                ! Offsets for src_l2
+                indk1 = pl + 2 + (2*pl-k+2)*(k-1)
+                indk2 = indk1 + pl - k + 1
                 res1 = zero
                 res2 = zero
                 do j = k, pl
                     indj = j*j + j + 1
-                    tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
-                        & vfact(j+k+1) * (vfact(j+n+1)**2)
-                    res1 = res1 + tmp3*src_l(indj+k)
-                    res2 = res2 + tmp3*src_l(indj-k)
+                    res1 = res1 + &
+                        & m2l_ztranslate_adj_coef(j-k+1, k+1, n-k+1)* &
+                        & src_l2(indk1+j-k)
+                    res2 = res2 + &
+                        & m2l_ztranslate_adj_coef(j-k+1, k+1, n-k+1)* &
+                        & src_l2(indk2+j-k)
                 end do
-                dst_m(indn+k) = tmp2 * res1
-                dst_m(indn-k) = tmp2 * res2
+                dst_m(indn+k) = tmp1 * res1
+                dst_m(indn-k) = tmp1 * res2
             end do
         end do
     ! Update output if beta is non-zero
     else
         do n = 0, pm
             indn = n*n + n + 1
-            tmp1 = alpha * pow_r1 / vscales(indn)
-            pow_r1 = -pow_r1 * r1
             ! k = 0
-            tmp2 = tmp1 / vfact(n+1) / vfact(n+1)
-            tmp1 = -tmp1
+            tmp1 = alpha * pow_r1 / vscales(indn)
+            pow_r1 = pow_r1 * r1
             res1 = zero
             do j = 0, pl
                 indj = j*j + j + 1
-                tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j+1) / &
-                    & vfact(j+1) * (vfact(j+n+1)**2)
-                res1 = res1 + tmp3*src_l(indj)
+                res1 = res1 + m2l_ztranslate_adj_coef(j+1, 1, n+1)*src_l2(j+1)
             end do
-            dst_m(indn) = beta*dst_m(indn) + tmp2*res1
+            dst_m(indn) = beta*dst_m(indn) + tmp1*res1
             ! k != 0
             do k = 1, n
-                tmp2 = tmp1 / vfact(n-k+1) / vfact(n+k+1)
-                tmp1 = -tmp1
+                ! Offsets for src_l2
+                indk1 = pl + 2 + (2*pl-k+2)*(k-1)
+                indk2 = indk1 + pl - k + 1
                 res1 = zero
                 res2 = zero
                 do j = k, pl
                     indj = j*j + j + 1
-                    tmp3 = vscales(indj) * pow_r2(j+1) / vfact(j-k+1) / &
-                        & vfact(j+k+1) * (vfact(j+n+1)**2)
-                    res1 = res1 + tmp3*src_l(indj+k)
-                    res2 = res2 + tmp3*src_l(indj-k)
+                    res1 = res1 + &
+                        & m2l_ztranslate_adj_coef(j-k+1, k+1, n-k+1)* &
+                        & src_l2(indk1+j-k)
+                    res2 = res2 + &
+                        & m2l_ztranslate_adj_coef(j-k+1, k+1, n-k+1)* &
+                        & src_l2(indk2+j-k)
                 end do
-                dst_m(indn+k) = beta*dst_m(indn+k) + tmp2*res1
-                dst_m(indn-k) = beta*dst_m(indn-k) + tmp2*res2
+                dst_m(indn+k) = beta*dst_m(indn+k) + tmp1*res1
+                dst_m(indn-k) = beta*dst_m(indn-k) + tmp1*res2
             end do
         end do
     end if
@@ -9744,24 +9723,25 @@ end subroutine fmm_m2l_rotation_work
 !! @param[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_adj_oef:
 !! @param[in] alpha: Scalar multiplier for `src_l`
 !! @param[in] src_l: expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: expansion in new harmonics
-subroutine fmm_m2l_rotation_adj(c, src_r, dst_r, pl, pm, vscales, vfact, &
-        & alpha, src_l, beta, dst_m)
+subroutine fmm_m2l_rotation_adj(c, src_r, dst_r, pl, pm, vscales, &
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+        & m2l_ztranslate_adj_coef(pl+1, pl+1, pm+1), alpha, &
+        & src_l((pl+1)*(pl+1)), beta
     integer, intent(in) :: pl, pm
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
     ! Temporary workspace
     real(dp) :: work(6*max(pm, pl)**2 + 19*max(pm, pl) + 8)
     ! Call corresponding work routine
-    call fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, vfact, &
-        & alpha, src_l, beta, dst_m, work)
+    call fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, &
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m, work)
 end subroutine fmm_m2l_rotation_adj
 
 !> Adjoint M2L translation by 4 rotations and 1 translation
@@ -9785,18 +9765,19 @@ end subroutine fmm_m2l_rotation_adj
 !! @param[in] pl: Maximal degree of local spherical harmonics
 !! @param[in] pm: Maximal degree of multipole spherical harmonics
 !! @param[in] vscales: normalization constants for Y_lm
-!! @param[in] vfact: Square roots of factorials
+!! @param[in] m2l_ztranslate_adj_coef:
 !! @param[in] alpha: Scalar multiplier for `src_l`
 !! @param[in] src_l: expansion in old harmonics
 !! @param[in] beta: Scalar multiplier for `dst_m`
 !! @param[inout] dst_m: expansion in new harmonics
 !! @param[out] work: Temporary workspace of a size 6*p*p+19*p+8 where p is a
 !!      maximum of pm and pl
-subroutine fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, vfact, &
-        & alpha, src_l, beta, dst_m, work)
+subroutine fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, &
+        & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m, work)
     ! Inputs
     real(dp), intent(in) :: c(3), src_r, dst_r, vscales((pm+pl+1)**2), &
-        & vfact(2*(pm+pl)+1), alpha, src_l((pl+1)*(pl+1)), beta
+        & m2l_ztranslate_adj_coef(pl+1, pl+1, pm+1), alpha, &
+        & src_l((pl+1)*(pl+1)), beta
     integer, intent(in) :: pl, pm
     ! Output
     real(dp), intent(inout) :: dst_m((pm+1)*(pm+1))
@@ -9812,9 +9793,9 @@ subroutine fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, vfact, &
     call carttosph(c, rho, ctheta, stheta, cphi, sphi)
     ! If no need for rotations, just do translation along z
     if (stheta .eq. 0) then
-        ! Workspace here is pm+pl+2
+        ! Workspace here is (pl+2)*(pl+1)
         call fmm_m2l_ztranslate_adj_work(c(3), src_r, dst_r, pl, pm, vscales, &
-            & vfact, alpha, src_l, beta, dst_m, work)
+            & m2l_ztranslate_adj_coef, alpha, src_l, beta, dst_m, work)
         return
     end if
     ! Prepare pointers
@@ -9836,9 +9817,9 @@ subroutine fmm_m2l_rotation_adj_work(c, src_r, dst_r, pl, pm, vscales, vfact, &
     ! Perform rotation in the OXZ plane, work size is 4*pl*pl+13*pl+4
     call fmm_sph_rotate_oxz_work(pl, ctheta, -stheta, one, tmp_ml, zero, &
         & tmp_ml2, work)
-    ! OZ translation, workspace here is pm+pl+2
+    ! OZ translation, workspace here is (pl+2)*(pl+1)
     call fmm_m2l_ztranslate_adj_work(rho, src_r, dst_r, pl, pm, vscales, &
-        & vfact, one, tmp_ml2, zero, tmp_ml, work)
+        & m2l_ztranslate_adj_coef, one, tmp_ml2, zero, tmp_ml, work)
     ! Backward rotation in the OXZ plane, work size is 4*pm*pm+13*pm+4
     call fmm_sph_rotate_oxz_work(pm, ctheta, stheta, one, tmp_ml, zero, &
         & tmp_ml2, work)
@@ -10214,576 +10195,521 @@ subroutine tree_get_farnear(jwork, lwork, work, n, nnfar, nfar, sfar, far, &
 end subroutine tree_get_farnear
 
 !> Transfer multipole coefficients over a tree
-subroutine tree_m2m_rotation(dd_data, node_m)
+subroutine tree_m2m_rotation(ddx_data, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp) :: work(6*dd_data % pm**2 + 19*dd_data % pm + 8)
+    real(dp) :: work(6*ddx_data % pm**2 + 19*ddx_data % pm + 8)
     ! Call corresponding work routine
-    call tree_m2m_rotation_work(dd_data, node_m, work)
+    call tree_m2m_rotation_work(ddx_data, node_m, work)
 end subroutine tree_m2m_rotation
 
 !> Transfer multipole coefficients over a tree
-subroutine tree_m2m_rotation_work(dd_data, node_m, work)
+subroutine tree_m2m_rotation_work(ddx_data, node_m, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp), intent(out) :: work(6*dd_data % pm**2 + 19*dd_data % pm + 8)
+    real(dp), intent(out) :: work(6*ddx_data % pm**2 + 19*ddx_data % pm + 8)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
+    do i = ddx_data % nclusters, 1, -1
         ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        if (ddx_data % children(1, i) == 0) cycle
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
+        j = ddx_data % children(1, i)
+        c1 = ddx_data % cnode(:, j)
+        r1 = ddx_data % rnode(j)
         call fmm_m2m_rotation_work(c1-c, r1, r, &
-            & dd_data % pm, &
-            & dd_data % vscales, &
-            & dd_data % vcnk, one, &
+            & ddx_data % pm, &
+            & ddx_data % vscales, &
+            & ddx_data % vcnk, one, &
             & node_m(:, j), zero, node_m(:, i), work)
         ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_m2m_rotation_work(c1-c, r1, r, dd_data % pm, &
-                & dd_data % vscales, dd_data % vcnk, one, &
+        do j = ddx_data % children(1, i)+1, ddx_data % children(2, i)
+            c1 = ddx_data % cnode(:, j)
+            r1 = ddx_data % rnode(j)
+            call fmm_m2m_rotation_work(c1-c, r1, r, ddx_data % pm, &
+                & ddx_data % vscales, ddx_data % vcnk, one, &
                 & node_m(:, j), one, node_m(:, i), work)
         end do
     end do
 end subroutine tree_m2m_rotation_work
 
 !> Adjoint transfer multipole coefficients over a tree
-subroutine tree_m2m_rotation_adj(dd_data, node_m)
+subroutine tree_m2m_rotation_adj(ddx_data, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp) :: work(6*dd_data % pm**2 + 19*dd_data % pm + 8)
+    real(dp) :: work(6*ddx_data % pm**2 + 19*ddx_data % pm + 8)
     ! Call corresponding work routine
-    call tree_m2m_rotation_adj_work(dd_data, node_m, work)
+    call tree_m2m_rotation_adj_work(ddx_data, node_m, work)
 end subroutine tree_m2m_rotation_adj
 
 !> Adjoint transfer multipole coefficients over a tree
-subroutine tree_m2m_rotation_adj_work(dd_data, node_m, work)
+subroutine tree_m2m_rotation_adj_work(ddx_data, node_m, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp), intent(out) :: work(6*dd_data % pm**2 + 19*dd_data % pm + 8)
+    real(dp), intent(out) :: work(6*ddx_data % pm**2 + 19*ddx_data % pm + 8)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_m2m_rotation_adj_work(c-c1, r, r1, dd_data % pm, &
-            & dd_data % vscales, dd_data % vcnk, one, node_m(:, j), one, &
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_m2m_rotation_adj_work(c-c1, r, r1, ddx_data % pm, &
+            & ddx_data % vscales, ddx_data % vcnk, one, node_m(:, j), one, &
             & node_m(:, i), work)
     end do
 end subroutine tree_m2m_rotation_adj_work
 
 !> Save M2M matrices for entire tree
-subroutine tree_m2m_reflection_get_mat(dd_data)
+subroutine tree_m2m_reflection_get_mat(ddx_data)
     ! Input/output
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     ! Local variables
     integer :: i, j, istatus
     real(dp) :: c1(3), c(3), r1, r
     ! For each non-root node define m2m matrices
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_m2m_reflection_get_mat(c1-c, r1, r, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, &
-            & dd_data % m2m_reflect_mat(:, i-1), &
-            & dd_data % m2m_ztranslate_mat(:, i-1))
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_m2m_reflection_get_mat(c1-c, r1, r, ddx_data % pm, &
+            & ddx_data % vscales, ddx_data % vfact, &
+            & ddx_data % m2m_reflect_mat(:, i-1), &
+            & ddx_data % m2m_ztranslate_mat(:, i-1))
     end do
 end subroutine tree_m2m_reflection_get_mat
 
 !> Transfer multipole coefficients over a tree
-subroutine tree_m2m_reflection_use_mat(dd_data, node_m)
+subroutine tree_m2m_reflection_use_mat(ddx_data, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
+    do i = ddx_data % nclusters, 1, -1
         ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        if (ddx_data % children(1, i) == 0) cycle
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
-        call fmm_m2m_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
-            & dd_data % m2m_reflect_mat(:, j-1), &
-            & dd_data % m2m_ztranslate_mat(:, j-1), one, &
+        j = ddx_data % children(1, i)
+        c1 = ddx_data % cnode(:, j)
+        r1 = ddx_data % rnode(j)
+        call fmm_m2m_reflection_use_mat(c1-c, r1, r, ddx_data % pm, &
+            & ddx_data % m2m_reflect_mat(:, j-1), &
+            & ddx_data % m2m_ztranslate_mat(:, j-1), one, &
             & node_m(:, j), zero, node_m(:, i))
         ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_m2m_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
-                & dd_data % m2m_reflect_mat(:, j-1), &
-                & dd_data % m2m_ztranslate_mat(:, j-1), one, &
+        do j = ddx_data % children(1, i)+1, ddx_data % children(2, i)
+            c1 = ddx_data % cnode(:, j)
+            r1 = ddx_data % rnode(j)
+            call fmm_m2m_reflection_use_mat(c1-c, r1, r, ddx_data % pm, &
+                & ddx_data % m2m_reflect_mat(:, j-1), &
+                & ddx_data % m2m_ztranslate_mat(:, j-1), one, &
                 & node_m(:, j), one, node_m(:, i))
         end do
     end do
 end subroutine tree_m2m_reflection_use_mat
 
 !> Transfer multipole coefficients over a tree
-subroutine tree_m2m_reflection_use_mat_adj(dd_data, node_m)
+subroutine tree_m2m_reflection_use_mat_adj(ddx_data, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_m2m_reflection_use_mat_adj(c-c1, r, r1, dd_data % pm, &
-            & dd_data % m2m_reflect_mat(:, i-1), &
-            & dd_data % m2m_ztranslate_mat(:, i-1), &
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_m2m_reflection_use_mat_adj(c-c1, r, r1, ddx_data % pm, &
+            & ddx_data % m2m_reflect_mat(:, i-1), &
+            & ddx_data % m2m_ztranslate_mat(:, i-1), &
             & one, node_m(:, j), one, node_m(:, i))
     end do
 end subroutine tree_m2m_reflection_use_mat_adj
 
 !> Transfer local coefficients over a tree
-subroutine tree_l2l_rotation(dd_data, node_l)
+subroutine tree_l2l_rotation(ddx_data, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp) :: work(6*dd_data % pl**2 + 19*dd_data % pl + 8)
+    real(dp) :: work(6*ddx_data % pl**2 + 19*ddx_data % pl + 8)
     ! Call corresponding work routine
-    call tree_l2l_rotation_work(dd_data, node_l, work)
+    call tree_l2l_rotation_work(ddx_data, node_l, work)
 end subroutine tree_l2l_rotation
 
 !> Transfer local coefficients over a tree
-subroutine tree_l2l_rotation_work(dd_data, node_l, work)
+subroutine tree_l2l_rotation_work(ddx_data, node_l, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp), intent(out) :: work(6*dd_data % pl**2 + 19*dd_data % pl + 8)
+    real(dp), intent(out) :: work(6*ddx_data % pl**2 + 19*ddx_data % pl + 8)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_l2l_rotation_work(c-c1, r, r1, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_l2l_rotation_work(c-c1, r, r1, ddx_data % pl, &
+            & ddx_data % vscales, ddx_data % vfact, one, &
             & node_l(:, j), one, node_l(:, i), work)
     end do
 end subroutine tree_l2l_rotation_work
 
 !> Adjoint transfer local coefficients over a tree
-subroutine tree_l2l_rotation_adj(dd_data, node_l)
+subroutine tree_l2l_rotation_adj(ddx_data, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp) :: work(6*dd_data % pl**2 + 19*dd_data % pl + 8)
+    real(dp) :: work(6*ddx_data % pl**2 + 19*ddx_data % pl + 8)
     ! Call corresponding work routine
-    call tree_l2l_rotation_adj_work(dd_data, node_l, work)
+    call tree_l2l_rotation_adj_work(ddx_data, node_l, work)
 end subroutine tree_l2l_rotation_adj
 
 !> Adjoint transfer local coefficients over a tree
-subroutine tree_l2l_rotation_adj_work(dd_data, node_l, work)
+subroutine tree_l2l_rotation_adj_work(ddx_data, node_l, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp), intent(out) :: work(6*dd_data % pl**2 + 19*dd_data % pl + 8)
+    real(dp), intent(out) :: work(6*ddx_data % pl**2 + 19*ddx_data % pl + 8)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
+    do i = ddx_data % nclusters, 1, -1
         ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        if (ddx_data % children(1, i) == 0) cycle
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
-        call fmm_l2l_rotation_adj_work(c1-c, r1, r, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
+        j = ddx_data % children(1, i)
+        c1 = ddx_data % cnode(:, j)
+        r1 = ddx_data % rnode(j)
+        call fmm_l2l_rotation_adj_work(c1-c, r1, r, ddx_data % pl, &
+            & ddx_data % vscales, ddx_data % vfact, one, &
             & node_l(:, j), zero, node_l(:, i), work)
         ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_l2l_rotation_adj_work(c1-c, r1, r, dd_data % pl, &
-                & dd_data % vscales, dd_data % vfact, one, &
+        do j = ddx_data % children(1, i)+1, ddx_data % children(2, i)
+            c1 = ddx_data % cnode(:, j)
+            r1 = ddx_data % rnode(j)
+            call fmm_l2l_rotation_adj_work(c1-c, r1, r, ddx_data % pl, &
+                & ddx_data % vscales, ddx_data % vfact, one, &
                 & node_l(:, j), one, node_l(:, i), work)
         end do
     end do
 end subroutine tree_l2l_rotation_adj_work
 
-!> Transfer local coefficients over a tree
-subroutine tree_l2l_reflection(dd_data, node_l)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j
-    real(dp) :: c1(3), c(3), r1, r
-    ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_l2l_reflection(c-c1, r, r1, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_l(:, j), one, node_l(:, i))
-    end do
-end subroutine tree_l2l_reflection
-
-!> Adjoint transfer local coefficients over a tree
-subroutine tree_l2l_reflection_adj(dd_data, node_l)
-    ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
-    ! Local variables
-    integer :: i, j, k
-    real(dp) :: c1(3), c(3), r1, r
-    ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
-        ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
-        ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
-        call fmm_l2l_reflection_adj(c1-c, r1, r, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, one, &
-            & node_l(:, j), zero, node_l(:, i))
-        ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_l2l_reflection_adj(c1-c, r1, r, dd_data % pl, &
-                & dd_data % vscales, dd_data % vfact, one, &
-                & node_l(:, j), one, node_l(:, i))
-        end do
-    end do
-end subroutine tree_l2l_reflection_adj
-
 !> Save L2L matrices for entire tree
-subroutine tree_l2l_reflection_get_mat(dd_data)
+subroutine tree_l2l_reflection_get_mat(ddx_data)
     ! Input/output
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     ! Local variables
     integer :: i, j, istatus
     real(dp) :: c1(3), c(3), r1, r
     ! For each non-root node define m2m matrices
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_l2l_reflection_get_mat(c-c1, r, r1, dd_data % pl, &
-            & dd_data % vscales, dd_data % vfact, &
-            & dd_data % l2l_reflect_mat(:, i-1), &
-            & dd_data % l2l_ztranslate_mat(:, i-1))
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_l2l_reflection_get_mat(c-c1, r, r1, ddx_data % pl, &
+            & ddx_data % vscales, ddx_data % vfact, &
+            & ddx_data % l2l_reflect_mat(:, i-1), &
+            & ddx_data % l2l_ztranslate_mat(:, i-1))
     end do
 end subroutine tree_l2l_reflection_get_mat
 
 !> Transfer local coefficients over a tree
-subroutine tree_l2l_reflection_use_mat(dd_data, node_l)
+subroutine tree_l2l_reflection_use_mat(ddx_data, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Top-to-bottom pass
-    do i = 2, dd_data % nclusters
-        j = dd_data % parent(i)
-        c = dd_data % cnode(:, j)
-        r = dd_data % rnode(j)
-        c1 = dd_data % cnode(:, i)
-        r1 = dd_data % rnode(i)
-        call fmm_l2l_reflection_use_mat(c-c1, r, r1, dd_data % pl, &
-            & dd_data % l2l_reflect_mat(:, i-1), &
-            & dd_data % l2l_ztranslate_mat(:, i-1), one, &
+    do i = 2, ddx_data % nclusters
+        j = ddx_data % parent(i)
+        c = ddx_data % cnode(:, j)
+        r = ddx_data % rnode(j)
+        c1 = ddx_data % cnode(:, i)
+        r1 = ddx_data % rnode(i)
+        call fmm_l2l_reflection_use_mat(c-c1, r, r1, ddx_data % pl, &
+            & ddx_data % l2l_reflect_mat(:, i-1), &
+            & ddx_data % l2l_ztranslate_mat(:, i-1), one, &
             & node_l(:, j), one, node_l(:, i))
     end do
 end subroutine tree_l2l_reflection_use_mat
 
 !> Adjoint Transfer local coefficients over a tree
-subroutine tree_l2l_reflection_use_mat_adj(dd_data, node_l)
+subroutine tree_l2l_reflection_use_mat_adj(ddx_data, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j
     real(dp) :: c1(3), c(3), r1, r
     ! Bottom-to-top pass
-    do i = dd_data % nclusters, 1, -1
+    do i = ddx_data % nclusters, 1, -1
         ! Leaf node does not need any update
-        if (dd_data % children(1, i) == 0) cycle
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        if (ddx_data % children(1, i) == 0) cycle
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! First child initializes output
-        j = dd_data % children(1, i)
-        c1 = dd_data % cnode(:, j)
-        r1 = dd_data % rnode(j)
-        call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, dd_data % pl, &
-            & dd_data % l2l_reflect_mat(:, j-1), &
-            & dd_data % l2l_ztranslate_mat(:, j-1), &
+        j = ddx_data % children(1, i)
+        c1 = ddx_data % cnode(:, j)
+        r1 = ddx_data % rnode(j)
+        call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, ddx_data % pl, &
+            & ddx_data % l2l_reflect_mat(:, j-1), &
+            & ddx_data % l2l_ztranslate_mat(:, j-1), &
             & one, node_l(:, j), zero, node_l(:, i))
         ! All other children update the same output
-        do j = dd_data % children(1, i)+1, dd_data % children(2, i)
-            c1 = dd_data % cnode(:, j)
-            r1 = dd_data % rnode(j)
-            call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, dd_data % pl, &
-                & dd_data % l2l_reflect_mat(:, j-1), &
-                & dd_data % l2l_ztranslate_mat(:, j-1), &
+        do j = ddx_data % children(1, i)+1, ddx_data % children(2, i)
+            c1 = ddx_data % cnode(:, j)
+            r1 = ddx_data % rnode(j)
+            call fmm_l2l_reflection_use_mat_adj(c1-c, r1, r, ddx_data % pl, &
+                & ddx_data % l2l_reflect_mat(:, j-1), &
+                & ddx_data % l2l_ztranslate_mat(:, j-1), &
                 & one, node_l(:, j), one, node_l(:, i))
         end do
     end do
 end subroutine tree_l2l_reflection_use_mat_adj
 
 !> Transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_rotation(dd_data, node_m, node_l)
+subroutine tree_m2l_rotation(ddx_data, node_m, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Output
-    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(out) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Temporary workspace
-    real(dp) :: work(6*max(dd_data % pm, dd_data % pl)**2 + &
-        & 19*max(dd_data % pm, dd_data % pl) + 8)
+    real(dp) :: work(6*max(ddx_data % pm, ddx_data % pl)**2 + &
+        & 19*max(ddx_data % pm, ddx_data % pl) + 8)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Any order of this cycle is OK
-    do i = 1, dd_data % nclusters
+    do i = 1, ddx_data % nclusters
         ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
+        if (ddx_data % nfar(i) .eq. 0) then
             node_l(:, i) = zero
             cycle
         end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! Use the first far admissible pair to initialize output
-        k = dd_data % far(dd_data % sfar(i))
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_rotation_work(c1-c, r1, r, dd_data % pm, dd_data % pl, &
-            & dd_data % vscales, dd_data % m2l_ztranslate_coef, one, &
+        k = ddx_data % far(ddx_data % sfar(i))
+        c1 = ddx_data % cnode(:, k)
+        r1 = ddx_data % rnode(k)
+        call fmm_m2l_rotation_work(c1-c, r1, r, ddx_data % pm, ddx_data % pl, &
+            & ddx_data % vscales, ddx_data % m2l_ztranslate_coef, one, &
             & node_m(:, k), zero, node_l(:, i), work)
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_rotation_work(c1-c, r1, r, dd_data % pm, &
-                & dd_data % pl, dd_data % vscales, &
-                & dd_data % m2l_ztranslate_coef, one, node_m(:, k), one, &
+        do j = ddx_data % sfar(i)+1, ddx_data % sfar(i+1)-1
+            k = ddx_data % far(j)
+            c1 = ddx_data % cnode(:, k)
+            r1 = ddx_data % rnode(k)
+            call fmm_m2l_rotation_work(c1-c, r1, r, ddx_data % pm, &
+                & ddx_data % pl, ddx_data % vscales, &
+                & ddx_data % m2l_ztranslate_coef, one, node_m(:, k), one, &
                 & node_l(:, i), work)
         end do
     end do
 end subroutine tree_m2l_rotation
 
 !> Adjoint transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_rotation_adj(dd_data, node_l, node_m)
+subroutine tree_m2l_rotation_adj(ddx_data, node_l, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Output
-    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(out) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Any order of this cycle is OK
     node_m = zero
-    do i = 1, dd_data % nclusters
+    do i = 1, ddx_data % nclusters
         ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
+        if (ddx_data % nfar(i) .eq. 0) then
             cycle
         end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! Use the first far admissible pair to initialize output
-        k = dd_data % far(dd_data % sfar(i))
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_rotation_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
-            & dd_data % vscales, dd_data % vfact, one, &
+        k = ddx_data % far(ddx_data % sfar(i))
+        c1 = ddx_data % cnode(:, k)
+        r1 = ddx_data % rnode(k)
+        call fmm_m2l_rotation_adj(c-c1, r, r1, ddx_data % pl, ddx_data % pm, &
+            & ddx_data % vscales, ddx_data % m2l_ztranslate_adj_coef, one, &
             & node_l(:, i), one, node_m(:, k))
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_rotation_adj(c-c1, r, r1, dd_data % pl, dd_data % pm, &
-                & dd_data % vscales, dd_data % vfact, one, &
+        do j = ddx_data % sfar(i)+1, ddx_data % sfar(i+1)-1
+            k = ddx_data % far(j)
+            c1 = ddx_data % cnode(:, k)
+            r1 = ddx_data % rnode(k)
+            call fmm_m2l_rotation_adj(c-c1, r, r1, ddx_data % pl, ddx_data % pm, &
+                & ddx_data % vscales, ddx_data % m2l_ztranslate_adj_coef, one, &
                 & node_l(:, i), one, node_m(:, k))
         end do
     end do
 end subroutine tree_m2l_rotation_adj
 
 !> Precompute M2L translations for all nodes
-subroutine tree_m2l_reflection_get_mat(dd_data)
+subroutine tree_m2l_reflection_get_mat(ddx_data)
     ! Input/output
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Any order of this cycle is OK
-    do i = 1, dd_data % nclusters
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
-        do j = dd_data % sfar(i), dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_reflection_get_mat(c1-c, r1, r, dd_data % pm, &
-                & dd_data % pl, dd_data % vscales, dd_data % vfact, &
-                & dd_data % m2l_reflect_mat(:, j), &
-                & dd_data % m2l_ztranslate_mat(:, j))
+    do i = 1, ddx_data % nclusters
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
+        do j = ddx_data % sfar(i), ddx_data % sfar(i+1)-1
+            k = ddx_data % far(j)
+            c1 = ddx_data % cnode(:, k)
+            r1 = ddx_data % rnode(k)
+            call fmm_m2l_reflection_get_mat(c1-c, r1, r, ddx_data % pm, &
+                & ddx_data % pl, ddx_data % vscales, ddx_data % vfact, &
+                & ddx_data % m2l_reflect_mat(:, j), &
+                & ddx_data % m2l_ztranslate_mat(:, j))
         end do
     end do
 end subroutine tree_m2l_reflection_get_mat
 
 !> Transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_reflection_use_mat(dd_data, node_m, node_l)
+subroutine tree_m2l_reflection_use_mat(ddx_data, node_m, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Output
-    real(dp), intent(out) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    real(dp), intent(out) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Any order of this cycle is OK
-    do i = 1, dd_data % nclusters
+    do i = 1, ddx_data % nclusters
         ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
+        if (ddx_data % nfar(i) .eq. 0) then
             node_l(:, i) = zero
             cycle
         end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! Use the first far admissible pair to initialize output
-        j = dd_data % sfar(i)
-        k = dd_data % far(j)
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
-            & dd_data % pl, dd_data % m2l_reflect_mat(:, j), &
-            & dd_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), zero, &
+        j = ddx_data % sfar(i)
+        k = ddx_data % far(j)
+        c1 = ddx_data % cnode(:, k)
+        r1 = ddx_data % rnode(k)
+        call fmm_m2l_reflection_use_mat(c1-c, r1, r, ddx_data % pm, &
+            & ddx_data % pl, ddx_data % m2l_reflect_mat(:, j), &
+            & ddx_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), zero, &
             & node_l(:, i))
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_reflection_use_mat(c1-c, r1, r, dd_data % pm, &
-                & dd_data % pl, dd_data % m2l_reflect_mat(:, j), &
-                & dd_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), one, &
+        do j = ddx_data % sfar(i)+1, ddx_data % sfar(i+1)-1
+            k = ddx_data % far(j)
+            c1 = ddx_data % cnode(:, k)
+            r1 = ddx_data % rnode(k)
+            call fmm_m2l_reflection_use_mat(c1-c, r1, r, ddx_data % pm, &
+                & ddx_data % pl, ddx_data % m2l_reflect_mat(:, j), &
+                & ddx_data % m2l_ztranslate_mat(:, j), one, node_m(:, k), one, &
                 & node_l(:, i))
         end do
     end do
 end subroutine tree_m2l_reflection_use_mat
 
 !> Transfer multipole local coefficients into local over a tree
-subroutine tree_m2l_reflection_use_mat_adj(dd_data, node_l, node_m)
+subroutine tree_m2l_reflection_use_mat_adj(ddx_data, node_l, node_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Output
-    real(dp), intent(out) :: node_m((dd_data % pm+1)**2, dd_data % nclusters)
+    real(dp), intent(out) :: node_m((ddx_data % pm+1)**2, ddx_data % nclusters)
     ! Local variables
     integer :: i, j, k
     real(dp) :: c1(3), c(3), r1, r
     ! Any order of this cycle is OK
     node_m = zero
-    do i = 1, dd_data % nclusters
+    do i = 1, ddx_data % nclusters
         ! If no far admissible pairs just set output to zero
-        if (dd_data % nfar(i) .eq. 0) then
+        if (ddx_data % nfar(i) .eq. 0) then
             cycle
         end if
-        c = dd_data % cnode(:, i)
-        r = dd_data % rnode(i)
+        c = ddx_data % cnode(:, i)
+        r = ddx_data % rnode(i)
         ! Use the first far admissible pair to initialize output
-        j = dd_data % sfar(i)
-        k = dd_data % far(j)
-        c1 = dd_data % cnode(:, k)
-        r1 = dd_data % rnode(k)
-        call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, dd_data % pl, &
-            & dd_data % pm, dd_data % m2l_reflect_mat(:, j), &
-            & dd_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
+        j = ddx_data % sfar(i)
+        k = ddx_data % far(j)
+        c1 = ddx_data % cnode(:, k)
+        r1 = ddx_data % rnode(k)
+        call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, ddx_data % pl, &
+            & ddx_data % pm, ddx_data % m2l_reflect_mat(:, j), &
+            & ddx_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
             & node_m(:, k))
-        do j = dd_data % sfar(i)+1, dd_data % sfar(i+1)-1
-            k = dd_data % far(j)
-            c1 = dd_data % cnode(:, k)
-            r1 = dd_data % rnode(k)
-            call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, dd_data % pl, &
-                & dd_data % pm, dd_data % m2l_reflect_mat(:, j), &
-                & dd_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
+        do j = ddx_data % sfar(i)+1, ddx_data % sfar(i+1)-1
+            k = ddx_data % far(j)
+            c1 = ddx_data % cnode(:, k)
+            r1 = ddx_data % rnode(k)
+            call fmm_m2l_reflection_use_mat_adj(c-c1, r, r1, ddx_data % pl, &
+                & ddx_data % pm, ddx_data % m2l_reflect_mat(:, j), &
+                & ddx_data % m2l_ztranslate_mat(:, j), one, node_l(:, i), one, &
                 & node_m(:, k))
         end do
     end do
 end subroutine tree_m2l_reflection_use_mat_adj
 
-subroutine tree_l2p(dd_data, alpha, node_l, beta, grid_v)
+subroutine tree_l2p(ddx_data, alpha, node_l, beta, grid_v)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters), &
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters), &
         & alpha, beta
     ! Output
-    real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
+    real(dp), intent(inout) :: grid_v(ddx_data % ngrid, ddx_data % nsph)
     ! Local variables
-    real(dp) :: sph_l((dd_data % pl+1)**2, dd_data % nsph), c(3)
+    real(dp) :: sph_l((ddx_data % pl+1)**2, ddx_data % nsph), c(3)
     integer :: isph
     external :: dgemm
     ! Init output
@@ -10793,26 +10719,26 @@ subroutine tree_l2p(dd_data, alpha, node_l, beta, grid_v)
         grid_v = beta * grid_v
     end if
     ! Get data from all clusters to spheres
-    do isph = 1, dd_data % nsph
-        sph_l(:, isph) = node_l(:, dd_data % snode(isph))
+    do isph = 1, ddx_data % nsph
+        sph_l(:, isph) = node_l(:, ddx_data % snode(isph))
     end do
     ! Get values at grid points
-    call dgemm('T', 'N', dd_data % ngrid, dd_data % nsph, &
-        & (dd_data % pl+1)**2, alpha, dd_data % l2grid, &
-        & dd_data % vgrid_nbasis, sph_l, (dd_data % pl+1)**2, beta, grid_v, &
-        & dd_data % ngrid)
+    call dgemm('T', 'N', ddx_data % ngrid, ddx_data % nsph, &
+        & (ddx_data % pl+1)**2, alpha, ddx_data % l2grid, &
+        & ddx_data % vgrid_nbasis, sph_l, (ddx_data % pl+1)**2, beta, grid_v, &
+        & ddx_data % ngrid)
 end subroutine tree_l2p
 
-subroutine tree_l2p_adj(dd_data, alpha, grid_v, beta, node_l)
+subroutine tree_l2p_adj(ddx_data, alpha, grid_v, beta, node_l)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: grid_v(ddx_data % ngrid, ddx_data % nsph), alpha, &
         & beta
     ! Output
-    real(dp), intent(inout) :: node_l((dd_data % pl+1)**2, &
-        & dd_data % nclusters)
+    real(dp), intent(inout) :: node_l((ddx_data % pl+1)**2, &
+        & ddx_data % nclusters)
     ! Local variables
-    real(dp) :: sph_l((dd_data % pl+1)**2, dd_data % nsph), c(3)
+    real(dp) :: sph_l((ddx_data % pl+1)**2, ddx_data % nsph), c(3)
     integer :: isph, inode
     external :: dgemm
     ! Init output
@@ -10822,24 +10748,24 @@ subroutine tree_l2p_adj(dd_data, alpha, grid_v, beta, node_l)
         node_l = beta * node_l
     end if
     ! Get weights of spherical harmonics at each sphere
-    call dgemm('N', 'N', (dd_data % pl+1)**2, dd_data % nsph, &
-        & dd_data % ngrid, one, dd_data % l2grid, dd_data % vgrid_nbasis, &
-        & grid_v, dd_data % ngrid, zero, sph_l, &
-        & (dd_data % pl+1)**2)
+    call dgemm('N', 'N', (ddx_data % pl+1)**2, ddx_data % nsph, &
+        & ddx_data % ngrid, one, ddx_data % l2grid, ddx_data % vgrid_nbasis, &
+        & grid_v, ddx_data % ngrid, zero, sph_l, &
+        & (ddx_data % pl+1)**2)
     ! Get data from all clusters to spheres
-    do isph = 1, dd_data % nsph
-        inode = dd_data % snode(isph)
+    do isph = 1, ddx_data % nsph
+        inode = ddx_data % snode(isph)
         node_l(:, inode) = node_l(:, inode) + alpha*sph_l(:, isph)
     end do
 end subroutine tree_l2p_adj
 
-subroutine tree_m2p(dd_data, p, alpha, sph_m, beta, grid_v)
+subroutine tree_m2p(ddx_data, p, alpha, sph_m, beta, grid_v)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     integer, intent(in) :: p
-    real(dp), intent(in) :: sph_m((p+1)**2, dd_data % nsph), alpha, beta
+    real(dp), intent(in) :: sph_m((p+1)**2, ddx_data % nsph), alpha, beta
     ! Output
-    real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
+    real(dp), intent(inout) :: grid_v(ddx_data % ngrid, ddx_data % nsph)
     ! Local variables
     integer :: isph, inode, jnear, jnode, jsph, igrid
     real(dp) :: c(3)
@@ -10852,37 +10778,37 @@ subroutine tree_m2p(dd_data, p, alpha, sph_m, beta, grid_v)
         grid_v = beta * grid_v
     end if
     ! Cycle over all spheres
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
         ! Cycle over all near-field admissible pairs of spheres
-        inode = dd_data % snode(isph)
-        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+        inode = ddx_data % snode(isph)
+        do jnear = ddx_data % snear(inode), ddx_data % snear(inode+1)-1
             ! Near-field interactions are possible only between leaf nodes,
             ! which must contain only a single input sphere
-            jnode = dd_data % near(jnear)
-            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            jnode = ddx_data % near(jnear)
+            jsph = ddx_data % order(ddx_data % cluster(1, jnode))
             ! Ignore self-interaction
             if(isph .eq. jsph) cycle
             ! Accumulate interaction for external grid points only
-            do igrid = 1, dd_data % ngrid
-                if(dd_data % ui(igrid, isph) .eq. zero) cycle
-                c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
-                    & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
-                call fmm_m2p_work(c, dd_data % rsph(jsph), p, &
-                    & dd_data % vscales_rel, alpha, sph_m(:, jsph), one, &
+            do igrid = 1, ddx_data % ngrid
+                if(ddx_data % ui(igrid, isph) .eq. zero) cycle
+                c = ddx_data % cgrid(:, igrid)*ddx_data % rsph(isph) - &
+                    & ddx_data % csph(:, jsph) + ddx_data % csph(:, isph)
+                call fmm_m2p_work(c, ddx_data % rsph(jsph), p, &
+                    & ddx_data % vscales_rel, alpha, sph_m(:, jsph), one, &
                     & grid_v(igrid, isph), work)
             end do
         end do
     end do
 end subroutine tree_m2p
 
-subroutine tree_m2p_adj(dd_data, p, alpha, grid_v, beta, sph_m)
+subroutine tree_m2p_adj(ddx_data, p, alpha, grid_v, beta, sph_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     integer, intent(in) :: p
-    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+    real(dp), intent(in) :: grid_v(ddx_data % ngrid, ddx_data % nsph), alpha, &
         & beta
     ! Output
-    real(dp), intent(inout) :: sph_m((p+1)**2, dd_data % nsph)
+    real(dp), intent(inout) :: sph_m((p+1)**2, ddx_data % nsph)
     ! Temporary workspace
     real(dp) :: work((p+1)*(p+1)+3*p)
     ! Local variables
@@ -10895,71 +10821,71 @@ subroutine tree_m2p_adj(dd_data, p, alpha, grid_v, beta, sph_m)
         sph_m = beta * sph_m
     end if
     ! Cycle over all spheres
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
         ! Cycle over all near-field admissible pairs of spheres
-        inode = dd_data % snode(isph)
-        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+        inode = ddx_data % snode(isph)
+        do jnear = ddx_data % snear(inode), ddx_data % snear(inode+1)-1
             ! Near-field interactions are possible only between leaf nodes,
             ! which must contain only a single input sphere
-            jnode = dd_data % near(jnear)
-            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            jnode = ddx_data % near(jnear)
+            jsph = ddx_data % order(ddx_data % cluster(1, jnode))
             ! Ignore self-interaction
             if(isph .eq. jsph) cycle
             ! Accumulate interaction for external grid points only
-            do igrid = 1, dd_data % ngrid
-                if(dd_data % ui(igrid, isph) .eq. zero) cycle
-                c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
-                    & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
+            do igrid = 1, ddx_data % ngrid
+                if(ddx_data % ui(igrid, isph) .eq. zero) cycle
+                c = ddx_data % cgrid(:, igrid)*ddx_data % rsph(isph) - &
+                    & ddx_data % csph(:, jsph) + ddx_data % csph(:, isph)
                 call fmm_m2p_adj_work(c, alpha*grid_v(igrid, isph), &
-                    & dd_data % rsph(jsph), p, dd_data % vscales_rel, one, &
+                    & ddx_data % rsph(jsph), p, ddx_data % vscales_rel, one, &
                     & sph_m(:, jsph), work)
             end do
         end do
     end do
 end subroutine tree_m2p_adj
 
-subroutine tree_m2p_get_mat(dd_data)
+subroutine tree_m2p_get_mat(ddx_data)
     ! Inputs
-    type(dd_data_type), intent(inout) :: dd_data
+    type(ddx_type), intent(inout) :: ddx_data
     ! Local variables
     integer :: isph, inode, jnear, jnode, jsph, i, j, icav, igrid, m2p_column
     real(dp) :: c(3)
     ! Cycle over all spheres
     m2p_column = 1
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
         ! Cycle over all near-field admissible pairs of spheres
-        inode = dd_data % snode(isph)
-        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+        inode = ddx_data % snode(isph)
+        do jnear = ddx_data % snear(inode), ddx_data % snear(inode+1)-1
             ! Near-field interactions are possible only between leaf nodes,
             ! which must contain only a single input sphere
-            jnode = dd_data % near(jnear)
-            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            jnode = ddx_data % near(jnear)
+            jsph = ddx_data % order(ddx_data % cluster(1, jnode))
             ! Ignore self-interaction
             if (isph .eq. jsph) cycle
             ! M2P marices from spherical harmonics of jsph sphere to all
             ! external grid points of isph sphere
-            do icav = dd_data % icav_ia(isph), dd_data % icav_ia(isph+1)-1
-                igrid = dd_data % icav_ja(icav)
-                c = dd_data % cgrid(:, igrid)*dd_data % rsph(isph) - &
-                    & dd_data % csph(:, jsph) + dd_data % csph(:, isph)
-                call fmm_m2p_mat(c, dd_data % rsph(jsph), dd_data % m2p_lmax, &
-                    & dd_data % vscales, dd_data % m2p_mat(:, m2p_column))
+            do icav = ddx_data % icav_ia(isph), ddx_data % icav_ia(isph+1)-1
+                igrid = ddx_data % icav_ja(icav)
+                c = ddx_data % cgrid(:, igrid)*ddx_data % rsph(isph) - &
+                    & ddx_data % csph(:, jsph) + ddx_data % csph(:, isph)
+                call fmm_m2p_mat(c, ddx_data % rsph(jsph), ddx_data % m2p_lmax, &
+                    & ddx_data % vscales, ddx_data % m2p_mat(:, m2p_column))
                 m2p_column = m2p_column + 1
             end do
         end do
     end do
 end subroutine tree_m2p_get_mat
 
-subroutine tree_m2p_use_mat(dd_data, p, alpha, sph_m, beta, grid_v)
+subroutine tree_m2p_use_mat(ddx_data, p, alpha, sph_m, beta, grid_v)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     integer, intent(in) :: p
-    real(dp), intent(in) :: sph_m((p+1)**2, dd_data % nsph), alpha, beta
+    real(dp), intent(in) :: sph_m((p+1)**2, ddx_data % nsph), alpha, beta
     ! Output
-    real(dp), intent(inout) :: grid_v(dd_data % ngrid, dd_data % nsph)
+    real(dp), intent(inout) :: grid_v(ddx_data % ngrid, ddx_data % nsph)
     ! Local variables
     integer :: isph, inode, jnear, jnode, jsph, icav_sph, igrid, m2p_column
-    real(dp) :: c(3), x(dd_data % ngrid)
+    real(dp) :: c(3), x(ddx_data % ngrid)
     ! Init output
     if (beta .eq. zero) then
         grid_v = zero
@@ -10968,42 +10894,42 @@ subroutine tree_m2p_use_mat(dd_data, p, alpha, sph_m, beta, grid_v)
     end if
     ! Cycle over all spheres
     m2p_column = 1
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
         x = zero
         ! Cycle over all near-field admissible pairs of spheres
-        inode = dd_data % snode(isph)
-        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+        inode = ddx_data % snode(isph)
+        do jnear = ddx_data % snear(inode), ddx_data % snear(inode+1)-1
             ! Near-field interactions are possible only between leaf nodes,
             ! which must contain only a single input sphere
-            jnode = dd_data % near(jnear)
-            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            jnode = ddx_data % near(jnear)
+            jsph = ddx_data % order(ddx_data % cluster(1, jnode))
             ! Ignore self-interaction
             if(isph .eq. jsph) cycle
             ! Accumulate interaction for external grid points only
-            call dgemv('T', (p+1)**2, dd_data % ncav_sph(isph), one, &
-                & dd_data % m2p_mat(1, m2p_column), dd_data % m2p_nbasis, &
+            call dgemv('T', (p+1)**2, ddx_data % ncav_sph(isph), one, &
+                & ddx_data % m2p_mat(1, m2p_column), ddx_data % m2p_nbasis, &
                 & sph_m(1, jsph), 1, one, x(1), 1)
-            m2p_column = m2p_column + dd_data % ncav_sph(isph)
+            m2p_column = m2p_column + ddx_data % ncav_sph(isph)
         end do
         ! Move sparsely stored x into full grid_v
-        do icav_sph = 1, dd_data % ncav_sph(isph)
-            igrid = dd_data % icav_ja(dd_data % icav_ia(isph)+icav_sph-1)
+        do icav_sph = 1, ddx_data % ncav_sph(isph)
+            igrid = ddx_data % icav_ja(ddx_data % icav_ia(isph)+icav_sph-1)
             grid_v(igrid, isph) = grid_v(igrid, isph) + alpha*x(icav_sph)
         end do
     end do
 end subroutine tree_m2p_use_mat
 
-subroutine tree_m2p_use_mat_adj(dd_data, p, alpha, grid_v, beta, sph_m)
+subroutine tree_m2p_use_mat_adj(ddx_data, p, alpha, grid_v, beta, sph_m)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
+    type(ddx_type), intent(in) :: ddx_data
     integer, intent(in) :: p
-    real(dp), intent(in) :: grid_v(dd_data % ngrid, dd_data % nsph), alpha, &
+    real(dp), intent(in) :: grid_v(ddx_data % ngrid, ddx_data % nsph), alpha, &
         & beta
     ! Output
-    real(dp), intent(inout) :: sph_m((p+1)**2, dd_data % nsph)
+    real(dp), intent(inout) :: sph_m((p+1)**2, ddx_data % nsph)
     ! Local variables
     integer :: isph, inode, jnear, jnode, jsph, icav_sph, igrid, m2p_column
-    real(dp) :: c(3), x(dd_data % ngrid)
+    real(dp) :: c(3), x(ddx_data % ngrid)
     ! Init output
     if (beta .eq. zero) then
         sph_m = zero
@@ -11012,38 +10938,38 @@ subroutine tree_m2p_use_mat_adj(dd_data, p, alpha, grid_v, beta, sph_m)
     end if
     ! Cycle over all spheres
     m2p_column = 1
-    do isph = 1, dd_data % nsph
+    do isph = 1, ddx_data % nsph
         ! Move full grid_v into sparsely stored x
-        do icav_sph = 1, dd_data % ncav_sph(isph)
-            igrid = dd_data % icav_ja(dd_data % icav_ia(isph)+icav_sph-1)
+        do icav_sph = 1, ddx_data % ncav_sph(isph)
+            igrid = ddx_data % icav_ja(ddx_data % icav_ia(isph)+icav_sph-1)
             x(icav_sph) = alpha * grid_v(igrid, isph)
         end do
         ! Cycle over all near-field admissible pairs of spheres
-        inode = dd_data % snode(isph)
-        do jnear = dd_data % snear(inode), dd_data % snear(inode+1)-1
+        inode = ddx_data % snode(isph)
+        do jnear = ddx_data % snear(inode), ddx_data % snear(inode+1)-1
             ! Near-field interactions are possible only between leaf nodes,
             ! which must contain only a single input sphere
-            jnode = dd_data % near(jnear)
-            jsph = dd_data % order(dd_data % cluster(1, jnode))
+            jnode = ddx_data % near(jnear)
+            jsph = ddx_data % order(ddx_data % cluster(1, jnode))
             ! Ignore self-interaction
             if(isph .eq. jsph) cycle
             ! Accumulate interaction for external grid points only
-            call dgemv('N', (p+1)**2, dd_data % ncav_sph(isph), one, &
-                & dd_data % m2p_mat(1, m2p_column), dd_data % m2p_nbasis, &
+            call dgemv('N', (p+1)**2, ddx_data % ncav_sph(isph), one, &
+                & ddx_data % m2p_mat(1, m2p_column), ddx_data % m2p_nbasis, &
                 & x(1), 1, one, sph_m(1, jsph), 1)
-            m2p_column = m2p_column + dd_data % ncav_sph(isph)
+            m2p_column = m2p_column + ddx_data % ncav_sph(isph)
         end do
     end do
 end subroutine tree_m2p_use_mat_adj
 
-subroutine fdoka(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
-    type(dd_data_type), intent(in) :: dd_data
+subroutine fdoka(ddx_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
+    type(ddx_type), intent(in) :: ddx_data
       integer,                         intent(in)    :: isph
-      real(dp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: sigma
-      real(dp),  dimension(dd_data % ngrid),       intent(in)    :: xi
-      real(dp),  dimension(dd_data % nbasis),      intent(inout) :: basloc, vplm
-      real(dp),  dimension(3, dd_data % nbasis),    intent(inout) :: dbsloc
-      real(dp),  dimension(dd_data % lmax+1),      intent(inout) :: vcos, vsin
+      real(dp),  dimension(ddx_data % nbasis, ddx_data % nsph), intent(in)    :: sigma
+      real(dp),  dimension(ddx_data % ngrid),       intent(in)    :: xi
+      real(dp),  dimension(ddx_data % nbasis),      intent(inout) :: basloc, vplm
+      real(dp),  dimension(3, ddx_data % nbasis),    intent(inout) :: dbsloc
+      real(dp),  dimension(ddx_data % lmax+1),      intent(inout) :: vcos, vsin
       real(dp),  dimension(3),           intent(inout) :: fx
 !
       integer :: ig, ij, jsph, l, ind, m
@@ -11053,31 +10979,31 @@ subroutine fdoka(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
 !      
 !-----------------------------------------------------------------------------------
 !    
-      tlow  = one - pt5*(one - dd_data % se)*dd_data % eta
-      thigh = one + pt5*(one + dd_data % se)*dd_data % eta
+      tlow  = one - pt5*(one - ddx_data % se)*ddx_data % eta
+      thigh = one + pt5*(one + ddx_data % se)*ddx_data % eta
 !    
-      do ig = 1, dd_data % ngrid
+      do ig = 1, ddx_data % ngrid
         va = zero
-        do ij = dd_data % inl(isph), dd_data % inl(isph+1) - 1
-          jsph = dd_data % nl(ij)
-          vij  = dd_data % csph(:,isph) + &
-              & dd_data % rsph(isph)*dd_data % cgrid(:,ig) - &
-              & dd_data % csph(:,jsph)
+        do ij = ddx_data % inl(isph), ddx_data % inl(isph+1) - 1
+          jsph = ddx_data % nl(ij)
+          vij  = ddx_data % csph(:,isph) + &
+              & ddx_data % rsph(isph)*ddx_data % cgrid(:,ig) - &
+              & ddx_data % csph(:,jsph)
           !vvij = sqrt(dot_product(vij,vij))
           vvij = dnrm2(3, vij, 1)
-          tij  = vvij/dd_data % rsph(jsph)
+          tij  = vvij/ddx_data % rsph(jsph)
 !    
           if (tij.ge.thigh) cycle
 !    
           sij  = vij/vvij
           !call dbasis(sij,basloc,dbsloc,vplm,vcos,vsin)
-          call dbasis(dd_data, sij, basloc, dbsloc, vplm, vcos, vsin)
+          call dbasis(ddx_data, sij, basloc, dbsloc, vplm, vcos, vsin)
           alp  = zero
           t    = one
-          do l = 1, dd_data % lmax
+          do l = 1, ddx_data % lmax
             ind = l*l + l + 1
             fl  = dble(l)
-            fac = t/(dd_data % vscales(ind)**2)
+            fac = t/(ddx_data % vscales(ind)**2)
             do m = -l, l
               f2 = fac*sigma(ind+m,jsph)
               f1 = f2*fl*basloc(ind+m)
@@ -11085,24 +11011,24 @@ subroutine fdoka(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
             end do
             t = t*tij
           end do
-          beta = intmlp(dd_data, tij,sigma(:,jsph),basloc)
-          xij = fsw(tij,dd_data % se,dd_data % eta)
-          if (dd_data % fi(ig,isph).gt.one) then
-            oij = xij/dd_data % fi(ig,isph)
-            f2  = -oij/dd_data % fi(ig,isph)
+          beta = intmlp(ddx_data, tij,sigma(:,jsph),basloc)
+          xij = fsw(tij,ddx_data % se,ddx_data % eta)
+          if (ddx_data % fi(ig,isph).gt.one) then
+            oij = xij/ddx_data % fi(ig,isph)
+            f2  = -oij/ddx_data % fi(ig,isph)
           else
             oij = xij
             f2  = zero
           end if
-          f1 = oij/dd_data % rsph(jsph)
-          va(:) = va(:) + f1*alp(:) + beta*f2*dd_data % zi(:,ig,isph)
+          f1 = oij/ddx_data % rsph(jsph)
+          va(:) = va(:) + f1*alp(:) + beta*f2*ddx_data % zi(:,ig,isph)
           if (tij .gt. tlow) then
-            f3 = beta*dfsw(tij,dd_data % se,dd_data % eta)/dd_data % rsph(jsph)
-            if (dd_data % fi(ig,isph).gt.one) f3 = f3/dd_data % fi(ig,isph)
+            f3 = beta*dfsw(tij,ddx_data % se,ddx_data % eta)/ddx_data % rsph(jsph)
+            if (ddx_data % fi(ig,isph).gt.one) f3 = f3/ddx_data % fi(ig,isph)
             va(:) = va(:) + f3*sij(:)
           end if
         end do
-        fx = fx - dd_data % wgrid(ig)*xi(ig)*va(:)
+        fx = fx - ddx_data % wgrid(ig)*xi(ig)*va(:)
       end do
 !      
       return
@@ -11115,14 +11041,14 @@ end subroutine fdoka
 !      
 !      
 !-----------------------------------------------------------------------------------
-subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
-    type(dd_data_type), intent(in) :: dd_data
+subroutine fdokb(ddx_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx )
+    type(ddx_type), intent(in) :: ddx_data
       integer,                         intent(in)    :: isph
-      real(dp),  dimension(dd_data % nbasis, dd_data % nsph), intent(in)    :: sigma
-      real(dp),  dimension(dd_data % ngrid, dd_data % nsph),  intent(in)    :: xi
-      real(dp),  dimension(dd_data % nbasis),      intent(inout) :: basloc, vplm
-      real(dp),  dimension(3, dd_data % nbasis),    intent(inout) :: dbsloc
-      real(dp),  dimension(dd_data % lmax+1),      intent(inout) :: vcos, vsin
+      real(dp),  dimension(ddx_data % nbasis, ddx_data % nsph), intent(in)    :: sigma
+      real(dp),  dimension(ddx_data % ngrid, ddx_data % nsph),  intent(in)    :: xi
+      real(dp),  dimension(ddx_data % nbasis),      intent(inout) :: basloc, vplm
+      real(dp),  dimension(3, ddx_data % nbasis),    intent(inout) :: dbsloc
+      real(dp),  dimension(ddx_data % lmax+1),      intent(inout) :: vcos, vsin
       real(dp),  dimension(3),           intent(inout) :: fx
 !
       integer :: ig, ji, jsph, l, ind, m, jk, ksph
@@ -11135,33 +11061,33 @@ subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
 !
 !-----------------------------------------------------------------------------------
 !
-      tlow  = one - pt5*(one - dd_data % se)*dd_data % eta
-      thigh = one + pt5*(one + dd_data % se)*dd_data % eta
+      tlow  = one - pt5*(one - ddx_data % se)*ddx_data % eta
+      thigh = one + pt5*(one + ddx_data % se)*ddx_data % eta
 !
-      do ig = 1, dd_data % ngrid
+      do ig = 1, ddx_data % ngrid
         vb = zero
         vc = zero
-        do ji = dd_data % inl(isph), dd_data % inl(isph+1) - 1
-          jsph = dd_data % nl(ji)
-          vji  = dd_data % csph(:,jsph) + &
-              & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
-              & dd_data % csph(:,isph)
+        do ji = ddx_data % inl(isph), ddx_data % inl(isph+1) - 1
+          jsph = ddx_data % nl(ji)
+          vji  = ddx_data % csph(:,jsph) + &
+              & ddx_data % rsph(jsph)*ddx_data % cgrid(:,ig) - &
+              & ddx_data % csph(:,isph)
           !vvji = sqrt(dot_product(vji,vji))
           vvji = dnrm2(3, vji, 1)
-          tji  = vvji/dd_data % rsph(isph)
+          tji  = vvji/ddx_data % rsph(isph)
 !
           if (tji.gt.thigh) cycle
 !
           sji  = vji/vvji
           !call dbasis(sji,basloc,dbsloc,vplm,vcos,vsin)
-          call dbasis(dd_data, sji, basloc, dbsloc, vplm, vcos, vsin)
+          call dbasis(ddx_data, sji, basloc, dbsloc, vplm, vcos, vsin)
 !
           alp = zero
           t   = one
-          do l = 1, dd_data % lmax
+          do l = 1, ddx_data % lmax
             ind = l*l + l + 1
             fl  = dble(l)
-            fac = t/(dd_data % vscales(ind)**2)
+            fac = t/(ddx_data % vscales(ind)**2)
             do m = -l, l
               f2 = fac*sigma(ind+m,isph)
               f1 = f2*fl*basloc(ind+m)
@@ -11169,45 +11095,45 @@ subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
             end do
             t = t*tji
           end do
-          xji = fsw(tji,dd_data % se,dd_data % eta)
-          if (dd_data % fi(ig,jsph).gt.one) then
-            oji = xji/dd_data % fi(ig,jsph)
+          xji = fsw(tji,ddx_data % se,ddx_data % eta)
+          if (ddx_data % fi(ig,jsph).gt.one) then
+            oji = xji/ddx_data % fi(ig,jsph)
           else
             oji = xji
           end if
-          f1 = oji/dd_data % rsph(isph)
+          f1 = oji/ddx_data % rsph(isph)
           vb = vb + f1*alp*xi(ig,jsph)
           if (tji .gt. tlow) then
-            beta = intmlp(dd_data, tji, sigma(:,isph), basloc)
-            if (dd_data % fi(ig,jsph) .gt. one) then
-              di  = one/dd_data % fi(ig,jsph)
+            beta = intmlp(ddx_data, tji, sigma(:,isph), basloc)
+            if (ddx_data % fi(ig,jsph) .gt. one) then
+              di  = one/ddx_data % fi(ig,jsph)
               fac = di*xji
               proc = .false.
               b    = zero
-              do jk = dd_data % inl(jsph), dd_data % inl(jsph+1) - 1
-                ksph = dd_data % nl(jk)
-                vjk  = dd_data % csph(:,jsph) + &
-                    & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
-                    & dd_data % csph(:,ksph)
+              do jk = ddx_data % inl(jsph), ddx_data % inl(jsph+1) - 1
+                ksph = ddx_data % nl(jk)
+                vjk  = ddx_data % csph(:,jsph) + &
+                    & ddx_data % rsph(jsph)*ddx_data % cgrid(:,ig) - &
+                    & ddx_data % csph(:,ksph)
                 !vvjk = sqrt(dot_product(vjk,vjk))
                 vvjk = dnrm2(3, vjk, 1)
-                tjk  = vvjk/dd_data % rsph(ksph)
+                tjk  = vvjk/ddx_data % rsph(ksph)
                 if (ksph.ne.isph) then
                   if (tjk .le. thigh) then
                     proc = .true.
                     sjk  = vjk/vvjk
                     !call ylmbas(sjk,basloc,vplm,vcos,vsin)
                     call ylmbas(sjk, rho, ctheta, stheta, cphi, sphi, &
-                        & dd_data % lmax, dd_data % vscales, basloc, vplm, &
+                        & ddx_data % lmax, ddx_data % vscales, basloc, vplm, &
                         & vcos, vsin)
-                    g1  = intmlp(dd_data, tjk, sigma(:,ksph), basloc)
-                    xjk = fsw(tjk, dd_data % se, dd_data % eta)
+                    g1  = intmlp(ddx_data, tjk, sigma(:,ksph), basloc)
+                    xjk = fsw(tjk, ddx_data % se, ddx_data % eta)
                     b   = b + g1*xjk
                   end if
                 end if
               end do
               if (proc) then
-                g1 = di*di*dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+                g1 = di*di*dfsw(tji,ddx_data % se,ddx_data % eta)/ddx_data % rsph(isph)
                 g2 = g1*xi(ig,jsph)*b
                 vc = vc + g2*sji
               end if
@@ -11215,11 +11141,11 @@ subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
               di  = one
               fac = zero
             end if
-            f2 = (one-fac)*di*dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+            f2 = (one-fac)*di*dfsw(tji,ddx_data % se,ddx_data % eta)/ddx_data % rsph(isph)
             vb = vb + f2*xi(ig,jsph)*beta*sji
           end if 
         end do
-        fx = fx + dd_data % wgrid(ig)*(vb - vc)
+        fx = fx + ddx_data % wgrid(ig)*(vb - vc)
       end do
       return
   end subroutine fdokb
@@ -11229,10 +11155,10 @@ subroutine fdokb(dd_data, isph, sigma, xi, basloc, dbsloc, vplm, vcos, vsin, fx 
 !
 !
 !-----------------------------------------------------------------------------------
-subroutine fdoga(dd_data, isph, xi, phi, fx )
-    type(dd_data_type), intent(in) :: dd_data
+subroutine fdoga(ddx_data, isph, xi, phi, fx )
+    type(ddx_type), intent(in) :: ddx_data
       integer,                        intent(in)    :: isph
-      real(dp),  dimension(dd_data % ngrid, dd_data % nsph), intent(in)    :: xi, phi
+      real(dp),  dimension(ddx_data % ngrid, ddx_data % nsph), intent(in)    :: xi, phi
       real(dp),  dimension(3),          intent(inout) :: fx
 !
       integer :: ig, ji, jsph
@@ -11242,27 +11168,27 @@ subroutine fdoga(dd_data, isph, xi, phi, fx )
 !
 !-----------------------------------------------------------------------------------
 !
-      do ig = 1, dd_data % ngrid
+      do ig = 1, ddx_data % ngrid
         alp = zero
-        if (dd_data % ui(ig,isph) .gt. zero .and. dd_data % ui(ig,isph).lt.one) then
-          alp = alp + phi(ig,isph)*xi(ig,isph)*dd_data % zi(:,ig,isph)
+        if (ddx_data % ui(ig,isph) .gt. zero .and. ddx_data % ui(ig,isph).lt.one) then
+          alp = alp + phi(ig,isph)*xi(ig,isph)*ddx_data % zi(:,ig,isph)
         end if
-        do ji = dd_data % inl(isph), dd_data % inl(isph+1) - 1
-          jsph  = dd_data % nl(ji)
-          vji   = dd_data % csph(:,jsph) + &
-              & dd_data % rsph(jsph)*dd_data % cgrid(:,ig) - &
-              & dd_data % csph(:,isph)
+        do ji = ddx_data % inl(isph), ddx_data % inl(isph+1) - 1
+          jsph  = ddx_data % nl(ji)
+          vji   = ddx_data % csph(:,jsph) + &
+              & ddx_data % rsph(jsph)*ddx_data % cgrid(:,ig) - &
+              & ddx_data % csph(:,isph)
           !vvji  = sqrt(dot_product(vji,vji))
           vvji = dnrm2(3, vji, 1)
-          tji   = vvji/dd_data % rsph(isph)
-          swthr = one + (dd_data % se + 1.d0)*dd_data % eta / 2.d0
-          if (tji.lt.swthr .and. tji.gt.swthr-dd_data % eta .and. dd_data % ui(ig,jsph).gt.zero) then
+          tji   = vvji/ddx_data % rsph(isph)
+          swthr = one + (ddx_data % se + 1.d0)*ddx_data % eta / 2.d0
+          if (tji.lt.swthr .and. tji.gt.swthr-ddx_data % eta .and. ddx_data % ui(ig,jsph).gt.zero) then
             sji = vji/vvji
-            fac = - dfsw(tji,dd_data % se,dd_data % eta)/dd_data % rsph(isph)
+            fac = - dfsw(tji,ddx_data % se,ddx_data % eta)/ddx_data % rsph(isph)
             alp = alp + fac*phi(ig,jsph)*xi(ig,jsph)*sji
           end if
         end do
-        fx = fx - dd_data % wgrid(ig)*alp
+        fx = fx - ddx_data % wgrid(ig)*alp
       end do
 !
       return 
@@ -11300,15 +11226,15 @@ do j = 1, ntrg
 end do
 end subroutine efld
 
-subroutine tree_grad_m2m(dd_data, sph_m, sph_m_grad, work)
+subroutine tree_grad_m2m(ddx_data, sph_m, sph_m_grad, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: sph_m(dd_data % nbasis, dd_data % nsph)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: sph_m(ddx_data % nbasis, ddx_data % nsph)
     ! Output
-    real(dp), intent(out) :: sph_m_grad((dd_data % lmax+2)**2, 3, &
-        & dd_data % nsph)
+    real(dp), intent(out) :: sph_m_grad((ddx_data % lmax+2)**2, 3, &
+        & ddx_data % nsph)
     ! Temporary workspace
-    real(dp), intent(out) :: work((dd_data % lmax+2)**2, dd_data % nsph)
+    real(dp), intent(out) :: work((ddx_data % lmax+2)**2, ddx_data % nsph)
     ! Local variables
     integer :: isph, l, indi, indj, m
     real(dp) :: tmp1, tmp2
@@ -11323,18 +11249,18 @@ subroutine tree_grad_m2m(dd_data, sph_m, sph_m_grad, work)
     zy_coord_transform(2, 1) = one
     zy_coord_transform(3, 3) = one
     ! At first reflect harmonics of a degree up to lmax
-    sph_m_grad(1:dd_data % nbasis, 3, :) = sph_m
-    do isph = 1, dd_data % nsph
-        call fmm_sph_transform(dd_data % lmax, zx_coord_transform, one, &
-            & sph_m(:, isph), zero, sph_m_grad(1:dd_data % nbasis, 1, isph))
-        call fmm_sph_transform(dd_data % lmax, zy_coord_transform, one, &
-            & sph_m(:, isph), zero, sph_m_grad(1:dd_data % nbasis, 2, isph))
+    sph_m_grad(1:ddx_data % nbasis, 3, :) = sph_m
+    do isph = 1, ddx_data % nsph
+        call fmm_sph_transform(ddx_data % lmax, zx_coord_transform, one, &
+            & sph_m(:, isph), zero, sph_m_grad(1:ddx_data % nbasis, 1, isph))
+        call fmm_sph_transform(ddx_data % lmax, zy_coord_transform, one, &
+            & sph_m(:, isph), zero, sph_m_grad(1:ddx_data % nbasis, 2, isph))
     end do
     ! Derivative of M2M translation over OZ axis at the origin consists of 2
     ! steps:
     !   1) increase degree l and scale by sqrt((2*l+1)*(l*l-m*m)) / sqrt(2*l-1)
     !   2) scale by 1/rsph(isph)
-    do l = dd_data % lmax+1, 1, -1
+    do l = ddx_data % lmax+1, 1, -1
         indi = l*l + l + 1
         indj = indi - 2*l
         tmp1 = sqrt(dble(2*l+1)) / sqrt(dble(2*l-1))
@@ -11348,32 +11274,32 @@ subroutine tree_grad_m2m(dd_data, sph_m, sph_m_grad, work)
     sph_m_grad(1, :, :) = zero
     ! Scale by 1/rsph(isph) and rotate harmonics of degree up to lmax+1 back to
     ! the initial axis. Coefficient of 0-th degree is zero so we ignore it.
-    do isph = 1, dd_data % nsph
-        sph_m_grad(:, 3, isph) = sph_m_grad(:, 3, isph) / dd_data % rsph(isph)
-        work(:, isph) = sph_m_grad(:, 1, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform(dd_data % lmax+1, zx_coord_transform, one, &
+    do isph = 1, ddx_data % nsph
+        sph_m_grad(:, 3, isph) = sph_m_grad(:, 3, isph) / ddx_data % rsph(isph)
+        work(:, isph) = sph_m_grad(:, 1, isph) / ddx_data % rsph(isph)
+        call fmm_sph_transform(ddx_data % lmax+1, zx_coord_transform, one, &
             & work(:, isph), zero, sph_m_grad(:, 1, isph))
-        work(:, isph) = sph_m_grad(:, 2, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform(dd_data % lmax+1, zy_coord_transform, one, &
+        work(:, isph) = sph_m_grad(:, 2, isph) / ddx_data % rsph(isph)
+        call fmm_sph_transform(ddx_data % lmax+1, zy_coord_transform, one, &
             & work(:, isph), zero, sph_m_grad(:, 2, isph))
     end do
 end subroutine tree_grad_m2m
 
-subroutine tree_grad_l2l(dd_data, node_l, sph_l_grad, work)
+subroutine tree_grad_l2l(ddx_data, node_l, sph_l_grad, work)
     ! Inputs
-    type(dd_data_type), intent(in) :: dd_data
-    real(dp), intent(in) :: node_l((dd_data % pl+1)**2, dd_data % nclusters)
+    type(ddx_type), intent(in) :: ddx_data
+    real(dp), intent(in) :: node_l((ddx_data % pl+1)**2, ddx_data % nclusters)
     ! Output
-    real(dp), intent(out) :: sph_l_grad((dd_data % pl+1)**2, 3, dd_data % nsph)
+    real(dp), intent(out) :: sph_l_grad((ddx_data % pl+1)**2, 3, ddx_data % nsph)
     ! Temporary workspace
-    real(dp), intent(out) :: work((dd_data % pl+1)**2, dd_data % nsph)
+    real(dp), intent(out) :: work((ddx_data % pl+1)**2, ddx_data % nsph)
     ! Local variables
     integer :: isph, inode, l, indi, indj, m
     real(dp) :: tmp1, tmp2
     real(dp), dimension(3, 3) :: zx_coord_transform, zy_coord_transform
     ! Gradient of L2L reduces degree by 1, so exit if degree of harmonics is 0
     ! or -1 (which means no FMM at all)
-    if (dd_data % pl .le. 0) return
+    if (ddx_data % pl .le. 0) return
     ! Set coordinate transformations
     zx_coord_transform = zero
     zx_coord_transform(3, 2) = one
@@ -11384,19 +11310,19 @@ subroutine tree_grad_l2l(dd_data, node_l, sph_l_grad, work)
     zy_coord_transform(2, 1) = one
     zy_coord_transform(3, 3) = one
     ! At first reflect harmonics of a degree up to pl
-    do isph = 1, dd_data % nsph
-        inode = dd_data % snode(isph)
+    do isph = 1, ddx_data % nsph
+        inode = ddx_data % snode(isph)
         sph_l_grad(:, 3, isph) = node_l(:, inode)
-        call fmm_sph_transform(dd_data % pl, zx_coord_transform, one, &
+        call fmm_sph_transform(ddx_data % pl, zx_coord_transform, one, &
             & node_l(:, inode), zero, sph_l_grad(:, 1, isph))
-        call fmm_sph_transform(dd_data % pl, zy_coord_transform, one, &
+        call fmm_sph_transform(ddx_data % pl, zy_coord_transform, one, &
             & node_l(:, inode), zero, sph_l_grad(:, 2, isph))
     end do
     ! Derivative of L2L translation over OZ axis at the origin consists of 2
     ! steps:
     !   1) decrease degree l and scale by sqrt((2*l-1)*(l*l-m*m)) / sqrt(2*l+1)
     !   2) scale by 1/rsph(isph)
-    do l = 1, dd_data % pl
+    do l = 1, ddx_data % pl
         indi = l*l + l + 1
         indj = indi - 2*l
         tmp1 = -sqrt(dble(2*l-1)) / sqrt(dble(2*l+1))
@@ -11407,25 +11333,25 @@ subroutine tree_grad_l2l(dd_data, node_l, sph_l_grad, work)
     end do
     ! Scale by 1/rsph(isph) and rotate harmonics of degree up to pl-1 back to
     ! the initial axis. Coefficient of pl-th degree is zero so we ignore it.
-    do isph = 1, dd_data % nsph
-        sph_l_grad(1:dd_data % pl**2, 3, isph) = &
-            & sph_l_grad(1:dd_data % pl**2, 3, isph) / dd_data % rsph(isph)
-        work(1:dd_data % pl**2, isph) = &
-            & sph_l_grad(1:dd_data % pl**2, 1, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform(dd_data % pl-1, zx_coord_transform, one, &
-            & work(1:dd_data % pl**2, isph), zero, &
-            & sph_l_grad(1:dd_data % pl**2, 1, isph))
-        work(1:dd_data % pl**2, isph) = &
-            & sph_l_grad(1:dd_data % pl**2, 2, isph) / dd_data % rsph(isph)
-        call fmm_sph_transform(dd_data % pl-1, zy_coord_transform, one, &
-            & work(1:dd_data % pl**2, isph), zero, &
-            & sph_l_grad(1:dd_data % pl**2, 2, isph))
+    do isph = 1, ddx_data % nsph
+        sph_l_grad(1:ddx_data % pl**2, 3, isph) = &
+            & sph_l_grad(1:ddx_data % pl**2, 3, isph) / ddx_data % rsph(isph)
+        work(1:ddx_data % pl**2, isph) = &
+            & sph_l_grad(1:ddx_data % pl**2, 1, isph) / ddx_data % rsph(isph)
+        call fmm_sph_transform(ddx_data % pl-1, zx_coord_transform, one, &
+            & work(1:ddx_data % pl**2, isph), zero, &
+            & sph_l_grad(1:ddx_data % pl**2, 1, isph))
+        work(1:ddx_data % pl**2, isph) = &
+            & sph_l_grad(1:ddx_data % pl**2, 2, isph) / ddx_data % rsph(isph)
+        call fmm_sph_transform(ddx_data % pl-1, zy_coord_transform, one, &
+            & work(1:ddx_data % pl**2, isph), zero, &
+            & sph_l_grad(1:ddx_data % pl**2, 2, isph))
     end do
     ! Set degree pl to zero to avoid problems if user actually uses it
-    l = dd_data % pl
+    l = ddx_data % pl
     indi = l*l + l + 1
     sph_l_grad(indi-l:indi+l, :, :) = zero
 end subroutine tree_grad_l2l
 
-end module dd_core
+end module ddx_core
 

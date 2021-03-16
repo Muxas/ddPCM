@@ -8,12 +8,11 @@
 # @date 2020-02-17
 
 set(SRC
-    "dd_core.f90"
-    "dd_operators.f90"
-    "dd_solvers.f90"
-    "dd_cosmo.f90"
-    "dd_pcm.f90"
-    "dd_lpb.f90"
+    "ddx_core.f90"
+    "ddx_operators.f90"
+    "ddx_solvers.f90"
+    "ddx.f90"
+    "ddx_lpb.f90"
     "bessel.f90"
     "llgnew.f")
 
@@ -34,6 +33,11 @@ target_link_libraries(ddx PUBLIC ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 if(OPENMP)
     target_link_libraries(ddx PUBLIC OpenMP::OpenMP_Fortran)
 endif()
+
+# Define ddx driver executable
+add_executable(ddx_driver "ddx_driver.f90")
+target_link_libraries(ddx_driver PRIVATE ddx)
+
 # Code coverage
 if(CODE_COVERAGE)
     target_link_libraries(ddx PRIVATE gcov)
