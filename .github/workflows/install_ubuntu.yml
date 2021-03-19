@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   build:
-    name: Ubuntu Build
+    name: Ubuntu Install
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
