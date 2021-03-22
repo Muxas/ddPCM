@@ -220,7 +220,6 @@ install(
 
 #add include dirs to target ddx
 target_include_directories(ddx INTERFACE
-	#$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/ddX>
   	$<INSTALL_INTERFACE:include/ddX>  # <prefix>/include/mylib
 )
 
