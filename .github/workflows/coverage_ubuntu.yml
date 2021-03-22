@@ -16,6 +16,10 @@ jobs:
       shell: cmake -P {0}
       run: |
         file(MAKE_DIRECTORY repo/build)
+
+    - name: install lcov
+      run: |
+        sudo apt-get install lcov
     
     - name: build and test coverage
       run: |
