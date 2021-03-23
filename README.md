@@ -5,10 +5,10 @@ A fast domain decomposition based implementation of the COSMO solvation model
 
 [![Bintray](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)
 
-![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Nige91/efac1cccf779bc5840d659f357118e82/raw/codecov.json)
+![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Nige91/efac1cccf779bc5840d659f357118e82/raw/d62550ccaf32075d687989017cf46372174b6133/codecov.json)
 
-COPYRIGHT (C) 2016 by Filippo Lipparini, Benjamin Stamm, Eric Cancès,
-Yvon Maday, Paolo Gatto, Jean-Philip Piquemal, Louis Lagardère and 
+COPYRIGHT (C) 2016 by Filippo Lipparini, Benjamin Stamm, Eric CancÃ¨s,
+Yvon Maday, Paolo Gatto, Jean-Philip Piquemal, Louis LagardÃ¨re and 
 Benedetta Mennucci.   
                           ALL RIGHT RESERVED.      
 
@@ -23,34 +23,34 @@ See the GNU Lesser General Public License for more details.
 Users of this code are asked to include the following references in their
 publications:
 
-[1] E. Cancès, Y. Maday, B. Stamm
+[1] E. CancÃ¨s, Y. Maday, B. Stamm
     "Domain decomposition for implicit solvation models"
     J. Chem. Phys. 139, 054111 (2013)
 
-[2] F. Lipparini, B. Stamm, E. Cancès, Y. Maday, B. Mennucci
+[2] F. Lipparini, B. Stamm, E. CancÃ¨s, Y. Maday, B. Mennucci
     "Fast Domain Decomposition Algorithm for Continuum Solvation Models: 
      Energy and First Derivatives"
-    J. Chem. Theory Comput. 9, 3637–3648 (2013)
+    J. Chem. Theory Comput. 9, 3637â€“3648 (2013)
 
 Also, include one of the three following reference depending on whether you
 use this code in conjunction with a QM [3], Semiempirical [4] or Classical [5]
 description of the solute:
 
-[3] F. Lipparini, G. Scalmani, L. Lagardère, B. Stamm, E. Cancès, Y. Maday,
+[3] F. Lipparini, G. Scalmani, L. LagardÃ¨re, B. Stamm, E. CancÃ¨s, Y. Maday,
     J.-P. Piquemal, M. J. Frisch, B. Mennucci
     "Quantum, classical, and hybrid QM/MM calculations in solution: General 
      implementation of the ddCOSMO linear scaling strategy"
     J. Chem. Phys. 141, 184108 (2014)
     (for quantum mechanical models)
 
-[4] F. Lipparini, L. Lagardère, G. Scalmani, B. Stamm, E. Cancès, Y. Maday,
+[4] F. Lipparini, L. LagardÃ¨re, G. Scalmani, B. Stamm, E. CancÃ¨s, Y. Maday,
     J.-P. Piquemal, M. J. Frisch, B. Mennucci
     "Quantum Calculations in Solution for Large to Very Large Molecules: 
      A New Linear Scaling QM/Continuum Approach"
     J. Phys. Chem. Lett. 5, 953-958 (2014)
     (for semiempirical models)
 
-[5] F. Lipparini, L. Lagardère, C. Raynaud, B. Stamm, E. Cancès, B. Mennucci
+[5] F. Lipparini, L. LagardÃ¨re, C. Raynaud, B. Stamm, E. CancÃ¨s, B. Mennucci
     M. Schnieders, P. Ren, Y. Maday, J.-P. Piquemal
     "Polarizable Molecular Dynamics in a Polarizable Continuum Solvent"
     J. Chem. Theory Comput. 11, 623-634 (2015)
