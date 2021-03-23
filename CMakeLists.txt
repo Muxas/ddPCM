@@ -244,11 +244,7 @@ configure_package_config_file(
     "ddXConfig.cmake"
     INSTALL_DESTINATION "${install_configdir}"
 )
-#write_basic_package_version_file(
-#    "ddXConfigVersion.cmake"
-#    VERSION "${VERSION}"
-#    COMPATIBILITY AnyNewerVersion
-#)
+
 install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/ddXConfig.cmake"
           #"${CMAKE_CURRENT_BINARY_DIR}/ddXConfigVersion.cmake"
