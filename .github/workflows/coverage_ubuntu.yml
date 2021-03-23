@@ -30,6 +30,7 @@ jobs:
 
     - name: read coverage to variable
       run: |
+        cd repo/build
         echo "::set-output name=cov_percent::$(make coverage | grep -n 'lines......:' | tail -1 | grep -oP '(?<=\.\.\:\s).*?(?=\%)')"
       id: cov
 
