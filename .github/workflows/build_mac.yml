@@ -1,10 +1,10 @@
-name: Build MacOS
+name: Build, Test, Install (Mac)
 
 on: [push,pull_request]
 
 jobs:
   build:
-    name: MacOS Build
+    name: Build, Test, Install (Mac)
     runs-on: macos-latest
     steps:
 
