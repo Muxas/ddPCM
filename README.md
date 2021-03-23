@@ -5,6 +5,8 @@ A fast domain decomposition based implementation of the COSMO solvation model
 
 [![Bintray](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build/ddX)
 
+![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Nige91/efac1cccf779bc5840d659f357118e82/raw/codecov.json)
+
 COPYRIGHT (C) 2016 by Filippo Lipparini, Benjamin Stamm, Eric Cancès,
 Yvon Maday, Paolo Gatto, Jean-Philip Piquemal, Louis Lagardère and 
 Benedetta Mennucci.   
