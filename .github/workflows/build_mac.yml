@@ -1,6 +1,6 @@
 name: Build MacOS
 
-on: [push]
+on: [push,pull_request]
 
 jobs:
   build:
@@ -18,19 +18,23 @@ jobs:
       run: |
         file(MAKE_DIRECTORY repo/build)
     
-    - name: build
+    - name: build, test and install
       run: |
         cd repo/build
         cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" .. 
-        cmake --build .
+        make
+        make test
+        make install
 
-    - name: pack
+    - name: test installation
       run: |
-        tar -cf built_repo_mac.tar repo
-
-    - name: upload artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: built_repo_mac
-        path: built_repo_mac.tar
+        mkdir /tmp/test
+        cd repo
+        mv ./cmake/testddXinstall.cmake /tmp/test/CMakeLists.txt
+        cp ./tests/dd_core.f90 /tmp/test/dd_core.f90
+        cd /tmp/test
+        mkdir build
+        cd build
+        cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" -DddX_DIR="/tmp/libddx/lib/ddX" ..
+        make
         
