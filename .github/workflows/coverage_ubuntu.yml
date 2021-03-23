@@ -41,7 +41,7 @@ jobs:
         gistID: efac1cccf779bc5840d659f357118e82
         filename: codecov.json
         label: Coverage
-        message: ${{ steps.cov.outputs.cov_percent }}
+        message: ${{ steps.cov.outputs.cov_percent }}%
         color: green
         namedLogo: lcov
 
