@@ -40,7 +40,7 @@ jobs:
         auth: ${{ secrets.GIST_SECRET }}
         gistID: efac1cccf779bc5840d659f357118e82
         filename: codecov.json
-        label: Coverage
+        label: coverage
         message: ${{ steps.cov.outputs.cov_percent }}%
         color: green
         namedLogo: lcov
