@@ -10,6 +10,7 @@ jobs:
     - name: Checkout LAPACK
       uses: actions/checkout@v2.0.0
       with:
+        repo: Reference-LAPACK/lapack-release
         path: lapack
         
     - name: build and install lapack
