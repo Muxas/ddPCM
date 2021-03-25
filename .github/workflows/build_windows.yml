@@ -7,11 +7,30 @@ jobs:
     name: Build, Test, Install (Windows)
     runs-on: windows-latest
     steps:
+    #- name: download blas
+    #  shell: cmake -P {0}
+    #  run: |
+    #    set(blas_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
+    #    file(DOWNLOAD "${blas_url}" ./blas.zip SHOW_PROGRESS)
+    #    execute_process(
+    #      COMMAND ${CMAKE_COMMAND} -E mkdir blas
+    #      COMMAND ${CMAKE_COMMAND} -E cd blas
+    #      COMMAND ${CMAKE_COMMAND} -E tar xvf ../fortran.tar.xz
+    #    )
+
     - name: Checkout LAPACK
       uses: actions/checkout@v2.0.0
       with:
         repo: Reference-LAPACK/lapack-release
         path: lapack
+
+    - name: install blas
+      run: |
+        mkdir lapack/blas/build
+        cd lapack/blas/build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+        cmake --build
+        cmake --install
         
     - name: build and install lapack
       run: |
