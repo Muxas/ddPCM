@@ -41,8 +41,8 @@ jobs:
         mkdir build
         cd build
         cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
-        cmake --build
-        cmake --install
+        cmake --build .
+        cmake --install .
 
     - name: Checkout
       uses: actions/checkout@v2.0.0
