@@ -18,21 +18,22 @@ jobs:
     #      COMMAND ${CMAKE_COMMAND} -E tar xvf ../fortran.tar.xz
     #    )
 
-    #- name: Checkout BLAS
-    #  uses: actions/checkout@master
-    #  with:
-    #    repository: xianyi/OpenBLAS
-    #    path: blas
-    #
-    #- name: build and install blas
-    #  run: |
-    #    cd blas
-    #    dir
-    #    mkdir build
-    #    cd build
-    #    cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
-    #    cmake --build .
-    #    cmake --install .
+    - name: Checkout BLAS
+      uses: actions/checkout@master
+      with:
+        repository: xianyi/OpenBLAS
+        ref: release-0.3.0
+        path: blas
+    
+    - name: build and install blas
+      run: |
+        cd blas
+        dir
+        mkdir build
+        cd build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+        cmake --build .
+        cmake --install .
     
     - name: Checkout LAPACK
       uses: actions/checkout@master
