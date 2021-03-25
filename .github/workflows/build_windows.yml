@@ -36,6 +36,7 @@ jobs:
         
     - name: build and install lapack
       run: |
+        dir
         mkdir lapack/build
         cd lapack/build
         cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
