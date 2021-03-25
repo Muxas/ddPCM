@@ -21,7 +21,7 @@ jobs:
     - name: Checkout LAPACK
       uses: actions/checkout@master
       with:
-        name: Reference-LAPACK/lapack-release
+        repository: Reference-LAPACK/lapack-release
         path: lapack
 
     #- name: install blas
