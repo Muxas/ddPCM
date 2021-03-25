@@ -17,11 +17,11 @@ jobs:
     #      COMMAND ${CMAKE_COMMAND} -E cd blas
     #      COMMAND ${CMAKE_COMMAND} -E tar xvf ../fortran.tar.xz
     #    )
-
+    
     - name: Checkout LAPACK
-      uses: actions/checkout@v2.0.0
+      uses: actions/checkout@master
       with:
-        repository: Reference-LAPACK/lapack-release
+        name: Reference-LAPACK/lapack-release
         path: lapack
 
     #- name: install blas
