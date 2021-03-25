@@ -33,16 +33,6 @@ jobs:
     #    cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
     #    cmake --build
     #    cmake --install
-
-    - name: build and install blas
-      run: |
-        cd lapack/BLAS
-        dir
-        mkdir build
-        cd build
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
-        cmake --build .
-        cmake --install .
         
     - name: build and install lapack
       run: |
