@@ -24,15 +24,15 @@ jobs:
         repository: Reference-LAPACK/lapack-release
         path: lapack
 
-    - name: install blas
-      run: |
-        cd lapack
-        dir
-        mkdir BLAS/build
-        cd BLAS/build
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
-        cmake --build
-        cmake --install
+    #- name: install blas
+    #  run: |
+    #    cd lapack
+    #    dir
+    #    mkdir BLAS/build
+    #    cd BLAS/build
+    #    cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+    #    cmake --build
+    #    cmake --install
         
     - name: build and install lapack
       run: |
