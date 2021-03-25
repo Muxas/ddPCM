@@ -46,7 +46,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 ##                        REQUIREMENTS: BLAS AND LAPACK                      ##
 ###############################################################################
 
-find_package(BLAS REQUIRED)
+#find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
 
 ###############################################################################

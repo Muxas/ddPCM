@@ -26,7 +26,7 @@ list(TRANSFORM SRC PREPEND ${CMAKE_CURRENT_SOURCE_DIR}/)
 # Define ddX library
 add_library(ddx SHARED ${SRC})
 # Link against BLAS and LAPACK
-target_link_libraries(ddx PUBLIC ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+target_link_libraries(ddx PUBLIC ${LAPACK_LIBRARIES}) #${BLAS_LIBRARIES}
 # Code coverage
 if(CODE_COVERAGE)
     target_link_libraries(ddx PRIVATE gcov)
