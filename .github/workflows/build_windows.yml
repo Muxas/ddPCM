@@ -57,21 +57,21 @@ jobs:
     - name: build, test and install
       run: |
         cd repo/build
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DCMAKE_INSTALL_PREFIX="C://libddx" .. 
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DCMAKE_INSTALL_PREFIX="C:/libddx" .. 
         make
         make test
         make install
 
     - name: test installation
       run: |
-        mkdir C://test
+        mkdir C:/test
         cd repo
-        mv ./cmake/testddXinstall.cmake /tmp/test/CMakeLists.txt
-        cp ./tests/dd_core.f90 /tmp/test/dd_core.f90
-        cd C://test
+        Move-Item -Path ./cmake/testddXinstall.cmake -Destination C:/test/CMakeLists.txt
+        Move-Item -Path ./tests/dd_core.f90 -Destination C:/test/dd_core.f90
+        cd C:/test
         mkdir build
         cd build
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DddX_DIR="C://libddx/lib/ddX" ..
-        make
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DddX_DIR="C:/libddx/lib/ddX" ..
+        cmake --build .
 
         
