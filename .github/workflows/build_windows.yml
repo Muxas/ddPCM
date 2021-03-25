@@ -26,8 +26,8 @@ jobs:
 
     - name: install blas
       run: |
-        mkdir lapack/blas/build
-        cd lapack/blas/build
+        mkdir lapack/BLAS/build
+        cd lapack/BLAS/build
         cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
         cmake --build
         cmake --install
