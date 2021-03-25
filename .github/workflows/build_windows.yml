@@ -33,6 +33,16 @@ jobs:
     #    cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
     #    cmake --build
     #    cmake --install
+
+    - name: build and install blas
+      run: |
+        cd lapack/BLAS
+        dir
+        mkdir build
+        cd build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+        cmake --build .
+        cmake --install .
         
     - name: build and install lapack
       run: |
@@ -43,6 +53,7 @@ jobs:
         cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
         cmake --build .
         cmake --install .
+
 
     - name: Checkout
       uses: actions/checkout@v2.0.0
@@ -57,7 +68,7 @@ jobs:
     - name: build, test and install
       run: |
         cd repo/build
-        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DCMAKE_INSTALL_PREFIX="C:/libddx" .. 
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DCMAKE_INSTALL_PREFIX="C:/libddx" -DBLAS_DIR= .. 
         make
         make test
         make install
