@@ -1,0 +1,94 @@
+name: Build, Test, Install (Windows)
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    name: Build, Test, Install (Windows)
+    runs-on: windows-latest
+    steps:
+    #- name: download blas
+    #  shell: cmake -P {0}
+    #  run: |
+    #    set(blas_url "https://sourceforge.net/projects/mingw/files/MinGW/Base/gcc/Version6/gcc-6.3.0/gcc-fortran-6.3.0-1-mingw32-bin.tar.xz/download")
+    #    file(DOWNLOAD "${blas_url}" ./blas.zip SHOW_PROGRESS)
+    #    execute_process(
+    #      COMMAND ${CMAKE_COMMAND} -E mkdir blas
+    #      COMMAND ${CMAKE_COMMAND} -E cd blas
+    #      COMMAND ${CMAKE_COMMAND} -E tar xvf ../fortran.tar.xz
+    #    )
+
+    - name: Checkout BLAS
+      uses: actions/checkout@master
+      with:
+        repository: xianyi/OpenBLAS
+        ref: release-0.3.0
+        path: blas
+    
+    - name: build and install blas
+      run: |
+        cd blas
+        dir
+        mkdir build
+        cd build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+        cmake --build .
+        cmake --install .
+    
+    - name: Checkout LAPACK
+      uses: actions/checkout@master
+      with:
+        repository: Reference-LAPACK/lapack-release
+        path: lapack
+
+    #- name: install blas
+    #  run: |
+    #    cd lapack
+    #    dir
+    #    mkdir BLAS/build
+    #    cd BLAS/build
+    #    cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+    #    cmake --build
+    #    cmake --install
+        
+    - name: build and install lapack
+      run: |
+        cd lapack
+        dir
+        mkdir build
+        cd build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" .. 
+        cmake --build .
+        cmake --install .
+
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+      with:
+        path: repo
+
+    - name: create build dir
+      shell: cmake -P {0}
+      run: |
+        file(MAKE_DIRECTORY repo/build)
+    
+    - name: build, test and install
+      run: |
+        cd repo/build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DCMAKE_INSTALL_PREFIX="C:/libddx" -DBLAS_DIR= .. 
+        make
+        make test
+        make install
+
+    - name: test installation
+      run: |
+        mkdir C:/test
+        cd repo
+        Move-Item -Path ./cmake/testddXinstall.cmake -Destination C:/test/CMakeLists.txt
+        Move-Item -Path ./tests/dd_core.f90 -Destination C:/test/dd_core.f90
+        cd C:/test
+        mkdir build
+        cd build
+        cmake -G "MinGW Makefiles" -DCMAKE_Fortran_COMPILER="gfortran" -DddX_DIR="C:/libddx/lib/ddX" ..
+        cmake --build .
+
+        

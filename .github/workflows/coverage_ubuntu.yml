@@ -1,0 +1,48 @@
+name: Code Coverage
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2.0.0
+      with:
+        path: repo
+
+    - name: create build dir
+      shell: cmake -P {0}
+      run: |
+        file(MAKE_DIRECTORY repo/build)
+
+    - name: install lcov
+      run: |
+        sudo apt-get install lcov
+    
+    - name: build and check coverage
+      run: |
+        cd repo/build
+        cmake -G "Unix Makefiles" -DCMAKE_Fortran_COMPILER="gfortran-10" -DCMAKE_INSTALL_PREFIX="/tmp/libddx" -DCOVERAGE=ON .. 
+        make
+        make coverage
+
+    - name: read coverage to variable
+      run: |
+        cd repo/build
+        echo "::set-output name=cov_percent::$(make coverage | grep -n 'lines......:' | tail -1 | grep -oP '(?<=\.\.\:\s).*?(?=\%)')"
+      id: cov
+
+    - name: Create Badge
+      uses: schneegans/dynamic-badges-action@v1.0.0
+      with:
+        auth: ${{ secrets.GIST_SECRET }}
+        gistID: efac1cccf779bc5840d659f357118e82
+        filename: codecov.json
+        label: coverage
+        message: ${{ steps.cov.outputs.cov_percent }}%
+        color: green
+        namedLogo: lcov
+
+        
