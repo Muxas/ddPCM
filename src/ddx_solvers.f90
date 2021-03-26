@@ -2,7 +2,7 @@
 !!
 !! ddX software
 !!
-!! @file src/dd_solvers.f90
+!! @file src/ddx_solvers.f90
 !! Iterative solvers for ddX library
 !!
 !! @version 1.0.0
@@ -10,8 +10,8 @@
 !! @date 2020-12-17
 
 !> Core routines and parameters of ddX software
-module dd_solvers
-use dd_core
+module ddx_solvers
+use ddx_core
 implicit none
 
 contains
@@ -58,10 +58,10 @@ contains
 !              format: real(dp) function u_norm(n,x)
 !
 !---------------------------------------------------------------------------------------------
-subroutine jacobi_diis(dd_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, &
+subroutine jacobi_diis(ddx_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, &
         & ok, matvec, dm1vec, u_norm)
     ! Inputs
-      type(dd_data_type), intent(in)       :: dd_data
+      type(ddx_type), intent(in)       :: ddx_data
       integer,               intent(in)    :: n, diis_max, norm, lprint
       real(dp),                intent(in)    :: tol
       real(dp),  dimension(n), intent(in)    :: rhs
@@ -121,14 +121,14 @@ subroutine jacobi_diis(dd_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, 
       do it = 1, n_iter
 !
 !       y = rhs - O x
-        call matvec(dd_data, x, y )
-        !call prtsph("matvec", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
+        call matvec(ddx_data, x, y )
+        !call prtsph("matvec", ddx_data % nbasis, ddx_data % lmax, ddx_data % nsph, 0, y)
         y = rhs - y
-        !call prtsph("matvec y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, y)
+        !call prtsph("matvec y", ddx_data % nbasis, ddx_data % lmax, ddx_data % nsph, 0, y)
 !
 !       x_new = D^-1 y
-        call dm1vec(dd_data, y, x_new)
-        !call prtsph("matvec D^-1 y", dd_data % nbasis, dd_data % lmax, dd_data % nsph, 0, x_new)
+        call dm1vec(ddx_data, y, x_new)
+        !call prtsph("matvec D^-1 y", ddx_data % nbasis, ddx_data % lmax, ddx_data % nsph, 0, x_new)
 !
 !       DIIS extrapolation
 !       ==================
@@ -173,8 +173,8 @@ subroutine jacobi_diis(dd_data, n, lprint, diis_max, norm, tol, rhs, x, n_iter, 
           max_norm_diff = -1.d0
 !
 !         compute norm
-          rms_norm_diff = u_norm(dd_data, x )
-          rms_norm = u_norm(dd_data, x_new )
+          rms_norm_diff = u_norm(ddx_data, x )
+          rms_norm = u_norm(ddx_data, x_new )
 !
 !         check norm
           ok = (rms_norm_diff .lt. tol*rms_norm)
@@ -466,7 +466,7 @@ end subroutine gjinv
 ! iflag  == INTEGER on output 0 - solution found within tolerance
 !                             1 - no convergence within maxits
 
-subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
+subroutine gmresr(ddx_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
                 & maxits, resid, matvec, iflag)
 ! ----------------------------------------------------------
 ! subroutines used
@@ -489,7 +489,7 @@ subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
 !     list of variables: arrays in alphabetical order,
 !     then other variables in alphabetical order
 
-      type(dd_data_type), intent(in)  :: dd_data
+      type(ddx_type), intent(in)  :: ddx_data
       logical oktest
       character*3 stc
 
@@ -547,7 +547,7 @@ subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
       nits= 0
       its = 0
 !     Calculate (initial) residual norm
-      call matvec(dd_data, n, x,work(1,workres))
+      call matvec(ddx_data, n, x,work(1,workres))
       alpha = -1
 !
       call daxpy(n,alpha,b,1,work(1,workres),1)
@@ -606,7 +606,7 @@ subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
          if (mgmres.eq.0) then
 !           u(1,k) := resid  
             call dcopy(n,work(1,workres),1,work(1,u+mod(k,j)),1)
-            call matvec(dd_data, n, work(1,u+mod(k,j)), work(1,c+mod(k,j)))
+            call matvec(ddx_data, n, work(1,u+mod(k,j)), work(1,c+mod(k,j)))
             nits=nits+1
          else
 !           Solve linear system A*u(1,k)=resid by GMRES
@@ -629,7 +629,7 @@ subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
 
             itsinn=mgmres
 
-            call gmres0(dd_data, oktest, n, mgmres, &
+            call gmres0(ddx_data, oktest, n, mgmres, &
                        & work(1,workres),work(1,u+mod(k,j)), &
                        & work(1,c+mod(k,j)),work(1,workgmre), &
                        & epsinn,itsinn,matvec)
@@ -744,9 +744,9 @@ subroutine gmresr(dd_data, oktest, n, j, mgmres, b, x, work, eps, stc,&
 ! Please keep it in mind changing maxdim
 !-------------------------------------------------------------
 !=============================================================================
-subroutine gmres0(dd_data, oktest, n, im, rhs, uu, cc, work0, eps, maxits, matvec)
+subroutine gmres0(ddx_data, oktest, n, im, rhs, uu, cc, work0, eps, maxits, matvec)
 
-      type(dd_data_type), intent(in)  :: dd_data
+      type(ddx_type), intent(in)  :: ddx_data
       integer maxdim,maxd1,md1max
       parameter (maxdim=20, maxd1=maxdim+1, md1max=maxdim*maxd1)
       external matvec
@@ -789,7 +789,7 @@ subroutine gmres0(dd_data, oktest, n, im, rhs, uu, cc, work0, eps, maxits, matve
 
          ro = dnrm2 (n, work0, 1)
          if ((ro .eq. 0.0d0).or.(ro .le. eps)) then
-            call matvec(dd_data, n, uu, cc)
+            call matvec(ddx_data, n, uu, cc)
             eps = ro
             maxits = its 
             return
@@ -808,7 +808,7 @@ subroutine gmres0(dd_data, oktest, n, im, rhs, uu, cc, work0, eps, maxits, matve
             i=i+1
             its = its + 1
             i1 = i + 1
-            call  matvec(dd_data, n, work0(1,i), work0(1,i1))
+            call  matvec(ddx_data, n, work0(1,i), work0(1,i1))
 !           -----------------------------------------
 !           modified gram - schmidt...
 !           -----------------------------------------
@@ -890,4 +890,4 @@ subroutine gmres0(dd_data, oktest, n, im, rhs, uu, cc, work0, eps, maxits, matve
 !------------------------------- end of gmres0 ----------------------
       end
 
-end module dd_solvers
+end module ddx_solvers

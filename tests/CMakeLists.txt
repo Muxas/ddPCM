@@ -5,9 +5,10 @@
 # @file tests/CMakeLists.txt
 # @version 1.0.0
 # @author Aleksandr Mikhalev
-# @date 2021-01-31
+# @date 2021-02-25
 
 set(TESTS
+
     "dd_core.f90"
     #"dd_operators.f90"
     "main.f90"
@@ -16,5 +17,9 @@ set(TESTS
 ddx_add_test("dd_core.f90")
 #ddx_add_test("dd_operators.f90")
 ddx_add_test("main.f90" "${CMAKE_SOURCE_DIR}/tests/Input.txt")
-ddx_add_test("main_ddLPB.f90" "${CMAKE_SOURCE_DIR}/tests/Input_ddLPB.txt")
 
+ddx_add_test("main_ddLPB.f90" "${CMAKE_SOURCE_DIR}/tests/Input_ddLPB.txt")
+ddx_add_test("force.f90" "${CMAKE_SOURCE_DIR}/tests/Input_force.txt")
+
+add_test(NAME driver_cosmo COMMAND ddx_driver
+    "${CMAKE_SOURCE_DIR}/tests/Input_cosmo.txt")
