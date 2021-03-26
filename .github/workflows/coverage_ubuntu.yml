@@ -37,8 +37,8 @@ jobs:
     - name: Create Badge
       uses: schneegans/dynamic-badges-action@v1.0.0
       with:
-        auth: ${{ secrets.GIST_SECRET }}
-        gistID: efac1cccf779bc5840d659f357118e82
+        auth: ${{ secrets.DDX_CI_BADGE }}
+        gistID: eab11b47f94d6da5151230c8392c7307
         filename: codecov.json
         label: coverage
         message: ${{ steps.cov.outputs.cov_percent }}%
