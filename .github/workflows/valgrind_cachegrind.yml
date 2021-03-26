@@ -1,0 +1,8 @@
+name: Valgrind Cachegrind
+
+on: workflow_dispatch
+
+jobs:
+  run-valgrind:
+    runs-on: ubuntu-latest
+    steps:

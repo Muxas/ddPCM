@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/out/build/x64-Debug (default)
+/out/build/x64-Debug/VSInheritEnvironments.txt
+/out/build/x64-Debug/CMakeFiles
+/out/build/x64-Debug/CMakeCache.txt
+/out/build/x64-Debug/.cmake/api/v1/query/client-MicrosoftVS
