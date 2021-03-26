@@ -30,7 +30,7 @@ jobs:
         mkdir /tmp/test
         cd repo
         mv ./cmake/testddXinstall.cmake /tmp/test/CMakeLists.txt
-        cp ./tests/dd_core.f90 /tmp/test/dd_core.f90
+        cp ./tests/ddx_core.f90 /tmp/test/dd_core.f90
         cd /tmp/test
         mkdir build
         cd build
