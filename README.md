@@ -3,9 +3,9 @@ A fast domain decomposition based implementation of the COSMO solvation model
 
 [![DOI](https://zenodo.org/badge/63929685.svg)](https://zenodo.org/badge/latestdoi/63929685)
 
-[![Bintray](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build,%20Test,%20Install%20(Ubuntu)/ddX)](https://img.shields.io/github/workflow/status/Nige91/ddPCM/Build,%20Test,%20Install%20(Ubuntu)/ddX)
+[![Bintray](https://img.shields.io/github/workflow/status/Muxas/ddPCM/Build,%20Test,%20Install%20(Ubuntu)/ddX)](https://img.shields.io/github/workflow/status/Muxas/ddPCM/Build,%20Test,%20Install%20(Ubuntu)/ddX)
 
-![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Nige91/efac1cccf779bc5840d659f357118e82/raw/codecov.json)
+![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Muxas/eab11b47f94d6da5151230c8392c7307/raw/codecov.json)
 
 COPYRIGHT (C) 2016 by Filippo Lipparini, Benjamin Stamm, Eric Cancès,
 Yvon Maday, Paolo Gatto, Jean-Philip Piquemal, Louis Lagardère and 
